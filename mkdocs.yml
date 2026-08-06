@@ -1,0 +1,69 @@
+site_name: Frigate Vision
+site_description: Frigate event analysis and timeline Card for Home Assistant
+site_url: https://agrestisdavid.github.io/ha-frigate-vision/
+repo_url: https://github.com/agrestisdavid/ha-frigate-vision
+repo_name: agrestisdavid/ha-frigate-vision
+edit_uri: edit/main/docs/
+copyright: Copyright &copy; 2026 agrestisdavid
+
+theme:
+  name: material
+  language: en
+  font: false
+  features:
+    - content.code.copy
+    - navigation.footer
+    - navigation.indexes
+    - navigation.sections
+    - navigation.top
+    - search.highlight
+    - search.suggest
+  palette:
+    - media: "(prefers-color-scheme: light)"
+      scheme: default
+      primary: blue grey
+      accent: cyan
+      toggle:
+        icon: material/brightness-7
+        name: Switch to dark mode
+    - media: "(prefers-color-scheme: dark)"
+      scheme: slate
+      primary: blue grey
+      accent: cyan
+      toggle:
+        icon: material/brightness-4
+        name: Switch to light mode
+
+plugins:
+  - search
+  - privacy
+
+markdown_extensions:
+  - admonition
+  - attr_list
+  - md_in_html
+  - pymdownx.details
+  - pymdownx.highlight:
+      anchor_linenums: true
+  - pymdownx.inlinehilite
+  - pymdownx.superfences
+  - tables
+  - toc:
+      permalink: true
+
+extra_css:
+  - stylesheets/extra.css
+
+nav:
+  - Home: index.md
+  - Getting started: getting-started.md
+  - Configuration and providers: configuration.md
+  - Services: services.md
+  - Card, events, and clips: card.md
+  - go2rtc and remote access: go2rtc.md
+  - Notification Blueprint: blueprint.md
+  - Reference: reference.md
+  - Troubleshooting: troubleshooting.md
+  - Privacy and security: security.md
+  - Architecture: architecture.md
+  - Development and releases: development.md

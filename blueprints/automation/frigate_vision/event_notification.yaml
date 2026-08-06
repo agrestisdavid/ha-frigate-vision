@@ -1,0 +1,426 @@
+blueprint:
+  name: Frigate Vision – Eventanalyse & Benachrichtigung
+  description: >-
+    Analysiert neue Frigate-Ereignisse mit Frigate Vision und stellt stabile
+    fv_* Variablen für frei konfigurierbare Aktionen bereit. Der Standardmodus
+    "shadow" speichert keine Beschreibung in Frigate und führt keine
+    produktiven Benachrichtigungsaktionen aus. Im Modus "active" wird zuerst
+    eine allgemeine Meldung und anschließend ein KI-Update mit demselben Tag
+    ausgelöst. Erlaubte Ereignisse werden pro Blueprint-Instanz nacheinander
+    analysiert; Stummschaltung und Cooldown unterdrücken nur Benachrichtigungen.
+  domain: automation
+  author: agrestisdavid
+  source_url: https://github.com/agrestisdavid/ha-frigate-vision/blob/main/blueprints/automation/frigate_vision/event_notification.yaml
+  homeassistant:
+    min_version: "2024.10.0"
+  input:
+    event_source:
+      name: Frigate-Ereignis
+      icon: mdi:cctv
+      input:
+        frigate_camera:
+          name: Frigate-Kamera
+          description: >-
+            Die Kamera muss von der Frigate-Integration stammen. Der
+            Frigate-Kameraschlüssel wird aus ihrem Attribut camera_name
+            abgeleitet.
+          selector:
+            entity:
+              domain: camera
+              integration: frigate
+        mqtt_topic:
+          name: MQTT-Topic
+          description: Topic für Frigate-Ereignisse.
+          default: frigate/events
+          selector:
+            text:
+        labels:
+          name: Erlaubte Labels
+          description: Nur Ereignisse mit einem dieser exakten Labels analysieren.
+          default:
+            - person
+            - car
+            - dog
+            - cat
+            - bicycle
+            - package
+          selector:
+            select:
+              multiple: true
+              custom_value: true
+              options:
+                - person
+                - car
+                - dog
+                - cat
+                - bicycle
+                - motorcycle
+                - bus
+                - truck
+                - package
+        ignore_false_positives:
+          name: False Positives verwerfen
+          description: Ereignisse mit after.false_positive=true nicht verarbeiten.
+          default: true
+          selector:
+            boolean:
+
+    analysis:
+      name: Analyse
+      icon: mdi:image-search
+      input:
+        operation_mode:
+          name: Betriebsmodus
+          description: >-
+            Shadow analysiert mit store=false und überspringt die produktiven
+            Benachrichtigungsaktionen. Active sendet Sofortmeldung und KI-Update.
+          default: shadow
+          selector:
+            select:
+              options:
+                - label: Shadow
+                  value: shadow
+                - label: Active
+                  value: active
+              mode: dropdown
+        analysis_prompt:
+          name: Analyse-Prompt
+          default: >-
+            Beschreibe knapp und sachlich, was im Bild geschieht. Nenne
+            relevante Personen, Fahrzeuge, Tiere und Handlungen. Spekuliere
+            nicht über nicht sichtbare Details.
+          selector:
+            text:
+              multiline: true
+        store_description:
+          name: Beschreibung in Frigate speichern
+          description: >-
+            Gilt nur im Active-Modus. Shadow erzwingt unabhängig von dieser
+            Einstellung store=false.
+          default: true
+          selector:
+            boolean:
+
+    actions_section:
+      name: Aktionen
+      icon: mdi:bell-outline
+      input:
+        notification_actions:
+          name: Benachrichtigungsaktionen
+          description: >-
+            Wird im Active-Modus zweimal ausgeführt: mit fv_phase="initial"
+            für die Sofortmeldung und mit fv_phase="analysis" für das
+            KI-Ergebnis. fv_notification_tag bleibt dabei identisch. Verfügbar
+            sind unter anderem fv_title, fv_message, fv_snapshot_url,
+            fv_thumbnail_url, fv_clip_url, fv_event_id, fv_camera_entity,
+            fv_camera_key, fv_label, fv_analysis und fv_analysis_ok.
+          default: []
+          selector:
+            action:
+        error_actions:
+          name: Fehleraktionen
+          description: >-
+            Optional. Wird nach einer fehlgeschlagenen oder leeren Analyse mit
+            fv_phase="error" ausgeführt. Im Active-Modus bleibt die zuvor
+            ausgelöste Sofortmeldung bestehen.
+          default: []
+          selector:
+            action:
+        shadow_actions:
+          name: Shadow-Ergebnisaktionen
+          description: >-
+            Optional. Wird ausschließlich nach einer erfolgreichen
+            Shadow-Analyse mit fv_phase="shadow" ausgeführt, zum Beispiel für
+            Logbook- oder Debug-Ausgaben. Leer lassen, wenn Shadow garantiert
+            keinerlei benutzerdefinierte Aktion ausführen soll; hier keine
+            Notify-Aktion konfigurieren. Die produktiven
+            Benachrichtigungsaktionen werden im Shadow-Modus nie ausgeführt.
+          default: []
+          selector:
+            action:
+        notification_tag_prefix:
+          name: Präfix für Tag und Gruppe
+          description: >-
+            Der Tag wird aus diesem Präfix und der exakten Frigate-Event-ID
+            gebildet.
+          default: frigate-vision
+          selector:
+            text:
+
+    suppression:
+      name: Stummschaltung & Cooldown
+      icon: mdi:timer-outline
+      collapsed: true
+      input:
+        mute_boolean:
+          name: Optionale Stummschaltung
+          description: >-
+            Ist der ausgewählte input_boolean eingeschaltet, werden nur
+            Benachrichtigungen unterdrückt. Die Ereignisanalyse läuft weiter.
+            Leer lassen, um keine Stummschaltung zu verwenden.
+          default: ""
+          selector:
+            entity:
+              domain: input_boolean
+        cooldown_seconds:
+          name: Cooldown
+          description: >-
+            Sperrzeit nur für Benachrichtigungen. Alle erlaubten Ereignisse
+            werden weiterhin analysiert. Bei einem Wert größer als null muss
+            ein eigener Cooldown-Timer ausgewählt werden.
+          default: 90
+          selector:
+            number:
+              min: 0
+              max: 3600
+              step: 1
+              unit_of_measurement: s
+              mode: box
+        cooldown_timer:
+          name: Cooldown-Timer
+          description: >-
+            Eigener timer-Helper für den Benachrichtigungs-Cooldown. Bei einem
+            Cooldown größer als null ist er verpflichtend und muss mit
+            Wiederherstellung konfiguriert sein. Ein fehlender oder nicht
+            verfügbarer Timer unterdrückt Pushs, aber niemals die Analyse.
+          default: ""
+          selector:
+            entity:
+              domain: timer
+
+mode: queued
+max: 50
+max_exceeded: warning
+
+variables:
+  fv_camera_entity: !input frigate_camera
+  fv_mqtt_topic: !input mqtt_topic
+  fv_allowed_labels: !input labels
+  fv_ignore_false_positives: !input ignore_false_positives
+  fv_mode: !input operation_mode
+  fv_analysis_prompt: !input analysis_prompt
+  fv_store_description: !input store_description
+  fv_tag_prefix: !input notification_tag_prefix
+  fv_mute_boolean_input: !input mute_boolean
+  fv_cooldown_seconds_input: !input cooldown_seconds
+  fv_cooldown_timer_input: !input cooldown_timer
+  fv_mute_boolean: >-
+    {{ fv_mute_boolean_input if fv_mute_boolean_input is string else '' }}
+  fv_cooldown_timer: >-
+    {{ fv_cooldown_timer_input if fv_cooldown_timer_input is string else '' }}
+  fv_cooldown_seconds: "{{ fv_cooldown_seconds_input | int(90) }}"
+  fv_payload: >-
+    {{ trigger.payload_json | default({}, true) }}
+  fv_after: >-
+    {% set after = fv_payload.get('after', {}) if fv_payload is mapping else {} %}
+    {{ after if after is mapping else {} }}
+  fv_event_type: >-
+    {{ (fv_payload.get('type', '') | string | trim)
+       if fv_payload is mapping else '' }}
+  fv_event_id: "{{ fv_after.get('id', '') | string | trim }}"
+  fv_camera: "{{ fv_after.get('camera', '') | string | trim }}"
+  fv_label: "{{ fv_after.get('label', '') | string | trim }}"
+  fv_false_positive: >-
+    {% set value = fv_after.get('false_positive', false) %}
+    {{ value == true or (value | string | lower) in ['true', '1', 'yes', 'on'] }}
+  fv_camera_key: >-
+    {{ state_attr(fv_camera_entity, 'camera_name')
+       | default('', true) | string | trim }}
+  fv_camera_name: >-
+    {{ state_attr(fv_camera_entity, 'friendly_name')
+       | default(fv_camera_key, true) | string | trim }}
+  fv_client_id: >-
+    {{ state_attr(fv_camera_entity, 'client_id')
+       | default('', true) | string | trim }}
+  fv_sub_label: "{{ fv_after.get('sub_label', '') | string | trim }}"
+  fv_label_translations:
+    person: Person
+    dog: Hund
+    cat: Katze
+    car: Auto
+    bicycle: Fahrrad
+    motorcycle: Motorrad
+    bus: Bus
+    truck: LKW
+    package: Paket
+  fv_label_display: >-
+    {{ fv_label_translations.get(
+         fv_label,
+         fv_label | replace('_', ' ') | title
+       ) }}
+  fv_event_started_at: "{{ fv_after.get('start_time', 0) | float(0) }}"
+  fv_proxy_prefix: >-
+    {{ '/api/frigate/' ~ fv_client_id
+       if fv_client_id | length > 0 else '/api/frigate' }}
+  fv_notification_tag: "{{ fv_tag_prefix | trim }}-{{ fv_event_id }}"
+  fv_notification_group: "{{ fv_tag_prefix | trim }}-{{ fv_camera_key }}"
+  fv_snapshot_url: >-
+    {{ fv_proxy_prefix ~ '/notifications/' ~ fv_event_id ~ '/snapshot.jpg' }}
+  fv_thumbnail_url: >-
+    {{ fv_proxy_prefix ~ '/notifications/' ~ fv_event_id ~ '/thumbnail.jpg' }}
+  fv_clip_url: >-
+    {{ fv_proxy_prefix ~ '/notifications/' ~ fv_event_id ~ '/clip.mp4' }}
+  fv_image_url: "{{ fv_snapshot_url }}"
+  fv_tag: "{{ fv_notification_tag }}"
+  fv_group: "{{ fv_notification_group }}"
+  fv_analysis: {}
+  fv_analysis_ok: false
+  fv_response_text: ""
+  fv_key_frame: ""
+  fv_stored: false
+  fv_cached: false
+  fv_duration_ms: 0
+  fv_error_message: ""
+  fv_phase: filter
+  fv_title: >-
+    {{ fv_label_display ~ ' in ' ~ fv_camera_name ~ ' wurde erkannt' }}
+  fv_message: ""
+
+triggers:
+  - trigger: mqtt
+    topic: !input mqtt_topic
+
+conditions:
+  - condition: template
+    value_template: >-
+      {{ fv_payload is mapping
+         and fv_after is mapping
+         and fv_event_type == 'new'
+         and fv_event_id | length > 0
+         and fv_camera | length > 0
+         and fv_label | length > 0 }}
+
+actions:
+  - if:
+      - condition: template
+        value_template: "{{ fv_camera_key | length == 0 }}"
+    then:
+      - stop: >-
+          Die ausgewählte Frigate-Kamera besitzt kein camera_name-Attribut.
+        error: true
+
+  - condition: template
+    value_template: "{{ fv_camera == fv_camera_key }}"
+
+  - condition: template
+    value_template: "{{ fv_label in fv_allowed_labels }}"
+
+  - condition: template
+    value_template: >-
+      {{ not fv_ignore_false_positives or not fv_false_positive }}
+
+  # These values must be rendered only after this queued run starts. Rendering
+  # them in the top-level variables block would preserve stale timer, mute, and
+  # event-age state from the original MQTT trigger.
+  - variables:
+      fv_event_age_seconds: >-
+        {{ [as_timestamp(now()) - fv_event_started_at, 0] | max | int }}
+      fv_is_muted: >-
+        {{ fv_mute_boolean | length > 0
+           and is_state(fv_mute_boolean, 'on') }}
+      fv_timer_is_idle: >-
+        {{ fv_cooldown_timer | length > 0
+           and is_state(fv_cooldown_timer, 'idle') }}
+      fv_notification_is_stale: >-
+        {{ fv_cooldown_seconds > 0
+           and fv_event_age_seconds > fv_cooldown_seconds }}
+      fv_notification_candidate: >-
+        {{ fv_mode == 'active'
+           and not fv_is_muted
+           and not fv_notification_is_stale
+           and (
+             fv_cooldown_seconds == 0
+             or fv_timer_is_idle
+           ) }}
+
+  - if:
+      - condition: template
+        value_template: >-
+          {{ fv_notification_candidate and fv_cooldown_seconds > 0 }}
+    then:
+      - action: timer.start
+        continue_on_error: true
+        target:
+          entity_id: "{{ fv_cooldown_timer }}"
+        data:
+          duration:
+            seconds: "{{ fv_cooldown_seconds }}"
+
+  # For a positive cooldown the timer changing to active confirms ownership of
+  # the notification slot. A failed timer action therefore suppresses only the
+  # push while the analysis below still runs.
+  - variables:
+      fv_notification_slot: >-
+        {{ fv_notification_candidate
+           and (
+             fv_cooldown_seconds == 0
+             or is_state(fv_cooldown_timer, 'active')
+           ) }}
+
+  - variables:
+      fv_phase: initial
+      fv_message: "Die Erkennung wird analysiert."
+
+  - choose:
+      - conditions:
+          - condition: template
+            value_template: "{{ fv_notification_slot }}"
+        sequence: !input notification_actions
+    continue_on_error: true
+
+  - variables:
+      fv_phase: analysis
+      fv_should_store: "{{ fv_mode == 'active' and fv_store_description }}"
+
+  - action: frigate_vision.analyze_event
+    data:
+      event_id: "{{ fv_event_id }}"
+      camera_entity: "{{ fv_camera_entity }}"
+      prompt: "{{ fv_analysis_prompt }}"
+      store: "{{ fv_should_store }}"
+      force: false
+    response_variable: fv_analysis
+    continue_on_error: true
+
+  - variables:
+      fv_analysis_ok: >-
+        {{ fv_analysis is mapping
+           and (fv_analysis.get('response_text', '') | string | trim | length) > 0 }}
+      fv_response_text: >-
+        {{ (fv_analysis.get('response_text', '') | string | trim)
+           if fv_analysis is mapping else '' }}
+      fv_key_frame: >-
+        {{ fv_analysis.get('key_frame', '')
+           if fv_analysis is mapping else '' }}
+      fv_stored: >-
+        {{ fv_analysis.get('stored', false)
+           if fv_analysis is mapping else false }}
+      fv_cached: >-
+        {{ fv_analysis.get('cached', false)
+           if fv_analysis is mapping else false }}
+      fv_duration_ms: >-
+        {{ fv_analysis.get('duration_ms', 0) | int(0)
+           if fv_analysis is mapping else 0 }}
+      fv_error_message: >-
+        {{ '' if fv_analysis_ok
+           else 'Die Frigate-Vision-Analyse ist fehlgeschlagen oder leer geblieben.' }}
+      fv_phase: >-
+        {{ 'analysis' if fv_analysis_ok and fv_mode == 'active'
+           else 'shadow' if fv_analysis_ok
+           else 'error' }}
+      fv_message: >-
+        {{ fv_response_text if fv_analysis_ok else fv_error_message }}
+
+  - choose:
+      - conditions:
+          - condition: template
+            value_template: >-
+              {{ fv_analysis_ok
+                 and fv_mode == 'active'
+                 and fv_notification_slot }}
+        sequence: !input notification_actions
+      - conditions:
+          - condition: template
+            value_template: "{{ fv_analysis_ok and fv_mode == 'shadow' }}"
+        sequence: !input shadow_actions
+    default: !input error_actions

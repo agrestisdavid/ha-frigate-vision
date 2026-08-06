@@ -1,0 +1,65 @@
+{
+  "title": "Frigate Vision",
+  "config": {
+    "abort": {
+      "already_configured": "Frigate Vision is already configured for this Frigate instance.",
+      "frigate_required": "Configure the Frigate integration before Frigate Vision."
+    },
+    "error": {
+      "frigate_required": "Select an existing Frigate config entry.",
+      "invalid_endpoint": "Enter an absolute HTTP or HTTPS URL.",
+      "model_required": "Enter a model name."
+    },
+    "step": {
+      "user": {
+        "title": "Select Frigate instance",
+        "description": "Choose the Frigate integration instance whose events Frigate Vision should analyze.",
+        "data": {
+          "frigate_entry_id": "Frigate instance"
+        }
+      },
+      "provider": {
+        "title": "Configure Frigate Vision",
+        "description": "Provider credentials and URLs are stored only in this integration.",
+        "data": {
+          "endpoint": "OpenAI-compatible endpoint",
+          "api_key": "API key",
+          "model": "Model",
+          "timeout": "Timeout",
+          "target_width": "Target image width",
+          "max_tokens": "Maximum response tokens",
+          "go2rtc_url": "Internal go2rtc URL (optional)",
+          "go2rtc_url_external": "External go2rtc URL (optional)",
+          "go2rtc_modes": "go2rtc fallback order"
+        },
+        "data_description": {
+          "endpoint": "Base URL ending in /v1, or a complete /chat/completions URL.",
+          "go2rtc_url": "When empty, /api/go2rtc is derived from the selected Frigate entry.",
+          "go2rtc_modes": "Comma-separated: webrtc,mse,mp4,hls,mjpeg"
+        }
+      }
+    }
+  },
+  "options": {
+    "error": {
+      "invalid_endpoint": "Enter an absolute HTTP or HTTPS URL.",
+      "model_required": "Enter a model name."
+    },
+    "step": {
+      "init": {
+        "title": "Frigate Vision options",
+        "data": {
+          "endpoint": "OpenAI-compatible endpoint",
+          "api_key": "API key",
+          "model": "Model",
+          "timeout": "Timeout",
+          "target_width": "Target image width",
+          "max_tokens": "Maximum response tokens",
+          "go2rtc_url": "Internal go2rtc URL (optional)",
+          "go2rtc_url_external": "External go2rtc URL (optional)",
+          "go2rtc_modes": "go2rtc fallback order"
+        }
+      }
+    }
+  }
+}

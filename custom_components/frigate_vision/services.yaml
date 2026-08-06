@@ -1,0 +1,80 @@
+analyze_event:
+  name: Frigate event analysis
+  description: >-
+    Analyzes the snapshot of one exact Frigate event and can store the completed
+    response as that event's Frigate description.
+  fields:
+    event_id:
+      name: Event ID
+      description: Exact Frigate event ID.
+      required: true
+      example: "1720000000.123456-abcdef"
+      selector:
+        text:
+    camera_entity:
+      name: Frigate camera
+      description: Optional Frigate camera used for instance resolution.
+      selector:
+        entity:
+          filter:
+            domain: camera
+            integration: frigate
+    entry_id:
+      name: Frigate Vision entry
+      description: Optional when more than one Frigate Vision entry exists.
+      selector:
+        config_entry:
+          integration: frigate_vision
+    prompt:
+      name: Prompt
+      description: Analysis instructions. Provider and model stay in the integration.
+      selector:
+        text:
+          multiline: true
+    store:
+      name: Store in Frigate
+      description: Save a successful, non-empty response to this event's description.
+      default: false
+      selector:
+        boolean:
+    force:
+      name: Force new analysis
+      description: Ignore an existing non-empty Frigate event description.
+      default: false
+      selector:
+        boolean:
+
+analyze_image:
+  name: Image analysis
+  description: >-
+    Analyzes one camera/image entity, Home Assistant media source, or allowlisted
+    local image. Arbitrary remote URLs are not accepted.
+  fields:
+    image_entity:
+      name: Camera or image entity
+      selector:
+        entity:
+          filter:
+            - domain: camera
+            - domain: image
+    media_source:
+      name: Media source
+      selector:
+        media:
+    file_path:
+      name: Allowlisted local file
+      description: Must be located below allowlist_external_dirs.
+      selector:
+        text:
+    entry_id:
+      name: Frigate Vision entry
+      description: Optional when more than one Frigate Vision entry exists.
+      selector:
+        config_entry:
+          integration: frigate_vision
+    prompt:
+      name: Prompt
+      description: Analysis instructions. Provider and model stay in the integration.
+      selector:
+        text:
+          multiline: true
