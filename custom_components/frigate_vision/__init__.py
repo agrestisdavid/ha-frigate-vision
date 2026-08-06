@@ -40,6 +40,8 @@ from .utils import sanitize_go2rtc_modes, validate_go2rtc_url
 
 _LOGGER = logging.getLogger(__name__)
 
+CONFIG_SCHEMA = cv.config_entry_only_config_schema(DOMAIN)
+
 EVENT_SCHEMA = vol.Schema(
     {
         vol.Required("event_id"): cv.string,

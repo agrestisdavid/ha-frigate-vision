@@ -94,7 +94,7 @@ async function writeManifest(outputDirectory, files) {
     sha256: hashes,
   };
   await writeFile(
-    join(outputDirectory, "manifest.json"),
+    join(outputDirectory, "vendor-manifest.json"),
     `${JSON.stringify(manifest, null, 2)}\n`,
     "utf8",
   );

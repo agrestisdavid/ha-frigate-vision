@@ -141,6 +141,7 @@ class PackageContractTests(unittest.TestCase):
     def test_runtime_has_response_services_and_no_timeline(self):
         source = (COMPONENT / "__init__.py").read_text(encoding="utf-8")
         analysis = (COMPONENT / "analysis.py").read_text(encoding="utf-8")
+        self.assertIn("cv.config_entry_only_config_schema(DOMAIN)", source)
         self.assertGreaterEqual(source.count("SupportsResponse.ONLY"), 2)
         self.assertIn('f"api/events/{event_id}/description"', analysis)
         combined = "\n".join(

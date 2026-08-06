@@ -12,7 +12,7 @@ const vendorRoot = new URL(
   import.meta.url,
 );
 const vendorManifest = JSON.parse(
-  await readFile(new URL("manifest.json", vendorRoot), "utf8"),
+  await readFile(new URL("vendor-manifest.json", vendorRoot), "utf8"),
 );
 const litRuntime = await readFile(
   new URL("lit-element-2.5.1.js", vendorRoot),
