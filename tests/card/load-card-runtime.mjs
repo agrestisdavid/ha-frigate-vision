@@ -109,6 +109,8 @@ export async function loadCardRuntime() {
 export {
   FrigateVisionCard,
   FrigateVisionLiveTile,
+  LivestreamController,
+  frigateProxyWsPath,
   go2rtcBase,
 };
 `;

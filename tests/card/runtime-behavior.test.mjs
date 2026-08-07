@@ -7,6 +7,8 @@ const runtime = await loadCardRuntime();
 const {
   FrigateVisionCard,
   FrigateVisionLiveTile,
+  LivestreamController,
+  frigateProxyWsPath,
   go2rtcBase,
 } = runtime;
 
@@ -34,7 +36,7 @@ test("go2rtc URL resolution follows local and external runtime context", () => {
   );
   assert.equal(
     go2rtcBase({ go2rtc_url: "http://go2rtc.vpn:1984/" }),
-    "http://go2rtc.vpn:1984",
+    null,
   );
 });
 
@@ -44,6 +46,7 @@ test("central profile fills only missing card values and requests a render", asy
   card.hass = {
     callWS: async () => ({
       profile: {
+        frigate_client_id: "central-frigate",
         go2rtc_url: "http://central.internal:1984",
         go2rtc_url_external: "https://central.example.com",
         go2rtc_modes: "mjpeg,hls",
@@ -60,11 +63,14 @@ test("central profile fills only missing card values and requests a render", asy
     "https://central.example.com",
   );
   assert.equal(card._config.go2rtc_modes, "mjpeg,hls");
+  assert.equal(card._config.frigate_client_id, "central-frigate");
+  assert.equal(card._config._go2rtc_direct_override, true);
   assert.equal(card.__requestUpdateCount, updatesBefore + 1);
 
   const overrideCard = new FrigateVisionCard();
   overrideCard.setConfig({
     cameras: "all",
+    frigate_client_id: "card-frigate",
     go2rtc_url: "http://card.internal:1984",
     go2rtc_url_external: "https://card.example.com",
     go2rtc_modes: "webrtc,mp4",
@@ -79,6 +85,803 @@ test("central profile fills only missing card values and requests a render", asy
     "https://card.example.com",
   );
   assert.equal(overrideCard._config.go2rtc_modes, "webrtc,mp4");
+  assert.equal(overrideCard._config.frigate_client_id, "card-frigate");
+});
+
+test("profile client id falls back to the legacy id without creating a direct URL", async () => {
+  const profileCard = new FrigateVisionCard();
+  profileCard.setConfig({ cameras: "all" });
+  profileCard.hass = {
+    callWS: async () => ({
+      profile: { frigate_client_id: "profile-frigate" },
+    }),
+  };
+
+  await profileCard._loadCentralProfile();
+
+  assert.equal(profileCard._config.frigate_client_id, "profile-frigate");
+  assert.equal(profileCard._config.go2rtc_url, null);
+  assert.equal(profileCard._config.go2rtc_url_external, null);
+  assert.equal(profileCard._config._go2rtc_direct_override, false);
+
+  const legacyCard = new FrigateVisionCard();
+  legacyCard.setConfig({ cameras: "all" });
+  legacyCard.hass = {
+    callWS: async () => ({ profile: {} }),
+  };
+  await legacyCard._loadCentralProfile();
+  assert.equal(legacyCard._config.frigate_client_id, "frigate");
+});
+
+test("connected profile lifecycle retries one transient selection failure", async () => {
+  const card = new FrigateVisionCard();
+  card.setConfig({
+    cameras: "all",
+    frigate_vision_entry_id: "entry-one",
+  });
+  card.isConnected = true;
+  card._fetchAll = async () => {};
+  card._maybeStartAutoLive = () => {};
+  card._waitForProfileRetry = async () => {};
+  const calls = [];
+  card.hass = {
+    callWS: async (message) => {
+      calls.push(message);
+      if (calls.length === 1) throw new Error("temporary unavailable");
+      return {
+        profile: { frigate_client_id: "selected-frigate" },
+      };
+    },
+  };
+
+  card.updated(new Map([["hass", undefined]]));
+  const recovered = await card._profileLifecyclePromise;
+
+  assert.equal(recovered.frigate_client_id, "selected-frigate");
+  assert.equal(card._config.frigate_client_id, "selected-frigate");
+  assert.deepEqual(calls, [
+    { type: "frigate_vision/profile", entry_id: "entry-one" },
+    { type: "frigate_vision/profile", entry_id: "entry-one" },
+  ]);
+});
+
+test("connected standalone profile lifecycle stops after two failures", async () => {
+  const card = new FrigateVisionCard();
+  card.setConfig({ cameras: "all" });
+  card.isConnected = true;
+  card._fetchAll = async () => {};
+  card._maybeStartAutoLive = () => {};
+  card._waitForProfileRetry = async () => {};
+  let calls = 0;
+  card.hass = {
+    callWS: async () => {
+      calls++;
+      throw new Error("integration unavailable");
+    },
+  };
+
+  card.updated(new Map([["hass", undefined]]));
+  assert.equal(await card._profileLifecyclePromise, null);
+  assert.equal(calls, 2);
+});
+
+test("connected entry changes reload the profile and restart only the latest live generation", async () => {
+  const card = new FrigateVisionCard();
+  const calls = [];
+  const pending = new Map();
+  card.hass = {
+    callWS: async (message) => {
+      calls.push(message);
+      if (message.entry_id !== "entry-one") {
+        return new Promise((resolve) => pending.set(message.entry_id, resolve));
+      }
+      return {
+        profile: { frigate_client_id: "frigate-one" },
+      };
+    },
+  };
+  card.setConfig({
+    cameras: "all",
+    frigate_vision_entry_id: "entry-one",
+  });
+  card.isConnected = true;
+  card._fetchAll = async () => {};
+  card._maybeStartAutoLive = () => {};
+  card.updated(new Map([["hass", undefined]]));
+  await card._profileLifecyclePromise;
+  card._liveMode = true;
+  card._liveCamera = "driveway";
+  let restarts = 0;
+  card._ensureLivestreamController = () => ({
+    restart: () => { restarts++; },
+  });
+
+  card.setConfig({
+    cameras: "all",
+    frigate_vision_entry_id: "entry-two",
+  });
+  const entryTwoLifecycle = card._profileLifecyclePromise;
+  await Promise.resolve();
+  card.setConfig({
+    cameras: "all",
+    frigate_vision_entry_id: "entry-three",
+  });
+  const entryThreeLifecycle = card._profileLifecyclePromise;
+  await Promise.resolve();
+  pending.get("entry-three")({
+    profile: { frigate_client_id: "frigate-three" },
+  });
+  await entryThreeLifecycle;
+  pending.get("entry-two")({
+    profile: { frigate_client_id: "frigate-two" },
+  });
+  await entryTwoLifecycle;
+
+  assert.deepEqual(
+    calls.map((message) => message.entry_id),
+    ["entry-one", "entry-two", "entry-three"],
+  );
+  assert.equal(card._config.frigate_client_id, "frigate-three");
+  assert.equal(restarts, 1);
+});
+
+function makeLivestreamController(config, hass = null) {
+  const video = {
+    pause: () => {},
+    removeAttribute: () => {},
+    load: () => {},
+    srcObject: null,
+  };
+  return new LivestreamController({
+    getConfig: () => config,
+    getHass: () => hass,
+    getVideoEl: () => video,
+    getStreamName: () => "driveway_main",
+    onState: () => {},
+    onUpdate: async () => {},
+    logPrefix: "[Test Live]",
+  });
+}
+
+test("Frigate proxy paths encode both MQTT client id and stream name", () => {
+  assert.equal(
+    frigateProxyWsPath(
+      { frigate_client_id: "frigate/yard" },
+      "driveway main/hd",
+    ),
+    "/api/frigate/frigate%2Fyard/go2rtc/ws/api/ws?src=driveway%20main%2Fhd",
+  );
+  assert.equal(
+    frigateProxyWsPath(
+      { frigate_client_id: "frigate/yard" },
+      "driveway main/hd",
+      true,
+    ),
+    "/api/frigate/frigate%2Fyard/mse/api/ws?src=driveway%20main%2Fhd",
+  );
+});
+
+test("default live WebSocket uses a signed same-origin Frigate proxy path", async () => {
+  const originalWebSocket = globalThis.WebSocket;
+  const originalInfo = console.info;
+  const originalWarn = console.warn;
+  const socketUrls = [];
+  const calls = [];
+  const logged = [];
+  globalThis.location.hostname = "ha.example.com";
+  globalThis.location.protocol = "https:";
+  globalThis.location.origin = "https://ha.example.com";
+  globalThis.WebSocket = class WebSocketStub {
+    constructor(url) {
+      this.url = url;
+      this.readyState = 0;
+      socketUrls.push(url);
+      queueMicrotask(() => {
+        this.readyState = 1;
+        this.onopen?.();
+      });
+    }
+    close() {
+      this.readyState = 3;
+    }
+  };
+  console.info = (...args) => logged.push(args.join(" "));
+  console.warn = (...args) => logged.push(args.join(" "));
+  try {
+    const controller = makeLivestreamController(
+      {
+        frigate_client_id: "yard/frigate",
+        _go2rtc_direct_override: false,
+      },
+      {
+        auth: { data: { access_token: "raw-token-must-not-appear" } },
+        callWS: async (message) => {
+          calls.push(message);
+          return { path: `${message.path}&authSig=signed-secret` };
+        },
+      },
+    );
+
+    const ws = await controller._openGo2rtcWs("driveway main");
+
+    assert.equal(ws.readyState, 1);
+    assert.deepEqual(calls, [{
+      type: "auth/sign_path",
+      path:
+        "/api/frigate/yard%2Ffrigate/go2rtc/ws/api/ws?src=driveway%20main",
+      expires: 300,
+    }]);
+    assert.equal(socketUrls.length, 1);
+    assert.match(
+      socketUrls[0],
+      /^wss:\/\/ha\.example\.com\/api\/frigate\/yard%2Ffrigate\/go2rtc\/ws\/api\/ws\?/,
+    );
+    assert.match(socketUrls[0], /authSig=signed-secret/);
+    assert.doesNotMatch(socketUrls[0], /raw-token-must-not-appear/);
+    assert.doesNotMatch(logged.join("\n"), /signed-secret|raw-token-must-not-appear/);
+    controller.cleanup();
+  } finally {
+    globalThis.WebSocket = originalWebSocket;
+    console.info = originalInfo;
+    console.warn = originalWarn;
+  }
+});
+
+test("proxy connection failure falls back to the signed legacy WebSocket path", async () => {
+  const originalWebSocket = globalThis.WebSocket;
+  const calls = [];
+  const socketUrls = [];
+  globalThis.location.hostname = "ha.example.com";
+  globalThis.location.protocol = "https:";
+  globalThis.location.origin = "https://ha.example.com";
+  globalThis.WebSocket = class WebSocketStub {
+    constructor(url) {
+      this.url = url;
+      this.readyState = 0;
+      socketUrls.push(url);
+      queueMicrotask(() => {
+        if (url.includes("/go2rtc/ws/api/ws")) {
+          this.onerror?.();
+        } else {
+          this.readyState = 1;
+          this.onopen?.();
+        }
+      });
+    }
+    close() {
+      this.readyState = 3;
+    }
+  };
+  try {
+    const controller = makeLivestreamController(
+      {
+        frigate_client_id: "frigate",
+        _go2rtc_direct_override: false,
+      },
+      {
+        callWS: async (message) => {
+          calls.push(message);
+          return { path: `${message.path}&authSig=test` };
+        },
+      },
+    );
+
+    const ws = await controller._openGo2rtcWs("driveway");
+
+    assert.equal(ws.readyState, 1);
+    assert.equal(calls.length, 2);
+    assert.match(calls[0].path, /\/go2rtc\/ws\/api\/ws\?/);
+    assert.match(calls[1].path, /\/mse\/api\/ws\?/);
+    assert.equal(socketUrls.length, 2);
+    assert.equal(controller._proxyRoute, "legacy");
+    controller.cleanup();
+  } finally {
+    globalThis.WebSocket = originalWebSocket;
+  }
+});
+
+test("an explicit URL keeps direct go2rtc and does not request a HA signature", async () => {
+  const originalWebSocket = globalThis.WebSocket;
+  const socketUrls = [];
+  globalThis.location.hostname = "ha.example.com";
+  globalThis.location.protocol = "https:";
+  globalThis.location.origin = "https://ha.example.com";
+  globalThis.WebSocket = class WebSocketStub {
+    constructor(url) {
+      this.url = url;
+      this.readyState = 0;
+      socketUrls.push(url);
+      queueMicrotask(() => {
+        this.readyState = 1;
+        this.onopen?.();
+      });
+    }
+    close() {
+      this.readyState = 3;
+    }
+  };
+  try {
+    const controller = makeLivestreamController(
+      {
+        go2rtc_url_external: "https://video.example.com",
+        _go2rtc_direct_override: true,
+      },
+      {
+        callWS: async () => {
+          throw new Error("sign_path must not be used for a direct override");
+        },
+      },
+    );
+
+    await controller._openGo2rtcWs("driveway main");
+
+    assert.deepEqual(
+      socketUrls,
+      ["wss://video.example.com/api/ws?src=driveway%20main"],
+    );
+    controller.cleanup();
+  } finally {
+    globalThis.WebSocket = originalWebSocket;
+  }
+});
+
+test("an internal-only direct URL uses the HA proxy from an external HA origin", () => {
+  globalThis.location.hostname = "ha.example.com";
+  globalThis.location.protocol = "https:";
+  globalThis.location.origin = "https://ha.example.com";
+  const controller = makeLivestreamController({
+    go2rtc_url: "http://video.internal:1984",
+    _go2rtc_direct_override: true,
+  });
+
+  assert.equal(controller._go2rtcBase(), null);
+  assert.equal(controller._usesDirectGo2rtc(), false);
+});
+
+test("proxy mode tries WebRTC over WebSocket first and skips HTTP WHIP", async () => {
+  const originalRtc = window.RTCPeerConnection;
+  window.RTCPeerConnection = class {};
+  try {
+    const controller = makeLivestreamController({
+      frigate_client_id: "frigate",
+      go2rtc_modes: "webrtc,mse,mp4,hls,mjpeg",
+      _go2rtc_direct_override: false,
+    });
+    let httpAttempts = 0;
+    const order = [];
+    controller._startWebRTCviaHTTP = async () => {
+      httpAttempts++;
+    };
+    controller._startWebRTCviaWS = async () => {
+      order.push("webrtc-ws");
+    };
+
+    await controller.start("driveway");
+
+    assert.equal(httpAttempts, 0);
+    assert.deepEqual(order, ["webrtc-ws"]);
+  } finally {
+    window.RTCPeerConnection = originalRtc;
+  }
+});
+
+test("a failed proxy WebRTC attempt falls through to MSE without reordering", async () => {
+  const originalRtc = window.RTCPeerConnection;
+  const originalMediaSource = window.MediaSource;
+  window.RTCPeerConnection = class {};
+  window.MediaSource = class {};
+  try {
+    const controller = makeLivestreamController({
+      frigate_client_id: "frigate",
+      go2rtc_modes: "webrtc,mse,mp4,hls,mjpeg",
+      _go2rtc_direct_override: false,
+    });
+    const order = [];
+    controller._startWebRTCviaWS = async () => {
+      order.push("webrtc");
+      throw new Error("ICE unavailable");
+    };
+    controller._openGo2rtcWs = async () => {
+      order.push("mse-open");
+      return {};
+    };
+    controller._startMSE = async () => {
+      order.push("mse");
+    };
+
+    await controller.start("driveway");
+
+    assert.deepEqual(order, ["webrtc", "mse-open", "mse"]);
+  } finally {
+    window.RTCPeerConnection = originalRtc;
+    window.MediaSource = originalMediaSource;
+  }
+});
+
+class PeerConnectionRuntimeStub {
+  static instances = [];
+
+  constructor() {
+    this.iceGatheringState = "complete";
+    this.iceConnectionState = "new";
+    this.connectionState = "new";
+    this.localDescription = null;
+    this.listeners = new Map();
+    this.closed = false;
+    PeerConnectionRuntimeStub.instances.push(this);
+  }
+  addTransceiver() {}
+  addEventListener(type, handler) {
+    this.listeners.set(type, handler);
+  }
+  emit(type) {
+    this.listeners.get(type)?.();
+  }
+  async createOffer() {
+    return { type: "offer", sdp: "offer" };
+  }
+  async setLocalDescription(description) {
+    this.localDescription = description;
+  }
+  async setRemoteDescription() {}
+  async addIceCandidate() {
+    throw new Error("candidate contained 192.0.2.8 and secret details");
+  }
+  close() {
+    this.closed = true;
+    this.connectionState = "closed";
+  }
+}
+
+function makeOpenWebSocket() {
+  return {
+    readyState: 1,
+    sent: [],
+    send(value) {
+      this.sent.push(value);
+    },
+    close() {
+      this.readyState = 3;
+    },
+  };
+}
+
+test("WebRTC WS requires both a video track and a connected transport", async () => {
+  const originalRtc = globalThis.RTCPeerConnection;
+  const originalWindowRtc = window.RTCPeerConnection;
+  const originalMediaStream = globalThis.MediaStream;
+  PeerConnectionRuntimeStub.instances = [];
+  globalThis.RTCPeerConnection = PeerConnectionRuntimeStub;
+  window.RTCPeerConnection = PeerConnectionRuntimeStub;
+  globalThis.MediaStream = class {
+    addTrack() {}
+  };
+  try {
+    const states = [];
+    const controller = new LivestreamController({
+      getConfig: () => ({ _go2rtc_direct_override: false }),
+      getHass: () => ({}),
+      getVideoEl: () => null,
+      getStreamName: () => "driveway",
+      onState: (patch) => states.push(patch),
+      onUpdate: async () => {},
+    });
+    const video = { srcObject: null, play: async () => {} };
+    controller._openGo2rtcWs = async () => makeOpenWebSocket();
+    let settled = false;
+    const connecting = controller
+      ._startWebRTCviaWS("driveway", video)
+      .then(() => { settled = true; });
+    await Promise.resolve();
+    await Promise.resolve();
+    const pc = PeerConnectionRuntimeStub.instances.at(-1);
+
+    pc.ontrack({ track: { kind: "video" } });
+    await Promise.resolve();
+    assert.equal(settled, false);
+    assert.equal(states.some((patch) => patch.provider === "webrtc"), false);
+
+    pc.iceConnectionState = "connected";
+    pc.emit("iceconnectionstatechange");
+    await connecting;
+
+    assert.equal(settled, true);
+    assert.equal(states.some((patch) => patch.provider === "webrtc"), true);
+    controller.cleanup();
+  } finally {
+    globalThis.RTCPeerConnection = originalRtc;
+    window.RTCPeerConnection = originalWindowRtc;
+    globalThis.MediaStream = originalMediaStream;
+  }
+});
+
+test("direct HTTP WebRTC requires both a video track and connected ICE", async () => {
+  const originalRtc = globalThis.RTCPeerConnection;
+  const originalWindowRtc = window.RTCPeerConnection;
+  const originalMediaStream = globalThis.MediaStream;
+  const originalFetch = globalThis.fetch;
+  PeerConnectionRuntimeStub.instances = [];
+  globalThis.RTCPeerConnection = PeerConnectionRuntimeStub;
+  window.RTCPeerConnection = PeerConnectionRuntimeStub;
+  globalThis.MediaStream = class {
+    addTrack() {}
+  };
+  globalThis.fetch = async () => ({
+    ok: true,
+    text: async () => "answer",
+  });
+  globalThis.location.hostname = "localhost";
+  globalThis.location.protocol = "http:";
+  globalThis.location.origin = "http://localhost";
+  try {
+    const states = [];
+    const controller = new LivestreamController({
+      getConfig: () => ({
+        go2rtc_url: "http://video.internal:1984",
+        _go2rtc_direct_override: true,
+      }),
+      getHass: () => ({}),
+      getVideoEl: () => null,
+      getStreamName: () => "driveway",
+      onState: (patch) => states.push(patch),
+      onUpdate: async () => {},
+    });
+    const video = { srcObject: null, play: async () => {} };
+    let settled = false;
+    const connecting = controller
+      ._startWebRTCviaHTTP("driveway", video)
+      .then(() => { settled = true; });
+    const pc = PeerConnectionRuntimeStub.instances.at(-1);
+
+    pc.ontrack({ track: { kind: "video" } });
+    await Promise.resolve();
+    assert.equal(settled, false);
+    assert.equal(states.some((patch) => patch.provider === "webrtc"), false);
+
+    pc.iceConnectionState = "connected";
+    pc.emit("iceconnectionstatechange");
+    await connecting;
+
+    assert.equal(settled, true);
+    assert.equal(states.some((patch) => patch.provider === "webrtc"), true);
+    controller.cleanup();
+  } finally {
+    globalThis.RTCPeerConnection = originalRtc;
+    window.RTCPeerConnection = originalWindowRtc;
+    globalThis.MediaStream = originalMediaStream;
+    globalThis.fetch = originalFetch;
+  }
+});
+
+test("failed direct HTTP ICE falls through to the configured live fallback", async () => {
+  const originalRtc = globalThis.RTCPeerConnection;
+  const originalWindowRtc = window.RTCPeerConnection;
+  const originalMediaSource = window.MediaSource;
+  const originalFetch = globalThis.fetch;
+  PeerConnectionRuntimeStub.instances = [];
+  globalThis.RTCPeerConnection = PeerConnectionRuntimeStub;
+  window.RTCPeerConnection = PeerConnectionRuntimeStub;
+  window.MediaSource = class {};
+  globalThis.fetch = async () => ({
+    ok: true,
+    text: async () => "answer",
+  });
+  globalThis.location.hostname = "localhost";
+  globalThis.location.protocol = "http:";
+  globalThis.location.origin = "http://localhost";
+  try {
+    const controller = makeLivestreamController({
+      go2rtc_url: "http://video.internal:1984",
+      go2rtc_modes: "webrtc,mse",
+      _go2rtc_direct_override: true,
+    });
+    const order = [];
+    controller._startWebRTCviaWS = async () => {
+      order.push("webrtc-ws");
+      throw new Error("WebRTC candidates were unreachable");
+    };
+    controller._openGo2rtcWs = async () => {
+      order.push("mse-open");
+      return {};
+    };
+    controller._startMSE = async () => {
+      order.push("mse");
+    };
+
+    const running = controller.start("driveway");
+    const pc = PeerConnectionRuntimeStub.instances.at(-1);
+    pc.iceConnectionState = "failed";
+    pc.emit("iceconnectionstatechange");
+    await running;
+
+    assert.deepEqual(order, ["webrtc-ws", "mse-open", "mse"]);
+    controller.cleanup();
+  } finally {
+    globalThis.RTCPeerConnection = originalRtc;
+    window.RTCPeerConnection = originalWindowRtc;
+    window.MediaSource = originalMediaSource;
+    globalThis.fetch = originalFetch;
+  }
+});
+
+test("unreachable WebRTC candidates fall back to MSE without exposing API errors", async () => {
+  const originalRtc = globalThis.RTCPeerConnection;
+  const originalWindowRtc = window.RTCPeerConnection;
+  const originalMediaSource = window.MediaSource;
+  const originalMediaStream = globalThis.MediaStream;
+  const originalWarn = console.warn;
+  PeerConnectionRuntimeStub.instances = [];
+  globalThis.RTCPeerConnection = PeerConnectionRuntimeStub;
+  window.RTCPeerConnection = PeerConnectionRuntimeStub;
+  window.MediaSource = class {};
+  globalThis.MediaStream = class {
+    addTrack() {}
+  };
+  const warnings = [];
+  console.warn = (...args) => warnings.push(args.join(" "));
+  try {
+    const states = [];
+    const video = {
+      srcObject: null,
+      play: async () => {},
+      pause: () => {},
+      removeAttribute: () => {},
+      load: () => {},
+    };
+    const controller = new LivestreamController({
+      getConfig: () => ({
+        frigate_client_id: "frigate",
+        go2rtc_modes: "webrtc,mse",
+        _go2rtc_direct_override: false,
+      }),
+      getHass: () => ({}),
+      getVideoEl: () => video,
+      getStreamName: () => "driveway",
+      onState: (patch) => states.push(patch),
+      onUpdate: async () => {},
+    });
+    const sockets = [];
+    controller._openGo2rtcWs = async () => {
+      const ws = makeOpenWebSocket();
+      sockets.push(ws);
+      controller._go2rtcWs = ws;
+      return ws;
+    };
+    let mseStarts = 0;
+    controller._startMSE = async () => {
+      mseStarts++;
+    };
+    const running = controller.start("driveway");
+    await Promise.resolve();
+    await Promise.resolve();
+    const pc = PeerConnectionRuntimeStub.instances.at(-1);
+    const ws = sockets[0];
+
+    await ws.onmessage({
+      data: JSON.stringify({
+        type: "webrtc/candidate",
+        value: "candidate with private address",
+      }),
+    });
+    pc.ontrack({ track: { kind: "video" } });
+    pc.iceConnectionState = "failed";
+    pc.emit("iceconnectionstatechange");
+    await running;
+
+    assert.equal(mseStarts, 1);
+    assert.equal(states.some((patch) => patch.provider === "webrtc"), false);
+    assert.doesNotMatch(
+      warnings.join("\n"),
+      /192\.0\.2\.8|secret details|private address/,
+    );
+    controller.cleanup();
+  } finally {
+    globalThis.RTCPeerConnection = originalRtc;
+    window.RTCPeerConnection = originalWindowRtc;
+    window.MediaSource = originalMediaSource;
+    globalThis.MediaStream = originalMediaStream;
+    console.warn = originalWarn;
+  }
+});
+
+test("a superseded same-camera run cannot close the newer peer connection", async () => {
+  const originalRtc = window.RTCPeerConnection;
+  window.RTCPeerConnection = class {};
+  try {
+    const controller = makeLivestreamController({
+      go2rtc_modes: "webrtc",
+      _go2rtc_direct_override: false,
+    });
+    let resolveOld;
+    const oldAttempt = new Promise((resolve) => {
+      resolveOld = resolve;
+    });
+    let attempt = 0;
+    const newerPeer = {
+      closed: false,
+      close() {
+        this.closed = true;
+      },
+    };
+    controller._startWebRTCviaWS = async () => {
+      attempt++;
+      if (attempt === 1) return oldAttempt;
+      controller._peerConnection = newerPeer;
+    };
+
+    const firstRun = controller.start("driveway");
+    await Promise.resolve();
+    const secondRun = controller.start("driveway");
+    await secondRun;
+    resolveOld();
+    await firstRun;
+
+    assert.equal(newerPeer.closed, false);
+    assert.equal(controller._peerConnection, newerPeer);
+    controller.cleanup();
+  } finally {
+    window.RTCPeerConnection = originalRtc;
+  }
+});
+
+test("failed direct HTTP WebRTC setup leaves no track timeout behind", async () => {
+  const originalRtc = globalThis.RTCPeerConnection;
+  const originalWindowRtc = window.RTCPeerConnection;
+  const originalFetch = globalThis.fetch;
+  const originalSetTimeout = globalThis.setTimeout;
+  const originalClearTimeout = globalThis.clearTimeout;
+  const activeTimers = new Set();
+  let nextTimer = 0;
+  class PeerConnectionStub {
+    constructor() {
+      this.iceGatheringState = "complete";
+      this.localDescription = null;
+    }
+    addTransceiver() {}
+    addEventListener() {}
+    async createOffer() {
+      return { type: "offer", sdp: "offer" };
+    }
+    async setLocalDescription(description) {
+      this.localDescription = description;
+    }
+    close() {}
+  }
+  globalThis.RTCPeerConnection = PeerConnectionStub;
+  window.RTCPeerConnection = PeerConnectionStub;
+  globalThis.fetch = async () => {
+    throw new Error("network unavailable");
+  };
+  globalThis.setTimeout = () => {
+    const id = ++nextTimer;
+    activeTimers.add(id);
+    return id;
+  };
+  globalThis.clearTimeout = (id) => {
+    activeTimers.delete(id);
+  };
+  globalThis.location.hostname = "localhost";
+  globalThis.location.protocol = "http:";
+  globalThis.location.origin = "http://localhost";
+  try {
+    const controller = makeLivestreamController({
+      go2rtc_url: "http://video.internal:1984",
+      _go2rtc_direct_override: true,
+    });
+
+    await assert.rejects(
+      controller._startWebRTCviaHTTP("driveway", {}),
+      /WebRTC signaling network failure/,
+    );
+
+    assert.equal(activeTimers.size, 0);
+  } finally {
+    globalThis.RTCPeerConnection = originalRtc;
+    window.RTCPeerConnection = originalWindowRtc;
+    globalThis.fetch = originalFetch;
+    globalThis.setTimeout = originalSetTimeout;
+    globalThis.clearTimeout = originalClearTimeout;
+  }
 });
 
 test("single-card autostart waits for central profile resolution", async () => {
@@ -88,6 +891,7 @@ test("single-card autostart waits for central profile resolution", async () => {
   });
   const card = new FrigateVisionCard();
   card.setConfig({ cameras: { driveway: {} }, live_autostart: true });
+  card.isConnected = true;
   card.hass = { callWS: () => profileResult };
   card._fetchAll = () => Promise.resolve();
   let starts = 0;
@@ -100,8 +904,7 @@ test("single-card autostart waits for central profile resolution", async () => {
   assert.equal(starts, 0);
 
   resolveProfile({ profile: { go2rtc_url: "http://central:1984" } });
-  await card._centralProfilePromise;
-  await Promise.resolve();
+  await card._profileLifecyclePromise;
   assert.equal(starts, 1);
 });
 

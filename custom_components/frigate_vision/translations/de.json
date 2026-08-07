@@ -28,14 +28,15 @@
           "timeout": "Timeout",
           "target_width": "Zielbreite des Bildes",
           "max_tokens": "Maximale Antwort-Tokens",
-          "go2rtc_url": "Interne go2rtc-URL (optional)",
-          "go2rtc_url_external": "Externe go2rtc-URL (optional)",
-          "go2rtc_modes": "go2rtc-Fallback-Reihenfolge"
+          "go2rtc_url": "Direkte lokale go2rtc-URL (erweitert)",
+          "go2rtc_url_external": "Direkte externe go2rtc-URL (erweitert)",
+          "go2rtc_modes": "Fallback-Reihenfolge der Live-Transporte"
         },
         "data_description": {
           "endpoint": "Basis-URL mit /v1 oder vollständige /chat/completions-URL.",
-          "go2rtc_url": "Leer lassen, um /api/go2rtc aus der gewählten Frigate-Entry abzuleiten.",
-          "go2rtc_modes": "Kommagetrennt: webrtc,mse,mp4,hls,mjpeg"
+          "go2rtc_url": "Optionaler lokaler/interner Override. Leer lassen für den Home-Assistant-Proxy. Externe Clients verwenden diese URL niemals.",
+          "go2rtc_url_external": "Leer lassen, um extern den Home-Assistant-Proxy zu verwenden. Externe Clients fallen niemals auf die lokale go2rtc-URL zurück.",
+          "go2rtc_modes": "Kommagetrennt: webrtc,mse,mp4,hls,mjpeg. WebRTC wird zuerst versucht, MSE ist der erste Fallback."
         }
       }
     }
@@ -55,9 +56,14 @@
           "timeout": "Timeout",
           "target_width": "Zielbreite des Bildes",
           "max_tokens": "Maximale Antwort-Tokens",
-          "go2rtc_url": "Interne go2rtc-URL (optional)",
-          "go2rtc_url_external": "Externe go2rtc-URL (optional)",
-          "go2rtc_modes": "go2rtc-Fallback-Reihenfolge"
+          "go2rtc_url": "Direkte lokale go2rtc-URL (erweitert)",
+          "go2rtc_url_external": "Direkte externe go2rtc-URL (erweitert)",
+          "go2rtc_modes": "Fallback-Reihenfolge der Live-Transporte"
+        },
+        "data_description": {
+          "go2rtc_url": "Optionaler lokaler/interner Override. Leer lassen für den Home-Assistant-Proxy. Externe Clients verwenden diese URL niemals.",
+          "go2rtc_url_external": "Leer lassen, um extern den Home-Assistant-Proxy zu verwenden. Externe Clients fallen niemals auf die lokale go2rtc-URL zurück.",
+          "go2rtc_modes": "Kommagetrennt: webrtc,mse,mp4,hls,mjpeg. WebRTC wird zuerst versucht, MSE ist der erste Fallback."
         }
       }
     }

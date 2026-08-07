@@ -13,7 +13,7 @@ timeline database. A successful event analysis can be written to the exact
 Frigate event as `data.description`, while clips and event metadata continue
 to come from Frigate.
 
-## What version 0.2.0 changes
+## What version 0.2.x provides
 
 Event creation and REST availability are not always simultaneous. The
 integration therefore gives the event and its snapshot one shared 20-second
@@ -23,6 +23,11 @@ called. Provider calls and Frigate writes are never retried automatically.
 The Card is bundled with the integration and registered as a versioned
 frontend module. A separate HACS dashboard package or manual Lovelace resource
 is not required.
+
+Live streams use the authenticated Home Assistant Frigate proxy by default for
+both local and remote clients. WebRTC is tried first and MSE is the first
+fallback. Direct go2rtc URLs are optional advanced/standalone overrides, not a
+normal installation requirement.
 
 The notification Blueprint processes allowed events sequentially. Notification
 mute and cooldown settings do not suppress analysis.

@@ -183,6 +183,26 @@ test("WebRTC uses go2rtc candidates without a public STUN service", () => {
   assert.equal(peerConnections.length, 2);
 });
 
+test("uses the authenticated HA Frigate proxy without logging signaling secrets", () => {
+  assert.match(
+    source,
+    /const endpoint = legacy \? "mse\/api\/ws" : "go2rtc\/ws\/api\/ws"/,
+  );
+  assert.match(source, /src=\$\{encodeURIComponent\(cameraName\)\}/);
+  assert.match(source, /type:\s*"auth\/sign_path"/);
+  assert.match(source, /expires:\s*300/);
+  assert.match(source, /location\.protocol === "https:" \? "wss:" : "ws:"/);
+  assert.match(source, /DEFAULT_GO2RTC_MODES\s*=\s*"webrtc,mse,mp4,hls,mjpeg"/);
+  assert.doesNotMatch(source, /bad candidate:["']?,?\s*data\.value/);
+  assert.doesNotMatch(source, /WebRTC-HTTP:\s*POST["']?,?\s*url/);
+  assert.doesNotMatch(source, /server error:\s*\$\{data\.value\}/);
+  assert.doesNotMatch(source, /connected:["']?,?\s*streamName/);
+  assert.match(source, /videoTrackReceived\s*&&\s*transportConnected/);
+  assert.match(source, /_runGeneration/);
+  assert.doesNotMatch(source, /setRemoteDescription[^\n]{0,200}e\?\.message/);
+  assert.doesNotMatch(source, /candidate rejected[^\n]{0,200}e\?\.message/);
+});
+
 test("bundled hls.js exposes the pinned default runtime", () => {
   assert.equal(typeof hlsModule.default, "function");
   assert.equal(hlsModule.default.version, "1.5.17");
@@ -190,6 +210,8 @@ test("bundled hls.js exposes the pinned default runtime", () => {
 
 test("keeps standalone URLs and supports the optional central profile", () => {
   assert.match(source, /type:\s*"frigate_vision\/profile"/);
+  assert.match(source, /frigate_vision_entry_id/);
+  assert.match(source, /profileMessage\.entry_id/);
   assert.match(source, /config\.go2rtc_url/);
   assert.match(source, /config\.go2rtc_url_external/);
   assert.match(source, /config\.frigate_url/);

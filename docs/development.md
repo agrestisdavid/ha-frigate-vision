@@ -69,7 +69,7 @@ Version 9.7.7 is pinned for the current security-fixed release line.
 2. Run all local checks and scan for credentials, private hosts, event IDs, and
    personal configuration.
 3. Merge to `main`.
-4. Create a matching GitHub release and tag such as `v0.2.0`.
+4. Create a matching GitHub release and tag such as `v0.2.1`.
 5. Verify the Pages deployment.
 6. Install the release through HACS in a clean Home Assistant test path.
 7. Complete the config flow with newly entered provider credentials.
@@ -77,6 +77,14 @@ Version 9.7.7 is pinned for the current security-fixed release line.
 
 Never publish a release from manually copied Home Assistant files. Subsequent
 fixes should use a new GitHub tag and HACS version.
+
+## Version 0.2.1
+
+- authenticated Home Assistant Frigate proxy for local and remote live view;
+- WebRTC-first playback with MSE fallback through Home Assistant;
+- automatic Frigate MQTT client-ID discovery for proxy routing;
+- direct go2rtc URLs retained as explicit advanced/standalone overrides;
+- no signed paths, endpoint URLs, SDP, or ICE candidates in Card logs.
 
 ## Version 0.2.0
 

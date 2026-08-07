@@ -77,3 +77,35 @@ Network, timeout, and decoder failures have separate messages.
 The live tile retains WebRTC, MSE, MP4, HLS, and MJPEG transports, HD/SD
 switching, multiview, clips, and the VoD timeline. Stream names must match the
 actual go2rtc stream keys configured in Frigate.
+
+By default, live requests use the authenticated Home Assistant Frigate proxy.
+This works through both local and remote Home Assistant access without an
+external go2rtc URL. The Card tries WebRTC first, then MSE. WebRTC media still
+requires reachable ICE candidates and go2rtc port `8555`. During initial
+startup, WebRTC is marked ready only after a media track arrives and ICE is
+connected/completed. An initial failure, readiness timeout, or answer without
+working media falls through to MSE. The same readiness rule applies to direct
+HTTP/WHIP. MSE carries the complete initial fallback path through Home
+Assistant; no automatic MSE switch is promised for a later WebRTC disconnect.
+
+Direct `frigate_url`, `go2rtc_url`, and `go2rtc_url_external` values are
+advanced/standalone overrides. Leave them unset for the normal integrated
+installation. MP4, HLS, and MJPEG live transports remain available with these
+direct overrides; normal proxy mode uses WebRTC followed by MSE.
+
+`go2rtc_url` is local-only. For an external client, the Card uses
+`go2rtc_url_external` when set and otherwise returns to the Home Assistant
+proxy; it never exposes or reuses the local direct URL externally.
+
+## Multiple Frigate Vision entries
+
+One loaded Frigate Vision entry is selected automatically. When Home Assistant
+has multiple entries, select the profile explicitly:
+
+```yaml
+type: custom:frigate-vision-card
+frigate_vision_entry_id: example-frigate-vision-entry
+```
+
+Use the Frigate Vision config-entry ID, not the Frigate client ID, camera
+entity ID, or event ID.
