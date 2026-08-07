@@ -86,10 +86,12 @@ duration_ms: 1842
 
 ## Notification Blueprint
 
+[![Open your Home Assistant instance and show the Blueprint import dialog with the Frigate Vision Blueprint pre-filled.](https://my.home-assistant.io/badges/blueprint_import.svg)](https://my.home-assistant.io/redirect/blueprint_import/?blueprint_url=https%3A%2F%2Fgithub.com%2Fagrestisdavid%2Fha-frigate-vision%2Fblob%2Fmain%2Fblueprints%2Fautomation%2Ffrigate_vision%2Fevent_notification.yaml)
+
 The Blueprint is located at
-`blueprints/automation/frigate_vision/event_notification.yaml`. Importing it
-does not create an automation. Its default `shadow` mode analyzes without
-notifications or Frigate writes.
+[`blueprints/automation/frigate_vision/event_notification.yaml`](https://github.com/agrestisdavid/ha-frigate-vision/blob/main/blueprints/automation/frigate_vision/event_notification.yaml).
+Importing it does not create an automation. Its default `shadow` mode analyzes
+without notifications or Frigate writes.
 
 In `active` mode, allowed events are analyzed sequentially. Mute and cooldown
 settings suppress only notifications; analysis continues. A dedicated

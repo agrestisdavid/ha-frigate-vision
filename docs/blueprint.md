@@ -1,5 +1,18 @@
 # Notification Blueprint
 
+[![Open your Home Assistant instance and show the Blueprint import dialog with the Frigate Vision Blueprint pre-filled.](https://my.home-assistant.io/badges/blueprint_import.svg)](https://my.home-assistant.io/redirect/blueprint_import/?blueprint_url=https%3A%2F%2Fgithub.com%2Fagrestisdavid%2Fha-frigate-vision%2Fblob%2Fmain%2Fblueprints%2Fautomation%2Ffrigate_vision%2Fevent_notification.yaml)
+
+The button opens Home Assistant's Blueprint import dialog with the Frigate
+Vision Blueprint pre-filled. It imports the Blueprint only; it does not create
+or enable an automation.
+
+If the button cannot find your Home Assistant instance, import this URL
+manually:
+
+```text
+https://github.com/agrestisdavid/ha-frigate-vision/blob/main/blueprints/automation/frigate_vision/event_notification.yaml
+```
+
 The Blueprint processes only MQTT payloads that meet all of these conditions:
 
 - `type` is exactly `new`;
