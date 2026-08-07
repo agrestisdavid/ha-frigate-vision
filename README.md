@@ -5,7 +5,7 @@ Frigate event snapshots with an OpenAI-compatible multimodal endpoint. The
 single HACS package also ships the `custom:frigate-vision-card` frontend module
 and a reusable notification Blueprint.
 
-Version `0.2.0` is deliberately independent of LLM Vision:
+Version `0.2.1` is deliberately independent of LLM Vision:
 
 - Frigate remains the canonical source for events, clips, and descriptions.
 - Event and snapshot readiness are retried for up to 20 seconds before the
@@ -27,12 +27,40 @@ Version `0.2.0` is deliberately independent of LLM Vision:
    Lovelace resource is required.
 
 If a split Frigate Vision 0.1.x test Card was installed previously, remove only
-that separate Lovelace resource before loading 0.2.0. Do not remove an LLM
+that separate Lovelace resource before loading 0.2.x. Do not remove an LLM
 Vision or legacy timeline Card resource.
 
 The config flow first selects an existing Frigate config entry, then asks for
 the OpenAI-compatible endpoint, API key, model, analysis limits, and optional
-central go2rtc settings.
+advanced go2rtc overrides. Leave both direct go2rtc URL fields empty to use the
+authenticated Home Assistant Frigate proxy, which is the default for local and
+remote Home Assistant access.
+
+## Live streaming
+
+The bundled Card tries WebRTC first and falls back to MSE before continuing
+through the remaining configured transports. A separate external go2rtc URL is
+not required when the Card is opened through Home Assistant.
+
+WebRTC signaling uses the Home Assistant path, but its media connection still
+depends on reachable ICE candidates and go2rtc's WebRTC port `8555`. During
+initial negotiation, a signaling answer alone is not considered success: the
+Card waits for a media track and a connected/completed ICE state. An initial
+failure or readiness timeout cleans up that attempt and falls back to MSE,
+whose complete media path runs through Home Assistant.
+
+Direct internal or external go2rtc URLs remain available only as advanced
+overrides for trusted reverse-proxy or standalone deployments. The direct MP4,
+HLS, and MJPEG transports are used only with such an override; proxy mode uses
+WebRTC followed by MSE. `go2rtc_url` applies only to local clients. An external
+client uses `go2rtc_url_external` when explicitly configured and otherwise
+uses the Home Assistant proxy; it never falls back to the local direct URL.
+
+With one Frigate Vision config entry, the Card selects its central profile
+automatically. With multiple entries, set `frigate_vision_entry_id` on each
+Card to the exact Frigate Vision config-entry ID. Existing LLM Vision
+integrations, Cards, and automations remain independent and can continue
+running in parallel.
 
 ## Services
 

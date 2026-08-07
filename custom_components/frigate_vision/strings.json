@@ -28,14 +28,15 @@
           "timeout": "Timeout",
           "target_width": "Target image width",
           "max_tokens": "Maximum response tokens",
-          "go2rtc_url": "Internal go2rtc URL (optional)",
-          "go2rtc_url_external": "External go2rtc URL (optional)",
-          "go2rtc_modes": "go2rtc fallback order"
+          "go2rtc_url": "Direct local go2rtc URL (advanced)",
+          "go2rtc_url_external": "Direct remote go2rtc URL (advanced)",
+          "go2rtc_modes": "Live transport fallback order"
         },
         "data_description": {
           "endpoint": "Base URL ending in /v1, or a complete /chat/completions URL.",
-          "go2rtc_url": "When empty, /api/go2rtc is derived from the selected Frigate entry.",
-          "go2rtc_modes": "Comma-separated: webrtc,mse,mp4,hls,mjpeg"
+          "go2rtc_url": "Optional local/internal override. Leave empty for the Home Assistant proxy. External clients never reuse this URL.",
+          "go2rtc_url_external": "Leave empty to use the Home Assistant proxy externally. External clients never fall back to the local go2rtc URL.",
+          "go2rtc_modes": "Comma-separated: webrtc,mse,mp4,hls,mjpeg. WebRTC is tried first and MSE is the first fallback."
         }
       }
     }
@@ -55,9 +56,14 @@
           "timeout": "Timeout",
           "target_width": "Target image width",
           "max_tokens": "Maximum response tokens",
-          "go2rtc_url": "Internal go2rtc URL (optional)",
-          "go2rtc_url_external": "External go2rtc URL (optional)",
-          "go2rtc_modes": "go2rtc fallback order"
+          "go2rtc_url": "Direct local go2rtc URL (advanced)",
+          "go2rtc_url_external": "Direct remote go2rtc URL (advanced)",
+          "go2rtc_modes": "Live transport fallback order"
+        },
+        "data_description": {
+          "go2rtc_url": "Optional local/internal override. Leave empty for the Home Assistant proxy. External clients never reuse this URL.",
+          "go2rtc_url_external": "Leave empty to use the Home Assistant proxy externally. External clients never fall back to the local go2rtc URL.",
+          "go2rtc_modes": "Comma-separated: webrtc,mse,mp4,hls,mjpeg. WebRTC is tried first and MSE is the first fallback."
         }
       }
     }

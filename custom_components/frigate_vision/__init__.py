@@ -251,9 +251,6 @@ def _register_services(hass: HomeAssistant) -> None:
 def _profile_for_runtime(runtime: RuntimeData) -> dict[str, Any]:
     config = merged_config(runtime.entry)
     internal = str(config.get(CONF_GO2RTC_URL, "")).strip()
-    if not internal:
-        frigate_url = str(runtime.frigate_entry.data.get("url", "")).rstrip("/")
-        internal = f"{frigate_url}/api/go2rtc" if frigate_url else ""
     external = str(config.get(CONF_GO2RTC_URL_EXTERNAL, "")).strip()
     try:
         internal = validate_go2rtc_url(internal) if internal else ""
@@ -264,6 +261,7 @@ def _profile_for_runtime(runtime: RuntimeData) -> dict[str, Any]:
     except ValueError:
         external = ""
     return {
+        "frigate_client_id": runtime.frigate.instance_id,
         "go2rtc_url": internal or None,
         "go2rtc_url_external": external or None,
         "go2rtc_modes": sanitize_go2rtc_modes(str(config.get(CONF_GO2RTC_MODES, ""))),

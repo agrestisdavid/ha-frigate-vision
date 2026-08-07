@@ -1,4 +1,4 @@
-const CARD_VERSION = "0.2.0";
+const CARD_VERSION = "0.2.1";
 
 const VALID_LIVE_PROVIDERS = ["auto", "go2rtc", "mjpeg", "off"];
 const VALID_GO2RTC_MODES = ["webrtc", "mse", "mp4", "hls", "mjpeg"];
@@ -647,9 +647,6 @@ function go2rtcBase(config) {
   } else {
     const ue = config.go2rtc_url_external;
     if (ue && typeof ue === "string") return ue.replace(/\/+$/, "");
-    // Fallback to internal (VPN/Tailscale)
-    const u = config.go2rtc_url;
-    if (u && typeof u === "string") return u.replace(/\/+$/, "");
   }
   return null;
 }
@@ -665,6 +662,17 @@ function go2rtcWsUrl(config, cameraName) {
   const base = go2rtcBase(config);
   if (!base) return "";
   return `${base.replace(/^http/, "ws")}/api/ws?src=${encodeURIComponent(cameraName)}`;
+}
+
+function frigateProxyWsPath(config, cameraName, legacy = false) {
+  const configuredClientId =
+    typeof config?.frigate_client_id === "string"
+      ? config.frigate_client_id.trim()
+      : "";
+  const clientId = configuredClientId || "frigate";
+  const prefix = `/api/frigate/${encodeURIComponent(clientId)}`;
+  const endpoint = legacy ? "mse/api/ws" : "go2rtc/ws/api/ws";
+  return `${prefix}/${endpoint}?src=${encodeURIComponent(cameraName)}`;
 }
 
 /* ───────── Frigate event helpers ───────── */
@@ -824,18 +832,48 @@ class LivestreamController {
     this._mjpegRefreshTimer = null;
     this._mseReady = null;
     this._mseFailed = null;
+    this._runGeneration = 0;
+    this._runCancelers = new Set();
   }
 
   get isHD() { return this._isHD; }
   get cameraId() { return this._cameraId; }
+  get runGeneration() { return this._runGeneration; }
 
   _config() { return this._opts.getConfig(); }
+  _hass() { return this._opts.getHass?.(); }
   _videoEl() { return this._opts.getVideoEl(); }
   _streamName() { return this._opts.getStreamName(this._isHD); }
   _setState(patch) { this._opts.onState(patch); }
   _waitUpdate() { return this._opts.onUpdate(); }
   _log(...args) { console.info(this._opts.logPrefix || "[Livestream]", ...args); }
   _warn(...args) { console.warn(this._opts.logPrefix || "[Livestream]", ...args); }
+  _staleRunError() {
+    const error = new Error("Livestream run was superseded");
+    error.staleRun = true;
+    return error;
+  }
+  _isRunCurrent(runId) { return runId === this._runGeneration; }
+  _assertRunCurrent(runId) {
+    if (!this._isRunCurrent(runId)) throw this._staleRunError();
+  }
+  _registerRunCanceler(runId, canceler) {
+    if (!this._isRunCurrent(runId)) {
+      canceler();
+      return () => {};
+    }
+    this._runCancelers.add(canceler);
+    return () => this._runCancelers.delete(canceler);
+  }
+  _invalidateRun() {
+    this._runGeneration++;
+    const cancelers = this._runCancelers;
+    this._runCancelers = new Set();
+    for (const cancel of cancelers) {
+      try { cancel(); } catch {}
+    }
+    return this._runGeneration;
+  }
 
   _isIOS() {
     if (typeof navigator === "undefined") return false;
@@ -870,7 +908,7 @@ class LivestreamController {
     if (location.protocol !== "https:") return;
     if (!/^http:\/\//i.test(url)) return;
     const msg = "Mixed Content: HA ist HTTPS, go2rtc_url ist HTTP. Browser blockiert den Request.";
-    this._warn(msg, url);
+    this._warn(msg);
     throw new Error(msg);
   }
   _waitForIceGathering(pc, timeoutMs = 2000) {
@@ -891,9 +929,11 @@ class LivestreamController {
       );
     });
   }
-  async _tryAutoplay(videoEl) {
+  async _tryAutoplay(videoEl, runId = null) {
+    if (runId !== null && !this._isRunCurrent(runId)) return;
     try { await videoEl.play(); }
     catch (e) {
+      if (runId !== null && !this._isRunCurrent(runId)) return;
       if (e && (e.name === "NotAllowedError" || e.name === "AbortError")) {
         videoEl.muted = true;
         try { await videoEl.play(); } catch {}
@@ -911,8 +951,43 @@ class LivestreamController {
     };
     return `${codes[err.code] || `code ${err.code}`}${err.message ? ": " + err.message : ""}`;
   }
+  _safeLiveFailure(mode, error) {
+    if (error?.staleRun) return "superseded";
+    const message = String(error?.message || "");
+    const safePatterns = [
+      /^Der Frigate-Live-Proxy /,
+      /^Home Assistant /,
+      /^Für diesen Zugriff /,
+      /^Direktes go2rtc-WebSocket /,
+      /^Frigate-Live-Proxy(?: \(Legacy\))? /,
+      /^Mixed Content:/,
+      /^WebRTC (?:offer|answer|signaling|connection|candidates|track)/,
+      /^go2rtc rejected /,
+      /^WS (?:error|closed)/,
+      /^MSE /,
+      /^HLS /,
+      /^MP4 /,
+      /^MJPEG-/,
+      /^No video element$/,
+      /^ICE failed$/,
+    ];
+    if (safePatterns.some((pattern) => pattern.test(message))) return message;
+    return `${String(mode || "live").toUpperCase()} setup failed`;
+  }
 
   _go2rtcBase() { return go2rtcBase(this._config()); }
+  _usesDirectGo2rtc() {
+    const config = this._config();
+    const hasExplicitDirectUrl =
+      typeof config?._go2rtc_direct_override === "boolean"
+        ? config._go2rtc_direct_override
+        : Boolean(
+            config?.go2rtc_url ||
+            config?.go2rtc_url_external ||
+            config?.frigate_url
+          );
+    return hasExplicitDirectUrl && Boolean(this._go2rtcBase());
+  }
   _go2rtcWebrtcUrl(name) { return go2rtcHttpUrl(this._config(), "webrtc", name); }
   _go2rtcWsUrl(name) { return go2rtcWsUrl(this._config(), name); }
   _hlsStreamPath(name) { return `${go2rtcHttpUrl(this._config(), "stream.m3u8", name)}&mp4=flac`; }
@@ -920,107 +995,217 @@ class LivestreamController {
   _mjpegStreamPath(name) { return go2rtcHttpUrl(this._config(), "stream.mjpeg", name); }
 
   /* WebRTC via HTTP (WHIP-style) */
-  async _startWebRTCviaHTTP(name, videoEl) {
+  async _startWebRTCviaHTTP(name, videoEl, runId = this._runGeneration) {
+    this._assertRunCurrent(runId);
     const pc = new RTCPeerConnection({
       bundlePolicy: "max-bundle",
     });
+    this._assertRunCurrent(runId);
     this._peerConnection = pc;
     pc.addTransceiver("video", { direction: "recvonly" });
     pc.addTransceiver("audio", { direction: "recvonly" });
 
-    const trackPromise = new Promise((resolveTrack, rejectTrack) => {
-      const t = setTimeout(() => rejectTrack(new Error("WebRTC track timeout")), 6000);
+    let trackSettled = false;
+    let settleTrack;
+    let trackTimer = null;
+    let ctrl = null;
+    const trackPromise = new Promise((resolveTrack) => {
+      let videoTrackReceived = false;
+      let transportConnected = false;
+      settleTrack = resolveTrack;
+      const finishTrack = (error = null) => {
+        if (trackSettled) return;
+        trackSettled = true;
+        if (trackTimer) clearTimeout(trackTimer);
+        resolveTrack(error);
+      };
+      const updateTransportState = () => {
+        if (!this._isRunCurrent(runId) || this._peerConnection !== pc) {
+          finishTrack(this._staleRunError());
+          return;
+        }
+        const iceState = pc.iceConnectionState;
+        if (iceState === "failed") {
+          finishTrack(new Error("WebRTC ICE failed"));
+          return;
+        }
+        transportConnected =
+          iceState === "connected" || iceState === "completed";
+        if (videoTrackReceived && transportConnected) finishTrack();
+      };
       pc.ontrack = (ev) => {
+        if (!this._isRunCurrent(runId) || this._peerConnection !== pc) return;
         this._log("WebRTC-HTTP: track", ev.track.kind);
         if (!videoEl.srcObject) videoEl.srcObject = new MediaStream();
         try { videoEl.srcObject.addTrack(ev.track); } catch {}
-        this._setState({ loading: false, provider: "webrtc" });
-        this._tryAutoplay(videoEl);
-        clearTimeout(t);
-        resolveTrack();
+        if (ev.track?.kind === "video") {
+          videoTrackReceived = true;
+          updateTransportState();
+        }
       };
       pc.addEventListener("iceconnectionstatechange", () => {
+        if (!this._isRunCurrent(runId) || this._peerConnection !== pc) return;
         this._log("WebRTC-HTTP: iceState", pc.iceConnectionState);
-        if (pc.iceConnectionState === "failed") {
-          clearTimeout(t);
-          rejectTrack(new Error("WebRTC ICE failed"));
-        }
+        updateTransportState();
       });
     });
 
-    const offer = await pc.createOffer();
-    await pc.setLocalDescription(offer);
-    await this._waitForIceGathering(pc, 2500);
-    const url = this._go2rtcWebrtcUrl(name);
-    this._checkMixedContent(url);
-    this._log("WebRTC-HTTP: POST", url);
-    const ctrl = new AbortController();
-    const abortTimer = setTimeout(() => ctrl.abort(), 5000);
-    let resp;
+    const cancelRun = () => {
+      try { ctrl?.abort(); } catch {}
+      settleTrack(this._staleRunError());
+      try { pc.close(); } catch {}
+      if (this._peerConnection === pc) this._peerConnection = null;
+    };
+    const unregisterCancel = this._registerRunCanceler(runId, cancelRun);
+    let abortTimer = null;
     try {
-      resp = await fetch(url, {
-        method: "POST",
-        signal: ctrl.signal,
-        headers: { "Content-Type": "text/plain" },
-        body: pc.localDescription.sdp,
-      });
-    } catch (e) {
-      clearTimeout(abortTimer);
-      throw new Error(`WebRTC fetch failed: ${e.name === "AbortError" ? "timeout" : e.message}`);
+      let offer;
+      try {
+        offer = await pc.createOffer();
+        this._assertRunCurrent(runId);
+        await pc.setLocalDescription(offer);
+      } catch (error) {
+        if (error?.staleRun || !this._isRunCurrent(runId)) throw this._staleRunError();
+        throw new Error("WebRTC offer setup failed");
+      }
+      await this._waitForIceGathering(pc, 2500);
+      this._assertRunCurrent(runId);
+      const url = this._go2rtcWebrtcUrl(name);
+      this._checkMixedContent(url);
+      this._log("WebRTC-HTTP: sending offer");
+      ctrl = new AbortController();
+      abortTimer = setTimeout(() => ctrl.abort(), 5000);
+      let resp;
+      try {
+        resp = await fetch(url, {
+          method: "POST",
+          signal: ctrl.signal,
+          headers: { "Content-Type": "text/plain" },
+          body: pc.localDescription.sdp,
+        });
+      } catch (error) {
+        if (!this._isRunCurrent(runId)) throw this._staleRunError();
+        throw new Error(
+          error?.name === "AbortError"
+            ? "WebRTC signaling timeout"
+            : "WebRTC signaling network failure"
+        );
+      }
+      this._assertRunCurrent(runId);
+      if (!resp.ok) throw new Error(`WebRTC signaling failed with HTTP ${resp.status}`);
+      const body = await resp.text();
+      let answerSdp;
+      if (body.trimStart().startsWith("{")) {
+        try { answerSdp = JSON.parse(body).sdp; }
+        catch { throw new Error("WebRTC answer was invalid"); }
+      } else {
+        answerSdp = body;
+      }
+      if (!answerSdp) throw new Error("WebRTC answer was empty");
+      try {
+        await pc.setRemoteDescription({ type: "answer", sdp: answerSdp });
+      } catch {
+        throw new Error("WebRTC answer was rejected");
+      }
+      this._assertRunCurrent(runId);
+      this._log("WebRTC-HTTP: remote desc set, waiting for track");
+      trackTimer = setTimeout(
+        () => settleTrack(new Error("WebRTC track timeout")),
+        6000
+      );
+      const trackError = await trackPromise;
+      if (trackError) throw trackError;
+      this._assertRunCurrent(runId);
+      this._setState({ loading: false, provider: "webrtc" });
+      this._tryAutoplay(videoEl, runId);
+    } finally {
+      if (abortTimer) clearTimeout(abortTimer);
+      if (trackTimer) clearTimeout(trackTimer);
+      unregisterCancel();
     }
-    clearTimeout(abortTimer);
-    if (!resp.ok) throw new Error(`WebRTC offer failed: ${resp.status}`);
-    const body = await resp.text();
-    let answerSdp;
-    if (body.trimStart().startsWith("{")) {
-      try { answerSdp = JSON.parse(body).sdp; }
-      catch (e) { throw new Error(`WebRTC answer parse: ${e.message}`); }
-    } else {
-      answerSdp = body;
-    }
-    if (!answerSdp) throw new Error("WebRTC empty answer SDP");
-    await pc.setRemoteDescription({ type: "answer", sdp: answerSdp });
-    this._log("WebRTC-HTTP: remote desc set, waiting for track");
-    await trackPromise;
   }
 
   /* WebRTC via WebSocket signaling */
-  async _startWebRTCviaWS(name, videoEl) {
-    const ws = await this._openGo2rtcWs(name);
+  async _startWebRTCviaWS(name, videoEl, runId = this._runGeneration) {
+    this._assertRunCurrent(runId);
+    const ws = await this._openGo2rtcWs(name, runId);
+    this._assertRunCurrent(runId);
     this._log("WebRTC-WS: opened");
     const pc = new RTCPeerConnection({
       bundlePolicy: "max-bundle",
     });
+    this._assertRunCurrent(runId);
     this._peerConnection = pc;
     pc.addTransceiver("video", { direction: "recvonly" });
     pc.addTransceiver("audio", { direction: "recvonly" });
 
     return new Promise((resolve, reject) => {
       let done = false;
-      let answerReceived = false;
-      let candidatesIn = 0;
+      let videoTrackReceived = false;
+      let transportConnected = false;
       let candidatesOut = 0;
-      const timeout = setTimeout(() => finish(new Error(
-        `WebRTC-WS timeout — answer=${answerReceived}, candidatesIn=${candidatesIn}, candidatesOut=${candidatesOut}, iceState=${pc.iceConnectionState}, iceGath=${pc.iceGatheringState}`
-      )), 12000);
+      let rejectedCandidates = 0;
+      let unregisterCancel = () => {};
+      const timeout = setTimeout(
+        () => finish(new Error("WebRTC connection timeout")),
+        12000
+      );
       const finish = (err) => {
         if (done) return;
         done = true;
         clearTimeout(timeout);
+        unregisterCancel();
         ws.onmessage = null;
         ws.onerror = null;
         ws.onclose = null;
         if (err) reject(err); else resolve();
       };
+      const maybeFinish = () => {
+        if (
+          !done &&
+          videoTrackReceived &&
+          transportConnected &&
+          this._isRunCurrent(runId) &&
+          this._peerConnection === pc
+        ) {
+          this._setState({ loading: false, provider: "webrtc" });
+          this._tryAutoplay(videoEl, runId);
+          finish();
+        }
+      };
+      const updateTransportState = () => {
+        if (!this._isRunCurrent(runId) || this._peerConnection !== pc) {
+          finish(this._staleRunError());
+          return;
+        }
+        const iceState = pc.iceConnectionState;
+        const connectionState = pc.connectionState;
+        if (iceState === "failed" || connectionState === "failed") {
+          finish(new Error("WebRTC candidates were unreachable"));
+          return;
+        }
+        transportConnected =
+          iceState === "connected" ||
+          iceState === "completed" ||
+          connectionState === "connected";
+        maybeFinish();
+      };
+      unregisterCancel = this._registerRunCanceler(
+        runId,
+        () => finish(this._staleRunError())
+      );
       pc.ontrack = (ev) => {
+        if (!this._isRunCurrent(runId) || this._peerConnection !== pc) return;
         this._log("WebRTC-WS: track", ev.track.kind);
         if (!videoEl.srcObject) videoEl.srcObject = new MediaStream();
         try { videoEl.srcObject.addTrack(ev.track); } catch {}
-        this._setState({ loading: false, provider: "webrtc" });
-        this._tryAutoplay(videoEl);
-        finish();
+        if (ev.track?.kind === "video") {
+          videoTrackReceived = true;
+          updateTransportState();
+        }
       };
       pc.onicecandidate = (ev) => {
+        if (!this._isRunCurrent(runId) || this._peerConnection !== pc) return;
         if (ev.candidate && ws.readyState === 1) {
           candidatesOut++;
           try {
@@ -1031,31 +1216,44 @@ class LivestreamController {
         }
       };
       pc.addEventListener("iceconnectionstatechange", () => {
+        if (!this._isRunCurrent(runId) || this._peerConnection !== pc) return;
         this._log("WebRTC-WS: iceState", pc.iceConnectionState);
-        if (pc.iceConnectionState === "failed") finish(new Error("ICE failed"));
+        updateTransportState();
       });
       pc.addEventListener("connectionstatechange", () => {
+        if (!this._isRunCurrent(runId) || this._peerConnection !== pc) return;
         this._log("WebRTC-WS: connState", pc.connectionState);
+        updateTransportState();
       });
       ws.onmessage = async (msg) => {
+        if (!this._isRunCurrent(runId) || this._peerConnection !== pc) {
+          finish(this._staleRunError());
+          return;
+        }
         if (typeof msg.data !== "string") return;
         let data;
         try { data = JSON.parse(msg.data); } catch { return; }
         this._log("WebRTC-WS: msg", data.type);
         if (data.type === "webrtc/answer") {
-          answerReceived = true;
           try {
             await pc.setRemoteDescription({ type: "answer", sdp: data.value });
+            this._assertRunCurrent(runId);
             this._log("WebRTC-WS: remote desc set");
-          } catch (e) {
-            finish(new Error(`setRemoteDescription: ${e.message}`));
+          } catch (error) {
+            finish(
+              error?.staleRun
+                ? error
+                : new Error("WebRTC answer was rejected")
+            );
           }
         } else if (data.type === "webrtc/candidate" && data.value) {
-          candidatesIn++;
           try { await pc.addIceCandidate({ candidate: data.value, sdpMid: "0" }); }
-          catch (e) { this._warn("WebRTC-WS: bad candidate:", data.value, e?.message); }
+          catch {
+            rejectedCandidates++;
+            this._warn("WebRTC-WS: candidate rejected", rejectedCandidates);
+          }
         } else if (data.type === "error") {
-          finish(new Error(`server error: ${data.value}`));
+          finish(new Error("go2rtc rejected the WebRTC request"));
         }
       };
       ws.onerror = () => finish(new Error("WS error during WebRTC signaling"));
@@ -1063,39 +1261,192 @@ class LivestreamController {
       (async () => {
         try {
           const offer = await pc.createOffer();
+          this._assertRunCurrent(runId);
           await pc.setLocalDescription(offer);
           await this._waitForIceGathering(pc, 2500);
+          this._assertRunCurrent(runId);
+          if (done) return;
           this._log("WebRTC-WS: sending offer (post-gather)");
           ws.send(JSON.stringify({ type: "webrtc/offer", value: pc.localDescription.sdp }));
-        } catch (e) {
-          finish(e);
+        } catch (error) {
+          finish(
+            error?.staleRun
+              ? error
+              : new Error("WebRTC offer setup failed")
+          );
         }
       })();
     });
   }
 
-  _openGo2rtcWs(name) {
+  async _signedProxyWsUrl(path, runId = this._runGeneration) {
+    this._assertRunCurrent(runId);
+    const hass = this._hass();
+    if (!hass?.callWS) {
+      const error = new Error(
+        "Home Assistant ist für den Frigate-Live-Proxy nicht verfügbar."
+      );
+      error.proxySigning = true;
+      throw error;
+    }
+    let result;
+    try {
+      result = await hass.callWS({
+        type: "auth/sign_path",
+        path,
+        expires: 300,
+      });
+    } catch (cause) {
+      if (cause?.staleRun || !this._isRunCurrent(runId)) {
+        throw this._staleRunError();
+      }
+      const signingError = new Error(
+        "Der Frigate-Live-Proxy konnte nicht authentifiziert werden."
+      );
+      signingError.proxySigning = true;
+      throw signingError;
+    }
+    this._assertRunCurrent(runId);
+    if (!result?.path) {
+      const error = new Error(
+        "Home Assistant hat keinen signierten Frigate-Live-Pfad geliefert."
+      );
+      error.proxySigning = true;
+      throw error;
+    }
+    const runtimeOrigin =
+      location.origin ||
+      `${location.protocol}//${location.hostname}`;
+    const signed = new URL(result.path, runtimeOrigin);
+    if (signed.origin !== runtimeOrigin) {
+      const error = new Error(
+        "Home Assistant hat einen ungültigen Frigate-Live-Pfad geliefert."
+      );
+      error.proxySigning = true;
+      throw error;
+    }
+    signed.protocol = location.protocol === "https:" ? "wss:" : "ws:";
+    return signed.toString();
+  }
+
+  _connectGo2rtcWs(url, routeLabel, runId = this._runGeneration) {
     return new Promise((resolve, reject) => {
-      const url = this._go2rtcWsUrl(name);
+      if (!this._isRunCurrent(runId)) {
+        reject(this._staleRunError());
+        return;
+      }
       if (location.protocol === "https:" && /^ws:\/\//i.test(url)) {
         reject(new Error("Mixed Content: HTTPS Seite kann kein ws:// laden. go2rtc_url_external mit https:// konfigurieren."));
         return;
       }
-      const ws = new WebSocket(url);
+      let ws;
+      try {
+        ws = new WebSocket(url);
+      } catch {
+        reject(new Error(`${routeLabel} konnte nicht geöffnet werden.`));
+        return;
+      }
       this._go2rtcWs = ws;
       ws.binaryType = "arraybuffer";
-      const timeout = setTimeout(() => { ws.close(); reject(new Error("WebSocket timeout")); }, 5000);
-      ws.onopen = () => { clearTimeout(timeout); resolve(ws); };
-      ws.onerror = (e) => { clearTimeout(timeout); reject(e); };
-      ws.onclose = () => {};
+      let settled = false;
+      let unregisterCancel = () => {};
+      const finish = (error = null) => {
+        if (settled) return;
+        settled = true;
+        clearTimeout(timeout);
+        unregisterCancel();
+        ws.onopen = null;
+        ws.onerror = null;
+        ws.onclose = null;
+        if (error) {
+          try { ws.close(); } catch {}
+          if (this._go2rtcWs === ws) this._go2rtcWs = null;
+          reject(error);
+        } else {
+          resolve(ws);
+        }
+      };
+      const timeout = setTimeout(
+        () => finish(new Error(`${routeLabel} hat nicht rechtzeitig geantwortet.`)),
+        5000
+      );
+      unregisterCancel = this._registerRunCanceler(
+        runId,
+        () => finish(this._staleRunError())
+      );
+      if (settled) return;
+      ws.onopen = () => {
+        if (!this._isRunCurrent(runId)) {
+          finish(this._staleRunError());
+          return;
+        }
+        finish();
+      };
+      ws.onerror = () => finish(new Error(`${routeLabel} ist nicht erreichbar.`));
+      ws.onclose = () => finish(new Error(`${routeLabel} wurde vorzeitig geschlossen.`));
     });
   }
 
+  async _openGo2rtcWs(name, runId = this._runGeneration) {
+    this._assertRunCurrent(runId);
+    if (this._usesDirectGo2rtc()) {
+      const directUrl = this._go2rtcWsUrl(name);
+      if (!directUrl) {
+        throw new Error(
+          "Für diesen Zugriff ist kein direkter go2rtc-Endpunkt konfiguriert."
+        );
+      }
+      return this._connectGo2rtcWs(
+        directUrl,
+        "Direktes go2rtc-WebSocket",
+        runId
+      );
+    }
+
+    const config = this._config();
+    const routes =
+      this._proxyRoute === "legacy"
+        ? [{ legacy: true, label: "Frigate-Live-Proxy (Legacy)" }]
+        : [
+            { legacy: false, label: "Frigate-Live-Proxy" },
+            { legacy: true, label: "Frigate-Live-Proxy (Legacy)" },
+          ];
+    let lastError = null;
+    for (const route of routes) {
+      try {
+        const path = frigateProxyWsPath(config, name, route.legacy);
+        const signedUrl = await this._signedProxyWsUrl(path, runId);
+        this._assertRunCurrent(runId);
+        const ws = await this._connectGo2rtcWs(
+          signedUrl,
+          route.label,
+          runId
+        );
+        this._assertRunCurrent(runId);
+        this._proxyRoute = route.legacy ? "legacy" : "primary";
+        return ws;
+      } catch (error) {
+        lastError = error;
+        if (error?.staleRun || !this._isRunCurrent(runId)) {
+          throw this._staleRunError();
+        }
+        if (error?.proxySigning) throw error;
+      }
+    }
+    throw new Error(
+      `Der Frigate-Live-Proxy ist nicht erreichbar${
+        lastError?.message ? `: ${lastError.message}` : "."
+      }`
+    );
+  }
+
   /* MSE */
-  async _startMSE(ws, videoEl) {
+  async _startMSE(ws, videoEl, runId = this._runGeneration) {
+    this._assertRunCurrent(runId);
     const MS = window.ManagedMediaSource || window.MediaSource;
     if (!MS) throw new Error("MSE not supported");
     const ms = new MS();
+    this._assertRunCurrent(runId);
     this._mediaSource = ms;
     this._sourceBuffer = null;
     this._mseBuf = new Uint8Array(2 * 1024 * 1024);
@@ -1111,37 +1462,69 @@ class LivestreamController {
     }
     videoEl.muted = true;
     videoEl.playsInline = true;
-    this._tryAutoplay(videoEl);
+    this._tryAutoplay(videoEl, runId);
 
     const codecs = this._supportedMSECodecs();
     this._log("MSE supported codecs:", codecs);
 
     return new Promise((resolve, reject) => {
-      const timeout = setTimeout(() => reject(new Error("MSE no data within 15s")), 15000);
-      this._mseReady = () => {
+      let done = false;
+      let unregisterCancel = () => {};
+      const finish = (error = null) => {
+        if (done) return;
+        done = true;
         clearTimeout(timeout);
-        this._mseReady = null;
+        unregisterCancel();
+        if (this._mseReady === ready) this._mseReady = null;
+        if (this._mseFailed === failed) this._mseFailed = null;
+        if (error) reject(error); else resolve();
+      };
+      const ready = () => {
+        if (!this._isRunCurrent(runId) || this._mediaSource !== ms) {
+          finish(this._staleRunError());
+          return;
+        }
         this._setState({ loading: false });
-        resolve();
+        finish();
       };
-      this._mseFailed = (msg) => {
-        clearTimeout(timeout);
-        this._mseReady = null;
-        this._mseFailed = null;
-        reject(new Error(msg));
-      };
-      ws.onmessage = (msg) => this._handleGo2rtcMessage(msg, videoEl);
+      const failed = () => finish(new Error("MSE stream setup failed"));
+      const timeout = setTimeout(
+        () => finish(new Error("MSE stream timeout")),
+        15000
+      );
+      this._mseReady = ready;
+      this._mseFailed = failed;
+      unregisterCancel = this._registerRunCanceler(
+        runId,
+        () => finish(this._staleRunError())
+      );
+      if (done) return;
+      ws.onmessage = (msg) =>
+        this._handleGo2rtcMessage(msg, videoEl, runId, ms);
       ms.addEventListener("sourceopen", () => {
+        if (!this._isRunCurrent(runId) || this._mediaSource !== ms) {
+          finish(this._staleRunError());
+          return;
+        }
         this._log("MSE sourceopen, sending codecs");
         if (window.ManagedMediaSource) {
           try { URL.revokeObjectURL(videoEl.src); } catch {}
         }
         try { ws.send(JSON.stringify({ type: "mse", value: codecs })); }
-        catch (e) { clearTimeout(timeout); reject(e); }
+        catch { finish(new Error("MSE stream request failed")); }
       }, { once: true });
     });
   }
-  _handleGo2rtcMessage(msg, videoEl) {
+  _handleGo2rtcMessage(
+    msg,
+    videoEl,
+    runId = this._runGeneration,
+    expectedMediaSource = this._mediaSource
+  ) {
+    if (
+      !this._isRunCurrent(runId) ||
+      this._mediaSource !== expectedMediaSource
+    ) return;
     if (typeof msg.data === "string") {
       let data;
       try { data = JSON.parse(msg.data); } catch { return; }
@@ -1154,6 +1537,11 @@ class LivestreamController {
             sb.mode = "segments";
             this._sourceBuffer = sb;
             sb.addEventListener("updateend", () => {
+              if (
+                !this._isRunCurrent(runId) ||
+                this._mediaSource !== expectedMediaSource ||
+                this._sourceBuffer !== sb
+              ) return;
               if (!sb.updating && this._mseBufLen > 0) {
                 try {
                   sb.appendBuffer(this._mseBuf.slice(0, this._mseBufLen));
@@ -1173,9 +1561,9 @@ class LivestreamController {
             });
             this._setState({ loading: false });
             if (this._mseReady) this._mseReady();
-          } catch (e) {
-            this._warn("MSE addSourceBuffer failed:", e);
-            if (this._mseFailed) this._mseFailed(`addSourceBuffer: ${e.message}`);
+          } catch {
+            this._warn("MSE addSourceBuffer failed");
+            if (this._mseFailed) this._mseFailed();
           }
         }
       }
@@ -1202,36 +1590,56 @@ class LivestreamController {
   }
 
   /* HLS native */
-  async _startHLS(name) {
+  async _startHLS(name, runId = this._runGeneration) {
+    this._assertRunCurrent(runId);
     if (!this._hlsNativeSupported()) throw new Error("HLS native not supported in this browser");
     const url = this._hlsStreamPath(name);
     this._checkMixedContent(url);
     return new Promise((resolve, reject) => {
       this._setState({ provider: "hls" });
-      const timeout = setTimeout(() => { cleanup(); reject(new Error("HLS load timeout")); }, 8000);
+      let done = false;
+      let el = null;
+      let unregisterCancel = () => {};
       const cleanup = () => {
         clearTimeout(timeout);
-        const el = this._videoEl();
         if (el) {
           el.removeEventListener("loadeddata", onLoaded);
           el.removeEventListener("error", onError);
         }
       };
+      const finish = (error = null) => {
+        if (done) return;
+        done = true;
+        cleanup();
+        unregisterCancel();
+        if (error) reject(error); else resolve();
+      };
       const onLoaded = () => {
-        cleanup();
+        if (!this._isRunCurrent(runId)) {
+          finish(this._staleRunError());
+          return;
+        }
         this._setState({ loading: false });
-        const el = this._videoEl();
-        if (el) this._tryAutoplay(el);
-        resolve();
+        if (el) this._tryAutoplay(el, runId);
+        finish();
       };
-      const onError = () => {
-        cleanup();
-        const el = this._videoEl();
-        reject(new Error(`HLS error: ${this._describeMediaError(el)}`));
-      };
+      const onError = () => finish(new Error("HLS media failed"));
+      const timeout = setTimeout(
+        () => finish(new Error("HLS load timeout")),
+        8000
+      );
+      unregisterCancel = this._registerRunCanceler(
+        runId,
+        () => finish(this._staleRunError())
+      );
+      if (done) return;
       this._waitUpdate().then(() => {
-        const el = this._videoEl();
-        if (!el) { cleanup(); reject(new Error("No video element")); return; }
+        if (!this._isRunCurrent(runId)) {
+          finish(this._staleRunError());
+          return;
+        }
+        el = this._videoEl();
+        if (!el) { finish(new Error("No video element")); return; }
         el.addEventListener("loadeddata", onLoaded, { once: true });
         el.addEventListener("error", onError, { once: true });
         el.src = url;
@@ -1241,35 +1649,55 @@ class LivestreamController {
   }
 
   /* MP4 progressive */
-  async _startMP4(name) {
+  async _startMP4(name, runId = this._runGeneration) {
+    this._assertRunCurrent(runId);
     const url = this._mp4StreamPath(name);
     this._checkMixedContent(url);
     return new Promise((resolve, reject) => {
       this._setState({ provider: "mp4", mp4Url: url });
-      const timeout = setTimeout(() => { cleanup(); reject(new Error("MP4 load timeout")); }, 6000);
+      let done = false;
+      let el = null;
+      let unregisterCancel = () => {};
       const cleanup = () => {
         clearTimeout(timeout);
-        const el = this._videoEl();
         if (el) {
           el.removeEventListener("loadeddata", onLoaded);
           el.removeEventListener("error", onError);
         }
       };
+      const finish = (error = null) => {
+        if (done) return;
+        done = true;
+        cleanup();
+        unregisterCancel();
+        if (error) reject(error); else resolve();
+      };
       const onLoaded = () => {
-        cleanup();
+        if (!this._isRunCurrent(runId)) {
+          finish(this._staleRunError());
+          return;
+        }
         this._setState({ loading: false });
-        const el = this._videoEl();
-        if (el) this._tryAutoplay(el);
-        resolve();
+        if (el) this._tryAutoplay(el, runId);
+        finish();
       };
-      const onError = () => {
-        cleanup();
-        const el = this._videoEl();
-        reject(new Error(`MP4 error: ${this._describeMediaError(el)}`));
-      };
+      const onError = () => finish(new Error("MP4 media failed"));
+      const timeout = setTimeout(
+        () => finish(new Error("MP4 load timeout")),
+        6000
+      );
+      unregisterCancel = this._registerRunCanceler(
+        runId,
+        () => finish(this._staleRunError())
+      );
+      if (done) return;
       this._waitUpdate().then(() => {
-        const el = this._videoEl();
-        if (!el) { cleanup(); reject(new Error("No video element")); return; }
+        if (!this._isRunCurrent(runId)) {
+          finish(this._staleRunError());
+          return;
+        }
+        el = this._videoEl();
+        if (!el) { finish(new Error("No video element")); return; }
         el.addEventListener("loadeddata", onLoaded, { once: true });
         el.addEventListener("error", onError, { once: true });
         el.src = url;
@@ -1279,7 +1707,8 @@ class LivestreamController {
   }
 
   /* MJPEG */
-  _startMJPEG(name) {
+  _startMJPEG(name, runId = this._runGeneration) {
+    this._assertRunCurrent(runId);
     this._setState({
       provider: "mjpeg",
       loading: false,
@@ -1287,43 +1716,66 @@ class LivestreamController {
     });
     this._cleanupMJPEG(false);
     this._mjpegRefreshTimer = setInterval(() => {
-      if (!this._cameraId) return;
+      if (!this._cameraId || !this._isRunCurrent(runId)) return;
       const sname = this._opts.getStreamName(this._isHD);
       this._setState({ mjpegUrl: this._mjpegStreamPath(sname) });
     }, 8 * 60 * 1000);
   }
 
   /* Orchestrator */
-  async start(cameraId) {
+  async start(cameraId, expectedGeneration = null) {
+    if (
+      expectedGeneration !== null &&
+      !this._isRunCurrent(expectedGeneration)
+    ) return;
+    const runId = this._invalidateRun();
+    this._releaseResources();
     this._cameraId = cameraId;
+    this._proxyRoute = null;
     const streamName = this._streamName();
-    this._log("start: cam=", cameraId, "stream=", streamName, "hd=", this._isHD);
-    const defaultModes = this._isIOS() ? "webrtc,hls,mp4,mjpeg" : DEFAULT_GO2RTC_MODES;
-    const configured = this._config().go2rtc_modes || defaultModes;
+    this._log("start: cam=", cameraId, "hd=", this._isHD);
+    const configured = this._config().go2rtc_modes || DEFAULT_GO2RTC_MODES;
     const modes = configured.split(",").map((s) => s.trim().toLowerCase());
 
     const failures = [];
     for (const mode of modes) {
-      if (this._cameraId !== cameraId) return;
+      if (!this._isRunCurrent(runId) || this._cameraId !== cameraId) return;
       const videoEl = this._videoEl();
       try {
         if (mode === "webrtc" && window.RTCPeerConnection) {
           if (!videoEl) continue;
           let lastErr = null;
-          try {
-            await this._withTimeout(this._startWebRTCviaHTTP(streamName, videoEl), 12000, "WebRTC-HTTP");
-            this._log("WebRTC (HTTP/WHIP) connected:", streamName);
-            return;
-          } catch (e) {
-            lastErr = e;
-            this._warn("WebRTC-HTTP failed:", e?.message || e);
-            this._cleanupWebRTC();
+          if (this._usesDirectGo2rtc()) {
+            try {
+              await this._withTimeout(
+                this._startWebRTCviaHTTP(streamName, videoEl, runId),
+                12000,
+                "WebRTC-HTTP"
+              );
+              this._assertRunCurrent(runId);
+              this._log("WebRTC (HTTP/WHIP) connected");
+              return;
+            } catch (e) {
+              if (e?.staleRun || !this._isRunCurrent(runId)) return;
+              lastErr = e;
+              this._warn(
+                "WebRTC-HTTP failed:",
+                this._safeLiveFailure("webrtc", e)
+              );
+              this._cleanupWebRTC();
+            }
           }
           try {
-            await this._withTimeout(this._startWebRTCviaWS(streamName, videoEl), 15000, "WebRTC-WS");
-            this._log("WebRTC (WS) connected:", streamName);
+            await this._withTimeout(
+              this._startWebRTCviaWS(streamName, videoEl, runId),
+              25000,
+              "WebRTC-WS"
+            );
+            this._assertRunCurrent(runId);
+            this._log("WebRTC (WS) connected");
             return;
           } catch (e) {
+            if (e?.staleRun || !this._isRunCurrent(runId)) return;
             lastErr = e;
             this._cleanupWebRTC();
             this._cleanupGo2rtcWs();
@@ -1331,25 +1783,55 @@ class LivestreamController {
           }
         } else if (mode === "mse" && (window.MediaSource || window.ManagedMediaSource)) {
           if (!videoEl) continue;
-          const ws = await this._withTimeout(this._openGo2rtcWs(streamName), 5000, "MSE WS");
-          await this._withTimeout(this._startMSE(ws, videoEl), 8000, "MSE setup");
-          this._log("MSE connected:", streamName);
+          const ws = await this._withTimeout(
+            this._openGo2rtcWs(streamName, runId),
+            12000,
+            "MSE WS"
+          );
+          this._assertRunCurrent(runId);
+          await this._withTimeout(
+            this._startMSE(ws, videoEl, runId),
+            8000,
+            "MSE setup"
+          );
+          this._assertRunCurrent(runId);
+          this._log("MSE connected");
           return;
         } else if (mode === "mp4") {
-          await this._withTimeout(this._startMP4(streamName), 8000, "MP4");
-          this._log("MP4 connected:", streamName);
+          if (!this._usesDirectGo2rtc()) {
+            throw new Error("MP4-Live benötigt einen direkten go2rtc-URL-Override.");
+          }
+          await this._withTimeout(
+            this._startMP4(streamName, runId),
+            8000,
+            "MP4"
+          );
+          this._assertRunCurrent(runId);
+          this._log("MP4 connected");
           return;
         } else if (mode === "hls") {
-          await this._withTimeout(this._startHLS(streamName), 10000, "HLS");
-          this._log("HLS connected:", streamName);
+          if (!this._usesDirectGo2rtc()) {
+            throw new Error("HLS-Live benötigt einen direkten go2rtc-URL-Override.");
+          }
+          await this._withTimeout(
+            this._startHLS(streamName, runId),
+            10000,
+            "HLS"
+          );
+          this._assertRunCurrent(runId);
+          this._log("HLS connected");
           return;
         } else if (mode === "mjpeg") {
-          this._startMJPEG(streamName);
-          this._log("MJPEG started:", streamName);
+          if (!this._usesDirectGo2rtc()) {
+            throw new Error("MJPEG-Live benötigt einen direkten go2rtc-URL-Override.");
+          }
+          this._startMJPEG(streamName, runId);
+          this._log("MJPEG started");
           return;
         }
       } catch (e) {
-        const msg = e?.message || String(e);
+        if (e?.staleRun || !this._isRunCurrent(runId)) return;
+        const msg = this._safeLiveFailure(mode, e);
         this._warn(`${mode} failed:`, msg);
         failures.push(`${mode}: ${msg}`);
         if (mode === "webrtc") this._cleanupWebRTC();
@@ -1359,19 +1841,21 @@ class LivestreamController {
     }
 
     if (this._isHD) {
+      if (!this._isRunCurrent(runId)) return;
       this._warn("HD stream failed (likely H.265), falling back to SD:", failures);
       this._isHD = false;
       this.cleanup();
+      const fallbackGeneration = this._runGeneration;
       this._setState({ loading: true, provider: null, error: null });
       await this._waitUpdate();
-      return this.start(cameraId);
+      if (!this._isRunCurrent(fallbackGeneration)) return;
+      return this.start(cameraId, fallbackGeneration);
     }
 
-    const errMsg = !this._go2rtcBase()
-      ? (this._isExternal()
-          ? "go2rtc_url_external muss konfiguriert sein!"
-          : "go2rtc_url oder frigate_url muss konfiguriert sein!")
-      : (this._opts.failedMessage || "Live stream failed");
+    if (!this._isRunCurrent(runId)) return;
+    const errMsg = this._usesDirectGo2rtc()
+      ? (this._opts.failedMessage || "Livestream konnte nicht verbunden werden.")
+      : "Der Frigate-Live-Proxy konnte keinen kompatiblen Stream verbinden.";
     this._setState({ error: errMsg, loading: false });
   }
 
@@ -1381,8 +1865,13 @@ class LivestreamController {
     this._log("Switching to", this._isHD ? "HD" : "SD");
     const cam = this._cameraId;
     this.cleanup();
+    const pendingGeneration = this._runGeneration;
     this._setState({ loading: true, provider: null, error: null });
-    if (cam) this._waitUpdate().then(() => this.start(cam));
+    if (cam) {
+      this._waitUpdate().then(() =>
+        this.start(cam, pendingGeneration)
+      );
+    }
   }
   toggleHD() { this.setHD(!this._isHD); }
 
@@ -1390,22 +1879,33 @@ class LivestreamController {
     const cam = this._cameraId;
     if (!cam) return;
     this.cleanup();
+    const pendingGeneration = this._runGeneration;
     this._setState({ loading: true, provider: null, error: null });
-    this._waitUpdate().then(() => this.start(cam));
+    this._waitUpdate().then(() =>
+      this.start(cam, pendingGeneration)
+    );
   }
 
   switchCamera(cameraId) {
     if (cameraId === this._cameraId) return;
     this.cleanup();
+    const pendingGeneration = this._runGeneration;
     this._cameraId = cameraId;
     this._isHD = false;
     this._setState({ loading: true, provider: null, error: null });
-    this._waitUpdate().then(() => this.start(cameraId));
+    this._waitUpdate().then(() =>
+      this.start(cameraId, pendingGeneration)
+    );
   }
 
   /* Cleanup */
   cleanup() {
+    this._invalidateRun();
     this._cameraId = null;
+    this._proxyRoute = null;
+    this._releaseResources();
+  }
+  _releaseResources() {
     this._cleanupWebRTC();
     this._cleanupMSE();
     this._cleanupGo2rtcWs();
@@ -1540,6 +2040,8 @@ class FrigateVisionCard extends LitElement {
     this._hasFetchedOnce = false;
     this._centralProfile = null;
     this._centralProfilePromise = null;
+    this._profileLifecycleGeneration = 0;
+    this._profileLifecyclePromise = null;
     this._preferMp4Cams = new Set();
     this._liveMode = false;
     this._liveCamera = null;
@@ -1652,6 +2154,7 @@ class FrigateVisionCard extends LitElement {
 
   disconnectedCallback() {
     super.disconnectedCallback();
+    this._profileLifecycleGeneration++;
     if (this._resizeObserver) {
       this._resizeObserver.disconnect();
       this._resizeObserver = null;
@@ -1736,10 +2239,29 @@ class FrigateVisionCard extends LitElement {
   setConfig(config) {
     if (!config) throw new Error("Invalid config");
     const initial = Number(config.initial_events) || Number(config.clips_per_load) || 10;
+    const configuredProfileEntryId =
+      typeof config.frigate_vision_entry_id === "string" &&
+      config.frigate_vision_entry_id.trim()
+        ? config.frigate_vision_entry_id.trim()
+        : null;
+    const previousProfileEntryId =
+      this._config?.frigate_vision_entry_id || null;
+    const profileEntryChanged =
+      this._config &&
+      previousProfileEntryId !== configuredProfileEntryId;
+    if (profileEntryChanged) {
+      this._centralProfile = null;
+      this._centralProfilePromise = null;
+    }
     this._go2rtcOverrides = {
       internal: Boolean(config.go2rtc_url),
       external: Boolean(config.go2rtc_url_external),
       modes: Boolean(sanitizeGo2rtcModes(config.go2rtc_modes)),
+      clientId: Boolean(
+        typeof config.frigate_client_id === "string"
+          ? config.frigate_client_id.trim()
+          : config.frigate_client_id
+      ),
     };
     const profile = this._centralProfile || {};
     const profileInternalUrl =
@@ -1749,11 +2271,29 @@ class FrigateVisionCard extends LitElement {
       profile.go2rtc_external_url ||
       profile.external_url ||
       null;
+    const profileClientId =
+      typeof profile.frigate_client_id === "string" &&
+      profile.frigate_client_id.trim()
+        ? profile.frigate_client_id.trim()
+        : null;
+    const configuredClientId =
+      typeof config.frigate_client_id === "string" &&
+      config.frigate_client_id.trim()
+        ? config.frigate_client_id.trim()
+        : null;
+    const directGo2rtcOverride = Boolean(
+      config.go2rtc_url ||
+      config.go2rtc_url_external ||
+      config.frigate_url ||
+      profileInternalUrl ||
+      profileExternalUrl
+    );
     this._config = {
       title: config.title ?? "auto",
       title_icon: config.title_icon || null,
       cameras: FrigateVisionCard._normalizeCamerasMap(config),
-      frigate_client_id: config.frigate_client_id ?? "frigate",
+      frigate_vision_entry_id: configuredProfileEntryId,
+      frigate_client_id: configuredClientId || profileClientId || "frigate",
       initial_events: initial,
       events_per_load: Number(config.events_per_load) || Number(config.clips_per_load) || 10,
       section_mode: config.section_mode === true,
@@ -1792,6 +2332,7 @@ class FrigateVisionCard extends LitElement {
       frigate_url: config.frigate_url ?? null,
       go2rtc_url: config.go2rtc_url || profileInternalUrl,
       go2rtc_url_external: config.go2rtc_url_external || profileExternalUrl,
+      _go2rtc_direct_override: directGo2rtcOverride,
       live_camera: config.live_camera
         ? String(config.live_camera).trim().toLowerCase()
         : null,
@@ -1822,6 +2363,9 @@ class FrigateVisionCard extends LitElement {
     }
     this._totalCap = this._config.initial_events;
     if (this.isConnected) this._setupAutoRefresh();
+    if (profileEntryChanged && this.isConnected && this.hass?.callWS) {
+      this._startProfileLifecycle({ restartLive: true });
+    }
   }
 
   static _normalizeColumnCount(value, fallback = 1) {
@@ -1940,13 +2484,26 @@ class FrigateVisionCard extends LitElement {
 
   async _loadCentralProfile() {
     if (this._centralProfilePromise) return this._centralProfilePromise;
-    this._centralProfilePromise = (async () => {
-      try {
-        const response = await this.hass.callWS({
+    const requestedEntryId =
+      this._config?.frigate_vision_entry_id || null;
+    const request = Promise.resolve().then(async () => {
+        const profileMessage = {
           type: "frigate_vision/profile",
-        });
+        };
+        if (this._config?.frigate_vision_entry_id) {
+          profileMessage.entry_id = this._config.frigate_vision_entry_id;
+        }
+        const response = await this.hass.callWS(profileMessage);
+        if (
+          (this._config?.frigate_vision_entry_id || null) !==
+          requestedEntryId
+        ) {
+          throw new Error("Frigate Vision profile selection changed");
+        }
         const profile = response?.profile || response;
-        if (!profile || typeof profile !== "object") return null;
+        if (!profile || typeof profile !== "object") {
+          throw new Error("Invalid Frigate Vision profile response");
+        }
         this._centralProfile = profile;
         // Re-resolve only fields that were not explicitly set on the card.
         const current = this._config || {};
@@ -1961,15 +2518,30 @@ class FrigateVisionCard extends LitElement {
           profile.external_url ||
           null;
         const modes = sanitizeGo2rtcModes(profile.go2rtc_modes);
+        const profileClientId =
+          typeof profile.frigate_client_id === "string" &&
+          profile.frigate_client_id.trim()
+            ? profile.frigate_client_id.trim()
+            : null;
         const overrides = this._go2rtcOverrides || {};
+        const resolvedInternalUrl = overrides.internal
+          ? current.go2rtc_url
+          : internalUrl || null;
+        const resolvedExternalUrl = overrides.external
+          ? current.go2rtc_url_external
+          : externalUrl || null;
         const next = {
           ...current,
-          go2rtc_url: overrides.internal
-            ? current.go2rtc_url
-            : internalUrl || current.go2rtc_url,
-          go2rtc_url_external: overrides.external
-            ? current.go2rtc_url_external
-            : externalUrl || current.go2rtc_url_external,
+          frigate_client_id: overrides.clientId
+            ? current.frigate_client_id
+            : profileClientId || "frigate",
+          go2rtc_url: resolvedInternalUrl,
+          go2rtc_url_external: resolvedExternalUrl,
+          _go2rtc_direct_override: Boolean(
+            current.frigate_url ||
+            resolvedInternalUrl ||
+            resolvedExternalUrl
+          ),
           go2rtc_modes: overrides.modes
             ? current.go2rtc_modes
             : modes || current.go2rtc_modes || DEFAULT_GO2RTC_MODES,
@@ -1977,18 +2549,91 @@ class FrigateVisionCard extends LitElement {
         if (
           next.go2rtc_url !== current.go2rtc_url ||
           next.go2rtc_url_external !== current.go2rtc_url_external ||
+          next.frigate_client_id !== current.frigate_client_id ||
+          next._go2rtc_direct_override !== current._go2rtc_direct_override ||
           next.go2rtc_modes !== current.go2rtc_modes
         ) {
           this._config = next;
           this.requestUpdate();
         }
         return profile;
-      } catch {
-        // The integration/profile is optional; standalone card URLs remain valid.
-        return null;
+    });
+    let managedPromise;
+    managedPromise = request.catch(() => {
+      // The integration/profile is optional. Do not cache transient or
+      // multi-entry selection errors so a later retry can recover.
+      if (this._centralProfilePromise === managedPromise) {
+        this._centralProfilePromise = null;
       }
-    })();
-    return this._centralProfilePromise;
+      return null;
+    });
+    this._centralProfilePromise = managedPromise;
+    const result = await managedPromise;
+    if (result === null && this._centralProfilePromise === managedPromise) {
+      this._centralProfilePromise = null;
+    }
+    return result;
+  }
+
+  _waitForProfileRetry() {
+    return new Promise((resolve) => setTimeout(resolve, 500));
+  }
+
+  async _loadCentralProfileWithRetry(expectedEntryId, lifecycleGeneration) {
+    for (let attempt = 0; attempt < 2; attempt++) {
+      if (
+        lifecycleGeneration !== this._profileLifecycleGeneration ||
+        (this._config?.frigate_vision_entry_id || null) !== expectedEntryId ||
+        !this.isConnected
+      ) return null;
+      const profile = await this._loadCentralProfile();
+      if (
+        lifecycleGeneration !== this._profileLifecycleGeneration ||
+        (this._config?.frigate_vision_entry_id || null) !== expectedEntryId ||
+        !this.isConnected
+      ) return null;
+      if (profile) return profile;
+      if (attempt === 0) await this._waitForProfileRetry();
+    }
+    return null;
+  }
+
+  _restartProfileBackedLive() {
+    if (this._liveMode && this._liveCamera) {
+      this._liveLoading = true;
+      this._liveProvider = null;
+      this._liveError = null;
+      this._ensureLivestreamController().restart();
+    }
+    if (this._config?.multiview) {
+      this.updateComplete.then(() => {
+        const tiles =
+          this.renderRoot?.querySelectorAll("frigate-vision-live-tile");
+        if (tiles) tiles.forEach((tile) => tile._restart());
+      });
+    }
+  }
+
+  _startProfileLifecycle({ restartLive = false } = {}) {
+    const lifecycleGeneration = ++this._profileLifecycleGeneration;
+    const expectedEntryId =
+      this._config?.frigate_vision_entry_id || null;
+    const profilePromise = this._loadCentralProfileWithRetry(
+      expectedEntryId,
+      lifecycleGeneration
+    ).then((profile) => {
+      if (
+        profile &&
+        restartLive &&
+        lifecycleGeneration === this._profileLifecycleGeneration &&
+        this.isConnected
+      ) {
+        this._restartProfileBackedLive();
+      }
+      return profile;
+    });
+    this._profileLifecyclePromise = profilePromise;
+    return profilePromise;
   }
 
   _maybeStartAutoLive() {
@@ -2010,8 +2655,13 @@ class FrigateVisionCard extends LitElement {
     if (changed.has("hass") && this.hass && !this._hasFetchedOnce && !this._loading) {
       this._hasFetchedOnce = true;
       this._fetchAll();
-      const profilePromise = this._loadCentralProfile();
-      profilePromise.finally(() => this._maybeStartAutoLive());
+      const profilePromise = this._startProfileLifecycle();
+      profilePromise.finally(() => {
+        if (
+          this._profileLifecyclePromise === profilePromise &&
+          this.isConnected
+        ) this._maybeStartAutoLive();
+      });
     }
     if (
       (changed.has("_clipUrl") || changed.has("_clipSourceKind")) &&
@@ -3101,6 +3751,7 @@ class FrigateVisionCard extends LitElement {
       logPrefix: "[FrigateVisionCard Live]",
       failedMessage: this._t?.live_failed,
       getConfig: () => this._config,
+      getHass: () => this.hass,
       getVideoEl: () => this.renderRoot?.querySelector("video.player"),
       getStreamName: (hd) => this._go2rtcStreamFor(this._liveCamera, hd),
       onUpdate: () => this.updateComplete,
@@ -3143,8 +3794,9 @@ class FrigateVisionCard extends LitElement {
     this._isHD = false;
     const lc = this._ensureLivestreamController();
     lc.cleanup();
+    const pendingGeneration = lc.runGeneration;
     lc._isHD = false;
-    this.updateComplete.then(() => lc.start(cam));
+    this.updateComplete.then(() => lc.start(cam, pendingGeneration));
   }
 
   _closeLive() {
@@ -6408,6 +7060,16 @@ class FrigateVisionCardEditor extends LitElement {
       </div>
 
       <ha-textfield
+        label="Frigate Vision Entry-ID (optional)"
+        .value=${cfg.frigate_vision_entry_id ?? ""}
+        .placeholder=${"Nur bei mehreren Frigate-Vision-Instanzen"}
+        @change=${(e) => this._set(
+          "frigate_vision_entry_id",
+          e.target.value?.trim() || undefined
+        )}
+      ></ha-textfield>
+
+      <ha-textfield
         label="Frigate Client ID"
         .value=${cfg.frigate_client_id ?? "frigate"}
         .placeholder=${"frigate"}
@@ -7383,6 +8045,7 @@ class FrigateVisionLiveTile extends LitElement {
       logPrefix: "[FrigateVisionTile Live]",
       failedMessage: this.t?.live_failed,
       getConfig: () => this.cardConfig,
+      getHass: () => this.hass,
       getVideoEl: () => this.renderRoot?.querySelector("video.player"),
       getStreamName: (hd) => this._streamName(hd),
       onUpdate: () => this.updateComplete,
@@ -7407,10 +8070,11 @@ class FrigateVisionLiveTile extends LitElement {
     this._error = null;
     const lc = this._ensureLivestreamController();
     lc.cleanup();
+    const pendingGeneration = lc.runGeneration;
     lc._isHD = !!this._isHD;
     this.updateComplete.then(() => {
       if (token !== this._startToken || this._clipMode || this.clipUrl) return;
-      lc.start(this.cameraId);
+      lc.start(this.cameraId, pendingGeneration);
     });
   }
 
