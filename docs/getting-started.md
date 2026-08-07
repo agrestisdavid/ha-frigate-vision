@@ -14,11 +14,16 @@ but version 0.2.x does not send those media types.
 
 ## Install one HACS package
 
-1. Open HACS.
-2. Add `agrestisdavid/ha-frigate-vision` as a custom repository.
-3. Select the **Integration** category.
-4. Install release `0.2.1`.
-5. Restart Home Assistant.
+[![Open your Home Assistant instance and open a repository inside the Home Assistant Community Store.](https://my.home-assistant.io/badges/hacs_repository.svg)](https://my.home-assistant.io/redirect/hacs_repository/?owner=agrestisdavid&repository=ha-frigate-vision&category=integration)
+
+The button opens Frigate Vision directly in HACS. If it cannot find your Home
+Assistant instance:
+
+1. open HACS;
+2. add `agrestisdavid/ha-frigate-vision` as a custom repository;
+3. select the **Integration** category.
+
+Download release `0.2.1`, then restart Home Assistant.
 
 Do not add a separate Lovelace resource for the bundled Card.
 

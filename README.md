@@ -18,9 +18,11 @@ Version `0.2.1` is deliberately independent of LLM Vision:
 
 ## Installation with HACS
 
-1. Add `agrestisdavid/ha-frigate-vision` to HACS as a custom repository with
-   category **Integration**.
-2. Install Frigate Vision and restart Home Assistant.
+[![Open your Home Assistant instance and open a repository inside the Home Assistant Community Store.](https://my.home-assistant.io/badges/hacs_repository.svg)](https://my.home-assistant.io/redirect/hacs_repository/?owner=agrestisdavid&repository=ha-frigate-vision&category=integration)
+
+1. Use the button above, or add `agrestisdavid/ha-frigate-vision` to HACS
+   manually as a custom repository with category **Integration**.
+2. Download Frigate Vision and restart Home Assistant.
 3. Open **Settings → Devices & services → Add integration**, search for
    **Frigate Vision**, and complete the two-step config flow.
 4. Add a Manual card with `type: custom:frigate-vision-card`. No separate
