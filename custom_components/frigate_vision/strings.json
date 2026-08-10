@@ -8,6 +8,7 @@
     "error": {
       "frigate_required": "Select an existing Frigate config entry.",
       "invalid_endpoint": "Enter an absolute HTTP or HTTPS URL.",
+      "invalid_image_source": "Select a supported Frigate image source.",
       "model_required": "Enter a model name."
     },
     "step": {
@@ -27,6 +28,8 @@
           "model": "Model",
           "timeout": "Timeout",
           "target_width": "Target image width",
+          "event_image_source": "Event image source",
+          "recording_wait_timeout": "Recording readiness timeout",
           "max_tokens": "Maximum response tokens",
           "go2rtc_url": "Direct local go2rtc URL (advanced)",
           "go2rtc_url_external": "Direct remote go2rtc URL (advanced)",
@@ -34,6 +37,9 @@
         },
         "data_description": {
           "endpoint": "Base URL ending in /v1, or a complete /chat/completions URL.",
+          "target_width": "Maximum still-image width. Smaller images are never enlarged.",
+          "event_image_source": "Prefer a frame from the recording/main stream or always use Frigate's detect event snapshot.",
+          "recording_wait_timeout": "How long to wait for recording frames before using the detect snapshot fallback.",
           "go2rtc_url": "Optional local/internal override. Leave empty for the Home Assistant proxy. External clients never reuse this URL.",
           "go2rtc_url_external": "Leave empty to use the Home Assistant proxy externally. External clients never fall back to the local go2rtc URL.",
           "go2rtc_modes": "Comma-separated: webrtc,mse,mp4,hls,mjpeg. WebRTC is tried first and MSE is the first fallback."
@@ -44,6 +50,7 @@
   "options": {
     "error": {
       "invalid_endpoint": "Enter an absolute HTTP or HTTPS URL.",
+      "invalid_image_source": "Select a supported Frigate image source.",
       "model_required": "Enter a model name."
     },
     "step": {
@@ -55,16 +62,29 @@
           "model": "Model",
           "timeout": "Timeout",
           "target_width": "Target image width",
+          "event_image_source": "Event image source",
+          "recording_wait_timeout": "Recording readiness timeout",
           "max_tokens": "Maximum response tokens",
           "go2rtc_url": "Direct local go2rtc URL (advanced)",
           "go2rtc_url_external": "Direct remote go2rtc URL (advanced)",
           "go2rtc_modes": "Live transport fallback order"
         },
         "data_description": {
+          "target_width": "Maximum still-image width. Smaller images are never enlarged.",
+          "event_image_source": "Prefer a frame from the recording/main stream or always use Frigate's detect event snapshot.",
+          "recording_wait_timeout": "How long to wait for recording frames before using the detect snapshot fallback.",
           "go2rtc_url": "Optional local/internal override. Leave empty for the Home Assistant proxy. External clients never reuse this URL.",
           "go2rtc_url_external": "Leave empty to use the Home Assistant proxy externally. External clients never fall back to the local go2rtc URL.",
           "go2rtc_modes": "Comma-separated: webrtc,mse,mp4,hls,mjpeg. WebRTC is tried first and MSE is the first fallback."
         }
+      }
+    }
+  },
+  "selector": {
+    "event_image_source": {
+      "options": {
+        "recording_preferred": "Recording/main stream with detect fallback",
+        "event_snapshot": "Detect event snapshot"
       }
     }
   }

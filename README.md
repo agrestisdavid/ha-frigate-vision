@@ -1,15 +1,15 @@
 # Frigate Vision
 
 Frigate Vision is a Home Assistant custom integration for analyzing exact
-Frigate event snapshots with an OpenAI-compatible multimodal endpoint. The
-single HACS package also ships the `custom:frigate-vision-card` frontend module
-and a reusable notification Blueprint.
+Frigate event recording frames with an OpenAI-compatible multimodal endpoint.
+The single HACS package also ships the `custom:frigate-vision-card` frontend
+module and a reusable notification Blueprint.
 
-Version `0.2.1` is deliberately independent of LLM Vision:
+Version `0.2.2` is deliberately independent of LLM Vision:
 
 - Frigate remains the canonical source for events, clips, and descriptions.
-- Event and snapshot readiness are retried for up to 20 seconds before the
-  model is called.
+- Recording/main-stream frames are preferred and the detect event snapshot is
+  used as a fallback after the configurable readiness window.
 - Concurrent requests for the same event share one model analysis.
 - Descriptions are written only after a successful, non-empty model response.
 - The bundled Card has its own custom elements and deep-link key.
@@ -66,10 +66,11 @@ running in parallel.
 
 ## Services
 
-`frigate_vision.analyze_event` analyzes the snapshot belonging to an exact
-Frigate event ID. With `store: true`, a successful description is stored on
-that event. Existing descriptions are returned as cache hits unless
-`force: true` is requested.
+`frigate_vision.analyze_event` analyzes the recording/main-stream frame at the
+best timestamp of an exact Frigate event ID and falls back to its detect
+snapshot. With `store: true`, a successful description is stored on that
+event. Existing descriptions are returned as cache hits unless `force: true`
+is requested.
 
 `frigate_vision.analyze_image` analyzes exactly one camera/image entity, Home
 Assistant Media Source, or allowlisted local image file. Arbitrary remote image
@@ -83,6 +84,8 @@ event_id: "example-event-id"
 key_frame: "/api/frigate/example/notifications/example-event-id/snapshot.jpg"
 stored: true
 cached: false
+image_source: recording
+source_frame_time: 1720000000.125
 duration_ms: 1842
 ```
 

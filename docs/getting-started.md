@@ -23,7 +23,7 @@ Assistant instance:
 2. add `agrestisdavid/ha-frigate-vision` as a custom repository;
 3. select the **Integration** category.
 
-Download release `0.2.1`, then restart Home Assistant.
+Download release `0.2.2`, then restart Home Assistant.
 
 Do not add a separate Lovelace resource for the bundled Card.
 
@@ -46,7 +46,9 @@ parallel.
 4. Select the existing Frigate instance.
 5. Enter the provider endpoint, API key, and model.
 6. Review the image and timeout limits.
-7. Leave the direct go2rtc URL fields empty to use the authenticated Home
+7. Choose recording/main-stream frames with detect fallback, or the detect
+   snapshot only. Existing entries default to recording with a 20-second wait.
+8. Leave the direct go2rtc URL fields empty to use the authenticated Home
    Assistant Frigate proxy.
 
 The API key is not copied from another integration. Enter it directly in the

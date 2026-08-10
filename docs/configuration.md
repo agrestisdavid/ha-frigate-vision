@@ -18,6 +18,8 @@ Only one Frigate Vision entry can be created for a given Frigate entry.
 | Model | Provider-specific vision-capable model identifier |
 | Timeout | Maximum provider request duration |
 | Target width | Maximum image width sent to the provider |
+| Event image source | Prefer recording/main stream or always use the detect snapshot |
+| Recording readiness timeout | Wait before falling back to the detect snapshot |
 | Token limit | Maximum response token count |
 | Home Assistant Frigate proxy | Default authenticated live path; no URL required |
 | Direct local go2rtc URL | Optional advanced/standalone override |
@@ -50,6 +52,8 @@ The provider receives a Chat Completions request with:
 Frigate Vision converts the source to RGB JPEG and downsizes it only when it
 exceeds the target width. Empty, oversized, decompression-bomb, and unsupported
 image inputs are rejected before an HTTP request is made to the provider.
+Smaller images are never enlarged. Aspect ratio is preserved, including for a
+dual-lens camera that already provides one stitched ultra-wide panorama.
 
 ## Options
 
@@ -68,3 +72,7 @@ private routing information.
 
 Changing options reloads the Frigate Vision entry. In-flight event tasks are
 bound to that entry and are cancelled during unload.
+
+Existing entries created before 0.2.2 use compatibility defaults without a
+migration: recording is preferred, recording readiness is 20 seconds, and the
+still-image target width remains 1280 pixels.

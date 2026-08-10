@@ -6,6 +6,7 @@ import asyncio
 import base64
 import json
 import logging
+import math
 import mimetypes
 from dataclasses import dataclass, field
 from io import BytesIO
@@ -32,15 +33,22 @@ from .const import (
     ATTR_FRIGATE_CONFIG,
     CONF_API_KEY,
     CONF_ENDPOINT,
+    CONF_EVENT_IMAGE_SOURCE,
     CONF_FRIGATE_ENTRY_ID,
     CONF_MAX_TOKENS,
     CONF_MODEL,
+    CONF_RECORDING_WAIT_TIMEOUT,
     CONF_TARGET_WIDTH,
     CONF_TIMEOUT,
+    DEFAULT_EVENT_IMAGE_SOURCE,
     DEFAULT_MAX_TOKENS,
+    DEFAULT_RECORDING_WAIT_TIMEOUT,
     DEFAULT_TARGET_WIDTH,
     DEFAULT_TIMEOUT,
+    EVENT_IMAGE_SOURCE_SNAPSHOT,
     FRIGATE_DOMAIN,
+    IMAGE_SOURCE_EVENT_SNAPSHOT,
+    IMAGE_SOURCE_RECORDING,
     MAX_IMAGE_BYTES,
     MAX_IMAGE_PIXELS,
     MAX_PROVIDER_RESPONSE_BYTES,
@@ -55,9 +63,11 @@ from .utils import (
 _LOGGER = logging.getLogger(__name__)
 
 EVENT_READINESS_TIMEOUT = 20.0
+DETECT_FALLBACK_TIMEOUT = 5.0
 EVENT_RETRY_DELAYS = (0.5, 1.0, 2.0, 4.0)
 MAX_EVENT_RESPONSE_BYTES = 2 * 1024 * 1024
 MAX_SOURCE_ATTEMPT_TIMEOUT = 10.0
+IMMEDIATE_SOURCE_ATTEMPT_TIMEOUT = 1.0
 TRANSIENT_SOURCE_STATUSES = frozenset({404, 408, 425, 429, *range(500, 600)})
 _FlightKey = TypeVar("_FlightKey")
 
@@ -87,6 +97,10 @@ class FrigateEventError(FrigateVisionError):
         super().__init__(message)
         self.transient = transient
         self.status = status
+
+
+class FrigateAuthenticationError(FrigateEventError):
+    """Frigate authentication failed permanently."""
 
 
 async def _read_limited_response(
@@ -369,14 +383,20 @@ class FrigateAdapter:
         except Exception as err:
             status = self._nested_status(err)
             if status is not None:
-                raise self._http_error(source, event_id, status) from err
+                http_error = self._http_error(source, event_id, status)
+                if http_error.transient:
+                    raise http_error from err
+                raise FrigateAuthenticationError(
+                    str(http_error),
+                    status=status,
+                ) from err
             if self._is_nested_network_error(err):
                 raise FrigateEventError(
                     f"Frigate-Authentifizierung für {source} ist "
                     "vorübergehend nicht erreichbar.",
                     transient=True,
                 ) from err
-            raise FrigateEventError(
+            raise FrigateAuthenticationError(
                 f"Frigate-Authentifizierung für {source} ist fehlgeschlagen."
             ) from err
         return dict(headers) if isinstance(headers, dict) else {}
@@ -442,12 +462,50 @@ class FrigateAdapter:
         timeout: float = MAX_SOURCE_ATTEMPT_TIMEOUT,
     ) -> bytes:
         """Read binary snapshot data using Frigate's existing authentication."""
-        source = "Snapshot"
+        return await self._get_binary(
+            path=f"api/events/{event_id}/snapshot.jpg",
+            source="Snapshot",
+            event_id=event_id,
+            timeout=timeout,
+            max_bytes=MAX_IMAGE_BYTES,
+            size_label="25 MB",
+        )
+
+    async def get_recording_snapshot(
+        self,
+        event_id: str,
+        camera: str,
+        frame_time: float,
+        *,
+        timeout: float = MAX_SOURCE_ATTEMPT_TIMEOUT,
+    ) -> bytes:
+        """Read a JPEG generated from the recording role at an exact timestamp."""
+        timestamp = f"{frame_time:.6f}"
+        return await self._get_binary(
+            path=f"api/{camera}/recordings/{timestamp}/snapshot.jpg",
+            source="Recording-Snapshot",
+            event_id=event_id,
+            timeout=timeout,
+            max_bytes=MAX_IMAGE_BYTES,
+            size_label="25 MB",
+        )
+
+    async def _get_binary(
+        self,
+        *,
+        path: str,
+        source: str,
+        event_id: str,
+        timeout: float,
+        max_bytes: int,
+        size_label: str,
+    ) -> bytes:
+        """Fetch one authenticated bounded Frigate image."""
         started = monotonic()
         headers = await self._auth_headers(source, event_id, timeout)
         request_timeout = max(0.001, timeout - (monotonic() - started))
         validate_ssl = getattr(self._client, "validate_ssl", True)
-        url = self._url(f"api/events/{event_id}/snapshot.jpg")
+        url = self._url(path)
         try:
             async with self._session.get(
                 url,
@@ -460,7 +518,9 @@ class FrigateAdapter:
                 data = await _read_limited_response(
                     response,
                     FrigateEventError,
-                    f"Snapshot für Frigate-Ereignis {event_id}",
+                    f"{source} für Frigate-Ereignis {event_id}",
+                    max_bytes=max_bytes,
+                    size_label=size_label,
                 )
         except FrigateEventError:
             raise
@@ -468,13 +528,13 @@ class FrigateAdapter:
             raise self._http_error(source, event_id, err.status) from err
         except (asyncio.TimeoutError, TimeoutError, ClientError) as err:
             raise FrigateEventError(
-                f"Snapshot für Frigate-Ereignis {event_id} ist "
+                f"{source} für Frigate-Ereignis {event_id} ist "
                 "vorübergehend nicht erreichbar.",
                 transient=True,
             ) from err
         if not data:
             raise FrigateEventError(
-                f"Snapshot für Frigate-Ereignis {event_id} ist noch leer.",
+                f"{source} für Frigate-Ereignis {event_id} ist noch leer.",
                 transient=True,
             )
         return data
@@ -585,19 +645,61 @@ async def load_local_file(hass: HomeAssistant, file_path: str) -> tuple[bytes, s
     return data, str(path)
 
 
-def _source_attempt_timeout(deadline: float) -> float:
+def _source_attempt_timeout(
+    deadline: float,
+    *,
+    allow_expired_attempt: bool = False,
+) -> float:
     """Clamp a source request to the remaining shared readiness window."""
-    return min(MAX_SOURCE_ATTEMPT_TIMEOUT, max(0.001, deadline - monotonic()))
+    remaining = deadline - monotonic()
+    if allow_expired_attempt and remaining <= 0:
+        return IMMEDIATE_SOURCE_ATTEMPT_TIMEOUT
+    return min(MAX_SOURCE_ATTEMPT_TIMEOUT, max(0.001, remaining))
 
 
-async def _wait_for_event_snapshot(
+def event_frame_time(event: dict[str, Any]) -> float | None:
+    """Return Frigate's preferred event frame time using documented precedence."""
+    data = event.get("data")
+    values: list[Any] = []
+    if isinstance(data, dict):
+        values.extend((data.get("snapshot_frame_time"), data.get("frame_time")))
+    values.append(event.get("start_time"))
+    for value in values:
+        if isinstance(value, bool):
+            continue
+        try:
+            parsed = float(value)
+        except (TypeError, ValueError):
+            continue
+        if math.isfinite(parsed) and parsed > 0:
+            return parsed
+    return None
+
+
+def event_camera(event: dict[str, Any]) -> str | None:
+    """Return a non-empty Frigate camera key from event metadata."""
+    value = str(event.get("camera", "")).strip()
+    return value or None
+
+
+async def _sleep_for_retry(attempt: int, deadline: float) -> None:
+    """Sleep according to the bounded event retry schedule."""
+    remaining = deadline - monotonic()
+    if remaining <= 0:
+        return
+    delay = EVENT_RETRY_DELAYS[min(attempt, len(EVENT_RETRY_DELAYS) - 1)]
+    await asyncio.sleep(min(delay, remaining))
+
+
+async def _wait_for_detect_snapshot(
     runtime: RuntimeData,
     *,
     event_id: str,
     force: bool,
     deadline: float,
-) -> tuple[dict[str, Any], bytes | None, str]:
-    """Wait until an event and its snapshot are jointly ready."""
+    timeout_seconds: float,
+) -> tuple[dict[str, Any], bytes | None, str, str | None, float | None]:
+    """Wait until event metadata and its detect-role snapshot are ready."""
     attempt = 0
     last_error: FrigateEventError | None = None
 
@@ -609,7 +711,7 @@ async def _wait_for_event_snapshot(
             )
             cached_description = event_description(event)
             if cached_description and not force:
-                return event, None, cached_description
+                return event, None, cached_description, None, event_frame_time(event)
 
             if monotonic() >= deadline:
                 break
@@ -617,24 +719,134 @@ async def _wait_for_event_snapshot(
                 event_id,
                 timeout=_source_attempt_timeout(deadline),
             )
-            return event, snapshot, ""
+            return (
+                event,
+                snapshot,
+                "",
+                IMAGE_SOURCE_EVENT_SNAPSHOT,
+                event_frame_time(event),
+            )
         except FrigateEventError as err:
             if not err.transient:
                 raise
             last_error = err
 
-        remaining = deadline - monotonic()
-        if remaining <= 0:
+        if deadline - monotonic() <= 0:
             break
-        delay = EVENT_RETRY_DELAYS[min(attempt, len(EVENT_RETRY_DELAYS) - 1)]
+        await _sleep_for_retry(attempt, deadline)
         attempt += 1
-        await asyncio.sleep(min(delay, remaining))
 
     detail = str(last_error) if last_error else "Quelle nicht rechtzeitig bereit"
     raise FrigateEventError(
         f"Frigate-Ereignis {event_id} war innerhalb von "
-        f"{EVENT_READINESS_TIMEOUT:g} Sekunden nicht vollständig verfügbar: "
+        f"{timeout_seconds:g} Sekunden nicht vollständig verfügbar: "
         f"{detail}"
+    )
+
+
+async def _wait_for_recording_snapshot(
+    runtime: RuntimeData,
+    *,
+    event_id: str,
+    force: bool,
+    wait_timeout: float,
+) -> tuple[dict[str, Any], bytes | None, str, str | None, float | None]:
+    """Prefer a recording-role frame, then fall back to the detect snapshot."""
+    deadline = monotonic() + max(0.0, wait_timeout)
+    attempt = 0
+    first_attempt = True
+    allow_immediate_attempt = wait_timeout <= 0
+
+    while first_attempt or monotonic() < deadline:
+        first_attempt = False
+        try:
+            event = await runtime.frigate.get_event(
+                event_id,
+                timeout=_source_attempt_timeout(
+                    deadline,
+                    allow_expired_attempt=allow_immediate_attempt,
+                ),
+            )
+            cached_description = event_description(event)
+            if cached_description and not force:
+                return event, None, cached_description, None, event_frame_time(event)
+
+            camera = event_camera(event)
+            frame_time = event_frame_time(event)
+            if camera is None or frame_time is None:
+                break
+            snapshot = await runtime.frigate.get_recording_snapshot(
+                event_id,
+                camera,
+                frame_time,
+                timeout=_source_attempt_timeout(
+                    deadline,
+                    allow_expired_attempt=allow_immediate_attempt,
+                ),
+            )
+            return event, snapshot, "", IMAGE_SOURCE_RECORDING, frame_time
+        except FrigateAuthenticationError:
+            raise
+        except FrigateEventError as err:
+            if err.status in {401, 403}:
+                raise
+            if not err.transient:
+                break
+
+        if deadline - monotonic() <= 0:
+            break
+        await _sleep_for_retry(attempt, deadline)
+        attempt += 1
+
+    return await _wait_for_detect_snapshot(
+        runtime,
+        event_id=event_id,
+        force=force,
+        deadline=monotonic() + DETECT_FALLBACK_TIMEOUT,
+        timeout_seconds=DETECT_FALLBACK_TIMEOUT,
+    )
+
+
+def _recording_wait_timeout(runtime: RuntimeData) -> float:
+    """Return the bounded recording readiness timeout for one entry."""
+    config = merged_config(runtime.entry)
+    return min(
+        30.0,
+        max(
+            0.0,
+            float(
+                config.get(
+                    CONF_RECORDING_WAIT_TIMEOUT,
+                    DEFAULT_RECORDING_WAIT_TIMEOUT,
+                )
+            ),
+        ),
+    )
+
+
+async def _acquire_event_snapshot(
+    runtime: RuntimeData,
+    *,
+    event_id: str,
+    force: bool,
+) -> tuple[dict[str, Any], bytes | None, str, str | None, float | None]:
+    """Acquire an event image according to the config-entry source policy."""
+    config = merged_config(runtime.entry)
+    source = str(config.get(CONF_EVENT_IMAGE_SOURCE, DEFAULT_EVENT_IMAGE_SOURCE))
+    if source == EVENT_IMAGE_SOURCE_SNAPSHOT:
+        return await _wait_for_detect_snapshot(
+            runtime,
+            event_id=event_id,
+            force=force,
+            deadline=monotonic() + EVENT_READINESS_TIMEOUT,
+            timeout_seconds=EVENT_READINESS_TIMEOUT,
+        )
+
+    return await _wait_for_recording_snapshot(
+        runtime,
+        event_id=event_id,
+        force=force,
+        wait_timeout=_recording_wait_timeout(runtime),
     )
 
 
@@ -647,13 +859,17 @@ async def _analyze_event_once(
     force: bool,
 ) -> dict[str, Any]:
     """Run one cache/readiness/provider pipeline for an exact event."""
-    deadline = monotonic() + EVENT_READINESS_TIMEOUT
     key_frame = runtime.frigate.key_frame_url(event_id, camera_entity)
-    _event, snapshot, cached_description = await _wait_for_event_snapshot(
+    (
+        _event,
+        snapshot,
+        cached_description,
+        image_source,
+        source_frame_time,
+    ) = await _acquire_event_snapshot(
         runtime,
         event_id=event_id,
         force=force,
-        deadline=deadline,
     )
     if cached_description:
         return {
@@ -662,6 +878,8 @@ async def _analyze_event_once(
             "key_frame": key_frame,
             "stored": False,
             "cached": True,
+            "image_source": None,
+            "source_frame_time": source_frame_time,
         }
 
     if snapshot is None:
@@ -675,6 +893,8 @@ async def _analyze_event_once(
         "key_frame": key_frame,
         "stored": False,
         "cached": False,
+        "image_source": image_source,
+        "source_frame_time": source_frame_time,
     }
 
 
