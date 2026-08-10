@@ -5,13 +5,14 @@ Frigate event recording frames with an OpenAI-compatible multimodal endpoint. Th
 single HACS package also ships the `custom:frigate-vision-card` frontend module
 and a reusable notification Blueprint.
 
-Version `0.3.0` is deliberately independent of LLM Vision:
+Version `0.3.1` is deliberately independent of LLM Vision:
 
 - Frigate remains the canonical source for events, clips, and descriptions.
 - Recording/main-stream frames are preferred and the detect event snapshot is
   used as a fallback after the configurable readiness window.
-- Event video analysis sends an exact 1-fps frame sequence instead of an
-  opaque MP4 upload.
+- Event video analysis sends 5–15 exact 1-fps recording frames, reduced to at
+  most 1080 pixels high without upscaling, instead of an opaque MP4 upload.
+- Video provider requests use a separate 180-second default timeout.
 - Concurrent requests for the same event share one model analysis.
 - Descriptions are written only after a successful, non-empty model response.
 - The bundled Card has its own custom elements and deep-link key.

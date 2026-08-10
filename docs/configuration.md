@@ -16,7 +16,8 @@ Only one Frigate Vision entry can be created for a given Frigate entry.
 | Endpoint | OpenAI-compatible base URL or full Chat Completions URL |
 | API key | Optional bearer credential sent only to the provider |
 | Model | Provider-specific vision-capable model identifier |
-| Timeout | Maximum provider request duration |
+| Still-image timeout | Maximum provider request duration for image analysis |
+| Video-analysis timeout | Maximum provider request duration for video-frame analysis; default 180 seconds |
 | Target width | Maximum image width sent to the provider |
 | Event image source | Prefer recording/main stream or always use the detect snapshot |
 | Recording readiness timeout | Wait before falling back to the detect snapshot |
@@ -56,9 +57,16 @@ Smaller images are never enlarged. Aspect ratio is preserved, including for a
 dual-lens camera that already provides one stitched ultra-wide panorama.
 
 Video analysis sends chronologically ordered JPEG frames in the same
-multimodal content array. Frames are sampled from Frigate recordings at exactly
-1 fps, reduced to at most 1280 pixels wide, and labelled relative to the best
-event frame. The complete serialized provider request is limited to 25 MB.
+multimodal content array. Between 5 and 15 frames are sampled from Frigate
+recordings at exactly 1 fps, reduced to at most 1080 pixels high, and labelled
+relative to the best event frame. Width follows the source aspect ratio, so a
+3840×2160 frame becomes 1920×1080 and a 5120×1552 panorama becomes
+3563×1080. Frames at or below 1080 pixels high are never enlarged. The
+complete serialized provider request is limited to 25 MB.
+
+Still-image and video-frame requests have independent provider timeouts. The
+defaults are 60 and 180 seconds respectively. Recording readiness waiting is
+separate and occurs before the provider request.
 
 ## Options
 
@@ -80,5 +88,6 @@ bound to that entry and are cancelled during unload.
 
 Existing entries created before 0.2.2 use compatibility defaults without a
 migration: recording is preferred, recording readiness is 20 seconds, and the
-still-image target width remains 1280 pixels. Version 0.3.0 additionally uses a
-fixed maximum video-frame width of 1280 pixels.
+still-image target width remains 1280 pixels. Existing entries also receive
+the 180-second video timeout without a migration. Version 0.3.1 uses a fixed
+maximum video-frame height of 1080 pixels.

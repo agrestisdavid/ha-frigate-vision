@@ -37,7 +37,7 @@ reload or unload cancels work that still references its runtime.
 Video analysis has a separate single-flight key containing event ID, camera,
 prompt, duration, and pre-roll. It captures one fixed event timestamp, samples
 the recording at 1 fps with at most three Frigate extraction requests in
-parallel, immediately normalizes each frame to the configured width, and keeps
+parallel, immediately limits each frame to 1080 pixels high, and keeps
 successful frames while retrying only missing ones. The provider receives all
 ordered frames in one request. No video or image is written to a temporary
 file.

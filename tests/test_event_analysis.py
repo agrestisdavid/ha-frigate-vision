@@ -184,7 +184,7 @@ class FakeProvider:
         self.calls = 0
         self.started = asyncio.Event()
         self.release = asyncio.Event()
-        self.video_target_width = 1280
+        self.video_target_height = 1080
         self.video_frames = []
 
     async def analyze(self, _snapshot: bytes, _prompt: str) -> str:
@@ -366,6 +366,14 @@ class EventAnalysisTests(unittest.IsolatedAsyncioTestCase):
         panorama = self.analysis._prepare_jpeg(jpeg(5120, 1552), 2048)
         self.assertEqual(jpeg_size(small), (640, 360))
         self.assertEqual(jpeg_size(panorama), (2048, 621))
+
+    def test_video_resize_limits_height_without_upscaling(self) -> None:
+        standard = self.analysis._prepare_jpeg(jpeg(3840, 2160), 0, 1080)
+        panorama = self.analysis._prepare_jpeg(jpeg(5120, 1552), 0, 1080)
+        smaller = self.analysis._prepare_jpeg(jpeg(1280, 720), 0, 1080)
+        self.assertEqual(jpeg_size(standard), (1920, 1080))
+        self.assertEqual(jpeg_size(panorama), (3563, 1080))
+        self.assertEqual(jpeg_size(smaller), (1280, 720))
 
     async def test_recording_snapshot_is_preferred_and_reported(self) -> None:
         event = {
@@ -606,9 +614,8 @@ class EventAnalysisTests(unittest.IsolatedAsyncioTestCase):
             "start_time": 100.0,
             "data": {"snapshot_frame_time": 120.0},
         }
-        frigate = FakeFrigate([event], [jpeg()], [jpeg(2560, 960)])
+        frigate = FakeFrigate([event], [jpeg()], [jpeg(5120, 1552)])
         provider = FakeProvider(self.analysis)
-        provider.video_target_width = 2048
 
         result = await self.analysis.analyze_event_video(
             self.recording_runtime(frigate, provider),
@@ -631,7 +638,30 @@ class EventAnalysisTests(unittest.IsolatedAsyncioTestCase):
             [timestamp for _camera, timestamp in frigate.recording_requests],
             [float(value) for value in range(115, 130)],
         )
-        self.assertEqual(jpeg_size(provider.video_frames[0][1]), (1280, 480))
+        self.assertEqual(jpeg_size(provider.video_frames[0][1]), (3563, 1080))
+
+    async def test_video_rejects_durations_outside_stable_range(self) -> None:
+        runtime = self.recording_runtime(
+            FakeFrigate([{}], [jpeg()]),
+            FakeProvider(self.analysis),
+        )
+        for duration in (4, 16):
+            with (
+                self.subTest(duration=duration),
+                self.assertRaisesRegex(
+                    self.analysis.FrigateEventError,
+                    "5 und 15",
+                ),
+            ):
+                await self.analysis.analyze_event_video(
+                    runtime,
+                    event_id=self.event_id,
+                    camera_entity=None,
+                    prompt="Describe.",
+                    store=False,
+                    duration_seconds=duration,
+                    pre_seconds=0,
+                )
 
     async def test_video_missing_recording_uses_image_fallback(self) -> None:
         unavailable = self.analysis.FrigateEventError(
@@ -1096,6 +1126,46 @@ class FakeConfigEntry:
 
 
 class ProviderTests(unittest.IsolatedAsyncioTestCase):
+    async def test_provider_uses_separate_default_image_and_video_timeouts(
+        self,
+    ) -> None:
+        provider = ANALYSIS.OpenAICompatibleProvider(
+            FakeHass(),
+            {
+                "endpoint": "https://model.example.test/v1",
+                "model": "vision-model",
+            },
+        )
+        body = json.dumps({"choices": [{"message": {"content": "ok"}}]}).encode()
+        provider._session = FakeSession(
+            FakeResponse(200, body),
+            FakeResponse(200, body),
+        )
+
+        await provider.analyze(jpeg(), "Describe image.")
+        await provider.analyze_video_frames([(0.0, jpeg())], "Describe video.")
+
+        self.assertEqual(
+            [call[1]["timeout"].total for call in provider._session.calls],
+            [60, 180],
+        )
+
+    async def test_provider_uses_configured_video_timeout(self) -> None:
+        provider = ANALYSIS.OpenAICompatibleProvider(
+            FakeHass(),
+            {
+                "endpoint": "https://model.example.test/v1",
+                "model": "vision-model",
+                "video_timeout": 237,
+            },
+        )
+        body = json.dumps({"choices": [{"message": {"content": "ok"}}]}).encode()
+        provider._session = FakeSession(FakeResponse(200, body))
+
+        await provider.analyze_video_frames([(0.0, jpeg())], "Describe video.")
+
+        self.assertEqual(provider._session.calls[0][1]["timeout"].total, 237)
+
     async def test_video_request_contains_ordered_labelled_images(self) -> None:
         provider = ANALYSIS.OpenAICompatibleProvider(
             FakeHass(),

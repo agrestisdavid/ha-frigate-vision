@@ -83,6 +83,8 @@ There is no external fallback to the local direct URL.
 - Frigate event metadata body: 2 MB;
 - recording readiness: configurable 0–30 seconds, default 20;
 - detect snapshot fallback: 5 seconds;
-- event video: 5–60 one-frame-per-second frames;
+- still-image provider timeout: configurable, default 60 seconds;
+- video-frame provider timeout: configurable, default 180 seconds;
+- event video: 5–15 one-frame-per-second frames, at most 1080 pixels high;
 - MP4 metadata wait: 40 seconds;
 - HLS fallback wait: 60 seconds.

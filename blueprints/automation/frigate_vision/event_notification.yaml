@@ -114,7 +114,7 @@ blueprint:
           selector:
             number:
               min: 5
-              max: 60
+              max: 15
               step: 1
               unit_of_measurement: s
               mode: box
@@ -127,7 +127,7 @@ blueprint:
           selector:
             number:
               min: 0
-              max: 60
+              max: 15
               step: 1
               unit_of_measurement: s
               mode: box
@@ -241,9 +241,12 @@ variables:
   fv_analysis_media_type: !input analysis_media_type
   fv_video_duration_input: !input video_duration_seconds
   fv_video_pre_input: !input video_pre_seconds
-  fv_video_duration_seconds: "{{ fv_video_duration_input | int(15) }}"
+  fv_video_duration_seconds: >-
+    {% set value = fv_video_duration_input | int(15) %}
+    {{ [15, [value, 5] | max] | min }}
   fv_video_pre_seconds: >-
-    {{ [fv_video_pre_input | int(5), fv_video_duration_seconds | int(15)] | min }}
+    {{ [[fv_video_pre_input | int(5), 0] | max,
+        fv_video_duration_seconds | int(15)] | min }}
   fv_store_description: !input store_description
   fv_tag_prefix: !input notification_tag_prefix
   fv_mute_boolean_input: !input mute_boolean

@@ -26,7 +26,8 @@
           "endpoint": "OpenAI-compatible endpoint",
           "api_key": "API key",
           "model": "Model",
-          "timeout": "Timeout",
+          "timeout": "Still-image timeout",
+          "video_timeout": "Video-analysis timeout",
           "target_width": "Target image width",
           "event_image_source": "Event image source",
           "recording_wait_timeout": "Recording readiness timeout",
@@ -37,6 +38,8 @@
         },
         "data_description": {
           "endpoint": "Base URL ending in /v1, or a complete /chat/completions URL.",
+          "timeout": "Maximum provider request duration for still-image analysis.",
+          "video_timeout": "Maximum provider request duration for video-frame analysis.",
           "target_width": "Maximum still-image width. Smaller images are never enlarged.",
           "event_image_source": "Prefer a frame from the recording/main stream or always use Frigate's detect event snapshot.",
           "recording_wait_timeout": "How long to wait for recording frames before using the detect snapshot fallback.",
@@ -60,7 +63,8 @@
           "endpoint": "OpenAI-compatible endpoint",
           "api_key": "API key",
           "model": "Model",
-          "timeout": "Timeout",
+          "timeout": "Still-image timeout",
+          "video_timeout": "Video-analysis timeout",
           "target_width": "Target image width",
           "event_image_source": "Event image source",
           "recording_wait_timeout": "Recording readiness timeout",
@@ -70,6 +74,8 @@
           "go2rtc_modes": "Live transport fallback order"
         },
         "data_description": {
+          "timeout": "Maximum provider request duration for still-image analysis.",
+          "video_timeout": "Maximum provider request duration for video-frame analysis.",
           "target_width": "Maximum still-image width. Smaller images are never enlarged.",
           "event_image_source": "Prefer a frame from the recording/main stream or always use Frigate's detect event snapshot.",
           "recording_wait_timeout": "How long to wait for recording frames before using the detect snapshot fallback.",

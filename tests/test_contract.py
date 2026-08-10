@@ -183,6 +183,7 @@ class PackageContractTests(unittest.TestCase):
                 "event_image_source",
                 "recording_wait_timeout",
                 "target_width",
+                "video_timeout",
             ):
                 self.assertIn(key, steps["provider"]["data"])
             self.assertEqual(

@@ -64,15 +64,15 @@ data:
 response_variable: analysis
 ```
 
-`duration_seconds` accepts 5–60 and defaults to 15. `pre_seconds` defaults to
+`duration_seconds` accepts 5–15 and defaults to 15. `pre_seconds` defaults to
 5 and cannot exceed the duration. A 15/5 request samples 15 frames at offsets
 `-5` through `+9`, representing the half-open interval `[best-5, best+10)`.
 The camera and best-frame timestamp are captured once when the service starts.
 
-Fifteen frames are the compatibility default for the tested 49,152-token
-provider slot. Longer windows require a provider-side visual token budget that
-fits all frames plus prompt and response; the 60-second API limit is not a
-promise that every configured endpoint has enough context.
+Frames are reduced to at most 1080 pixels high without upscaling; width follows
+the recording aspect ratio. Fifteen frames are the tested stable maximum for
+this release. The video provider request has its own configurable timeout,
+180 seconds by default, after the separate recording-readiness window.
 
 Identical concurrent calls share frame acquisition and one provider request.
 An existing still-image description does not suppress video analysis. If the

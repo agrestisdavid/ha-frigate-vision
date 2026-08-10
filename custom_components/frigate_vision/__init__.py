@@ -80,7 +80,7 @@ VIDEO_EVENT_SCHEMA = vol.All(
                 vol.Range(min=MIN_VIDEO_DURATION, max=MAX_VIDEO_DURATION),
             ),
             vol.Optional("pre_seconds", default=DEFAULT_VIDEO_PRE_SECONDS): vol.All(
-                vol.Coerce(int), vol.Range(min=0, max=60)
+                vol.Coerce(int), vol.Range(min=0, max=MAX_VIDEO_DURATION)
             ),
         }
     ),
