@@ -52,9 +52,11 @@ def load_integration():
         ALLOW_EXTRA=object(),
         All=lambda *values: values,
         Any=lambda *values: values,
+        Coerce=lambda value: value,
         Invalid=Invalid,
         Optional=lambda key, **_kwargs: key,
         Required=lambda key, **_kwargs: key,
+        Range=lambda **_kwargs: object(),
         Schema=lambda value, **_kwargs: value,
     )
 
@@ -114,6 +116,7 @@ def load_integration():
         FrigateVisionError=Exception,
         RuntimeData=object,
         analyze_event=None,
+        analyze_event_video=None,
         analyze_image=None,
         build_runtime=None,
         merged_config=lambda entry: {**entry.data, **entry.options},

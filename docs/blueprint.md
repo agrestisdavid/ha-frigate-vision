@@ -34,6 +34,12 @@ Shadow is the default:
 Optional shadow actions are intended for deliberate diagnostics. Leave them
 empty for a completely quiet shadow run.
 
+The analysis medium defaults to **Image**, preserving existing automation
+behavior. **Video** calls the 1-fps event-video service with configurable
+duration and pre-roll. The initial notification still runs before analysis;
+recording readiness waiting occurs inside the service and introduces no fixed
+Blueprint delay.
+
 ## Active mode
 
 When an event obtains a notification slot:
@@ -51,6 +57,8 @@ The action selector receives stable variables including:
 - `fv_notification_tag` and `fv_notification_group`;
 - snapshot, thumbnail, and clip URLs;
 - `fv_analysis`, `fv_response_text`, `fv_stored`, and `fv_cached`.
+- `fv_media_type`, `fv_image_source`, and `fv_source_frame_time`;
+- `fv_frame_count`, `fv_window_start`, and `fv_window_end`.
 
 The initial and analysis phases use the same tag, allowing a mobile
 notification update instead of a second notification.
@@ -60,6 +68,8 @@ notification update instead of a second notification.
 The automation uses `mode: queued`, `max: 50`, and
 `max_exceeded: warning`. Allowed events are analyzed one after another per
 Blueprint instance, protecting the provider from parallel calls.
+Longer video analyses can therefore delay later queued events for the same
+Blueprint instance; they do not create parallel load on the model endpoint.
 
 At more than 50 active and queued runs, Home Assistant rejects additional
 runs and logs a warning. This explicit overflow limit is not a persistent

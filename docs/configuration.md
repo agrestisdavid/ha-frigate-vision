@@ -43,7 +43,7 @@ embedded usernames or passwords are rejected.
 
 ## Multimodal request format
 
-The provider receives a Chat Completions request with:
+For still images, the provider receives a Chat Completions request with:
 
 - one text prompt;
 - one JPEG image as an `image_url` data URL;
@@ -54,6 +54,11 @@ exceeds the target width. Empty, oversized, decompression-bomb, and unsupported
 image inputs are rejected before an HTTP request is made to the provider.
 Smaller images are never enlarged. Aspect ratio is preserved, including for a
 dual-lens camera that already provides one stitched ultra-wide panorama.
+
+Video analysis sends chronologically ordered JPEG frames in the same
+multimodal content array. Frames are sampled from Frigate recordings at exactly
+1 fps, reduced to at most 1280 pixels wide, and labelled relative to the best
+event frame. The complete serialized provider request is limited to 25 MB.
 
 ## Options
 
@@ -75,4 +80,5 @@ bound to that entry and are cancelled during unload.
 
 Existing entries created before 0.2.2 use compatibility defaults without a
 migration: recording is preferred, recording readiness is 20 seconds, and the
-still-image target width remains 1280 pixels.
+still-image target width remains 1280 pixels. Version 0.3.0 additionally uses a
+fixed maximum video-frame width of 1280 pixels.

@@ -2,7 +2,8 @@
 
 Frigate Vision combines three components in one Home Assistant HACS package:
 
-- a custom integration that analyzes exact Frigate recording frames with an
+- a custom integration that analyzes exact Frigate recording frames or
+  1-fps event sequences with an
   OpenAI-compatible multimodal endpoint;
 - the automatically loaded `custom:frigate-vision-card` for events, clips,
   recordings, reviews, and go2rtc live streams;
@@ -13,13 +14,13 @@ timeline database. A successful event analysis can be written to the exact
 Frigate event as `data.description`, while clips and event metadata continue
 to come from Frigate.
 
-## What version 0.2.2 provides
+## What version 0.3.x provides
 
 Event creation and REST availability are not always simultaneous. The
 integration therefore waits for a recording/main-stream frame and then falls
-back to the detect event snapshot. Temporary source failures are retried before
-the provider is called. Provider calls and Frigate writes are never retried
-automatically.
+back to the detect event snapshot. The video service samples a fixed recording
+window at 1 fps and falls back to one fresh image if that complete window is
+unavailable. Provider calls and Frigate writes are never retried automatically.
 
 The Card is bundled with the integration and registered as a versioned
 frontend module. A separate HACS dashboard package or manual Lovelace resource

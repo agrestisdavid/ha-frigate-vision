@@ -11,6 +11,10 @@
 | `cached` | boolean | Existing Frigate description was used |
 | `image_source` | string or null | Actual source: `recording`, `event_snapshot`, or null for a cache hit |
 | `source_frame_time` | number or null | Frigate timestamp selected for analysis |
+| `media_type` | string | Video service only: `video_frames` or `image_fallback` |
+| `frame_count` | integer | Video service only: analyzed frame count |
+| `window_start` | number or null | Video service recording-window start |
+| `window_end` | number or null | Video service recording-window end (exclusive) |
 | `duration_ms` | integer | Total service duration |
 
 ## Card top-level options
@@ -73,10 +77,12 @@ There is no external fallback to the local direct URL.
 ## Limits
 
 - input image body: 25 MB;
+- serialized video provider request, including Base64 and JSON: 25 MB total;
 - decoded image: 40 million pixels;
 - provider response body: 1 MB;
 - Frigate event metadata body: 2 MB;
 - recording readiness: configurable 0–30 seconds, default 20;
 - detect snapshot fallback: 5 seconds;
+- event video: 5–60 one-frame-per-second frames;
 - MP4 metadata wait: 40 seconds;
 - HLS fallback wait: 60 seconds.

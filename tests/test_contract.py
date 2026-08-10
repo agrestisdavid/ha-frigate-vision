@@ -142,7 +142,8 @@ class PackageContractTests(unittest.TestCase):
         source = (COMPONENT / "__init__.py").read_text(encoding="utf-8")
         analysis = (COMPONENT / "analysis.py").read_text(encoding="utf-8")
         self.assertIn("cv.config_entry_only_config_schema(DOMAIN)", source)
-        self.assertGreaterEqual(source.count("SupportsResponse.ONLY"), 2)
+        self.assertGreaterEqual(source.count("SupportsResponse.ONLY"), 3)
+        self.assertIn("SERVICE_ANALYZE_EVENT_VIDEO", source)
         self.assertIn('f"api/events/{event_id}/description"', analysis)
         combined = "\n".join(
             path.read_text(encoding="utf-8") for path in COMPONENT.rglob("*.py")
@@ -156,6 +157,7 @@ class PackageContractTests(unittest.TestCase):
         self.assertIn("media_source:", services)
         self.assertIn("file_path:", services)
         self.assertNotIn("image_url:", services)
+        self.assertIn("analyze_event_video:", services)
 
     def test_config_flow_uses_portable_two_step_form(self):
         config_flow = (COMPONENT / "config_flow.py").read_text(encoding="utf-8")

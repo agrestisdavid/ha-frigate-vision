@@ -86,12 +86,51 @@ blueprint:
         analysis_prompt:
           name: Analyse-Prompt
           default: >-
-            Beschreibe knapp und sachlich, was im Bild geschieht. Nenne
+            Beschreibe knapp und sachlich, was im Bild oder in der zeitlich
+            geordneten Bildsequenz geschieht. Nenne
             relevante Personen, Fahrzeuge, Tiere und Handlungen. Spekuliere
             nicht über nicht sichtbare Details.
           selector:
             text:
               multiline: true
+        analysis_media_type:
+          name: Analysemedium
+          description: >-
+            Bild analysiert ein einzelnes Mainstream-/Recording-Bild mit
+            Detect-Fallback. Video analysiert Recording-Frames mit 1 fps.
+          default: image
+          selector:
+            select:
+              options:
+                - label: Bild
+                  value: image
+                - label: Video
+                  value: video
+              mode: dropdown
+        video_duration_seconds:
+          name: Videolänge
+          description: Anzahl der Recording-Frames bei einem Frame pro Sekunde.
+          default: 15
+          selector:
+            number:
+              min: 5
+              max: 60
+              step: 1
+              unit_of_measurement: s
+              mode: box
+        video_pre_seconds:
+          name: Vorlauf vor dem besten Bild
+          description: >-
+            Anteil des Videozeitfensters vor dem besten Ereignisbild. Werte
+            oberhalb der Videolänge werden automatisch begrenzt.
+          default: 5
+          selector:
+            number:
+              min: 0
+              max: 60
+              step: 1
+              unit_of_measurement: s
+              mode: box
         store_description:
           name: Beschreibung in Frigate speichern
           description: >-
@@ -199,6 +238,12 @@ variables:
   fv_ignore_false_positives: !input ignore_false_positives
   fv_mode: !input operation_mode
   fv_analysis_prompt: !input analysis_prompt
+  fv_analysis_media_type: !input analysis_media_type
+  fv_video_duration_input: !input video_duration_seconds
+  fv_video_pre_input: !input video_pre_seconds
+  fv_video_duration_seconds: "{{ fv_video_duration_input | int(15) }}"
+  fv_video_pre_seconds: >-
+    {{ [fv_video_pre_input | int(5), fv_video_duration_seconds | int(15)] | min }}
   fv_store_description: !input store_description
   fv_tag_prefix: !input notification_tag_prefix
   fv_mute_boolean_input: !input mute_boolean
@@ -270,6 +315,12 @@ variables:
   fv_stored: false
   fv_cached: false
   fv_duration_ms: 0
+  fv_media_type: ""
+  fv_image_source: ""
+  fv_source_frame_time: 0
+  fv_frame_count: 0
+  fv_window_start: 0
+  fv_window_end: 0
   fv_error_message: ""
   fv_phase: filter
   fv_title: >-
@@ -372,15 +423,31 @@ actions:
       fv_phase: analysis
       fv_should_store: "{{ fv_mode == 'active' and fv_store_description }}"
 
-  - action: frigate_vision.analyze_event
-    data:
-      event_id: "{{ fv_event_id }}"
-      camera_entity: "{{ fv_camera_entity }}"
-      prompt: "{{ fv_analysis_prompt }}"
-      store: "{{ fv_should_store }}"
-      force: false
-    response_variable: fv_analysis
-    continue_on_error: true
+  - choose:
+      - conditions:
+          - condition: template
+            value_template: "{{ fv_analysis_media_type == 'video' }}"
+        sequence:
+          - action: frigate_vision.analyze_event_video
+            data:
+              event_id: "{{ fv_event_id }}"
+              camera_entity: "{{ fv_camera_entity }}"
+              prompt: "{{ fv_analysis_prompt }}"
+              store: "{{ fv_should_store }}"
+              duration_seconds: "{{ fv_video_duration_seconds }}"
+              pre_seconds: "{{ fv_video_pre_seconds }}"
+            response_variable: fv_analysis
+            continue_on_error: true
+    default:
+      - action: frigate_vision.analyze_event
+        data:
+          event_id: "{{ fv_event_id }}"
+          camera_entity: "{{ fv_camera_entity }}"
+          prompt: "{{ fv_analysis_prompt }}"
+          store: "{{ fv_should_store }}"
+          force: false
+        response_variable: fv_analysis
+        continue_on_error: true
 
   - variables:
       fv_analysis_ok: >-
@@ -400,6 +467,24 @@ actions:
            if fv_analysis is mapping else false }}
       fv_duration_ms: >-
         {{ fv_analysis.get('duration_ms', 0) | int(0)
+           if fv_analysis is mapping else 0 }}
+      fv_media_type: >-
+        {{ fv_analysis.get('media_type', 'image')
+           if fv_analysis is mapping else '' }}
+      fv_image_source: >-
+        {{ fv_analysis.get('image_source', '')
+           if fv_analysis is mapping else '' }}
+      fv_source_frame_time: >-
+        {{ fv_analysis.get('source_frame_time', 0) | float(0)
+           if fv_analysis is mapping else 0 }}
+      fv_frame_count: >-
+        {{ fv_analysis.get('frame_count', 1) | int(1)
+           if fv_analysis is mapping else 0 }}
+      fv_window_start: >-
+        {{ fv_analysis.get('window_start', 0) | float(0)
+           if fv_analysis is mapping else 0 }}
+      fv_window_end: >-
+        {{ fv_analysis.get('window_end', 0) | float(0)
            if fv_analysis is mapping else 0 }}
       fv_error_message: >-
         {{ '' if fv_analysis_ok

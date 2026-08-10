@@ -6,7 +6,7 @@ Symptom: an automation fires immediately, while the Frigate REST event or
 snapshot temporarily returns 404.
 
 Frigate can publish `new`, `update`, and `end` MQTT messages for the same event,
-and REST availability may trail the first message. Frigate Vision 0.2.2 waits
+and REST availability may trail the first message. Frigate Vision 0.3.x waits
 up to the configured recording timeout, then gives the detect event snapshot a
 separate five-second fallback window.
 
@@ -16,6 +16,18 @@ An in-progress event can be visible before Frigate has finalized the recording
 segment containing its best frame. HTTP 404 from the recording-snapshot route
 is retried for up to 20 seconds by default. `analyze_event` then continues with
 the detect snapshot and reports `image_source: event_snapshot`.
+
+Video needs the complete time window. If one or more frames remain unavailable,
+it reports `media_type: image_fallback`. Check Frigate recording retention,
+the camera's `record` role, and segment availability before increasing the
+timeout.
+
+## Multi-frame requests restart the model server
+
+Keep video mode disabled until the OpenAI-compatible endpoint can repeatedly
+process the configured frame count without restarting. A llama.cpp error such
+as `Output buffer size mismatch` is a model-runtime failure, not a Frigate
+camera-resolution problem. Still-image analysis remains usable independently.
 
 ## The model claims it cannot see the image
 
@@ -90,7 +102,7 @@ field.
 ## The Card is registered twice
 
 Remove any old manual or HACS Lovelace resource that points to a separate
-`frigate-vision-card.js`. Version 0.2.x loads the Card from the integration.
+`frigate-vision-card.js`. Version 0.3.x loads the Card from the integration.
 After removal, restart Home Assistant and hard-refresh the browser.
 
 Do not remove a resource belonging to a different legacy Card.
@@ -103,7 +115,7 @@ analyses with `store: true` appear on the exact Frigate event after success.
 
 ## The config flow is empty
 
-Version 0.2.x uses a two-step flow with a normal dropdown instead of a
+Version 0.3.x uses a two-step flow with a normal dropdown instead of a
 config-entry selector. Confirm the installed integration version, restart Home
 Assistant, and reload the frontend. The first step aborts clearly when no
 Frigate integration exists.
