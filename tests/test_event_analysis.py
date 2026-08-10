@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import asyncio
 import importlib.util
+import json
 import sys
 import types
 import unittest
@@ -183,6 +184,8 @@ class FakeProvider:
         self.calls = 0
         self.started = asyncio.Event()
         self.release = asyncio.Event()
+        self.video_target_width = 1280
+        self.video_frames = []
 
     async def analyze(self, _snapshot: bytes, _prompt: str) -> str:
         self.calls += 1
@@ -192,6 +195,16 @@ class FakeProvider:
         if self.error is not None:
             raise self.error
         return "Eine Person geht zur Einfahrt."
+
+    async def analyze_video_frames(self, frames, _prompt: str) -> str:
+        self.calls += 1
+        self.video_frames = list(frames)
+        self.started.set()
+        if self.wait:
+            await self.release.wait()
+        if self.error is not None:
+            raise self.error
+        return "Eine Person geht durch die Szene."
 
 
 class FakeFrigate:
@@ -274,6 +287,30 @@ class BlockingWriteFrigate(FakeFrigate):
         if self.write_calls == 1:
             self.first_write_started.set()
             await self.release_first_write.wait()
+
+
+class EarlyVideoAuthFrigate(FakeFrigate):
+    def __init__(self, event, module) -> None:
+        super().__init__([event], [jpeg()])
+        self.module = module
+        self.cancelled_siblings = 0
+        self.block_siblings = asyncio.Event()
+
+    async def get_recording_snapshot(
+        self, _event_id: str, camera: str, frame_time: float, *, timeout: float
+    ):
+        self.recording_calls += 1
+        self.recording_requests.append((camera, frame_time))
+        self.recording_timeouts.append(timeout)
+        if frame_time == 100.0:
+            raise self.module.FrigateAuthenticationError(
+                "permanent auth-header failure without status"
+            )
+        try:
+            await self.block_siblings.wait()
+        except asyncio.CancelledError:
+            self.cancelled_siblings += 1
+            raise
 
 
 ANALYSIS = load_analysis()
@@ -562,6 +599,193 @@ class EventAnalysisTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(frigate.snapshot_calls, 1)
         self.assertEqual(result["image_source"], "event_snapshot")
 
+    async def test_video_uses_exact_fifteen_ordered_recording_frames(self) -> None:
+        event = {
+            "id": self.event_id,
+            "camera": "ultra_wide",
+            "start_time": 100.0,
+            "data": {"snapshot_frame_time": 120.0},
+        }
+        frigate = FakeFrigate([event], [jpeg()], [jpeg(2560, 960)])
+        provider = FakeProvider(self.analysis)
+        provider.video_target_width = 2048
+
+        result = await self.analysis.analyze_event_video(
+            self.recording_runtime(frigate, provider),
+            event_id=self.event_id,
+            camera_entity="camera.ultra_wide",
+            prompt="Describe movement.",
+            store=False,
+            duration_seconds=15,
+            pre_seconds=5,
+        )
+
+        self.assertEqual(result["media_type"], "video_frames")
+        self.assertEqual(result["frame_count"], 15)
+        self.assertEqual(result["window_start"], 115.0)
+        self.assertEqual(result["window_end"], 130.0)
+        self.assertEqual(
+            [item[0] for item in provider.video_frames], list(range(-5, 10))
+        )
+        self.assertEqual(
+            [timestamp for _camera, timestamp in frigate.recording_requests],
+            [float(value) for value in range(115, 130)],
+        )
+        self.assertEqual(jpeg_size(provider.video_frames[0][1]), (1280, 480))
+
+    async def test_video_missing_recording_uses_image_fallback(self) -> None:
+        unavailable = self.analysis.FrigateEventError(
+            "bad recording request", transient=False, status=400
+        )
+        event = {
+            "id": self.event_id,
+            "camera": "driveway",
+            "start_time": 100.0,
+            "data": {"snapshot_frame_time": 105.0},
+        }
+        updated_event = {
+            **event,
+            "data": {"snapshot_frame_time": 110.0},
+        }
+        frigate = FakeFrigate([event, updated_event], [jpeg()], [unavailable])
+
+        result = await self.analysis.analyze_event_video(
+            self.recording_runtime(frigate, FakeProvider(self.analysis)),
+            event_id=self.event_id,
+            camera_entity=None,
+            prompt="Describe.",
+            store=False,
+            duration_seconds=15,
+            pre_seconds=5,
+        )
+
+        self.assertEqual(result["media_type"], "image_fallback")
+        self.assertEqual(result["frame_count"], 1)
+        self.assertEqual(result["image_source"], "event_snapshot")
+        self.assertEqual(result["source_frame_time"], 110.0)
+        self.assertEqual(result["window_start"], 100.0)
+        self.assertEqual(result["window_end"], 115.0)
+        self.assertEqual(frigate.snapshot_calls, 1)
+
+    async def test_video_retry_requests_only_the_missing_frame(self) -> None:
+        transient = self.analysis.FrigateEventError(
+            "not finalized", transient=True, status=404
+        )
+        event = {
+            "id": self.event_id,
+            "camera": "driveway",
+            "start_time": 100.0,
+            "data": {"snapshot_frame_time": 105.0},
+        }
+        outcomes = [jpeg() for _index in range(15)]
+        outcomes[4] = transient
+        outcomes.append(jpeg())
+        frigate = FakeFrigate([event], [jpeg()], outcomes)
+
+        with patch.object(self.analysis, "EVENT_RETRY_DELAYS", (0, 0, 0, 0)):
+            result = await self.analysis.analyze_event_video(
+                self.recording_runtime(frigate, FakeProvider(self.analysis)),
+                event_id=self.event_id,
+                camera_entity=None,
+                prompt="Describe.",
+                store=False,
+                duration_seconds=15,
+                pre_seconds=5,
+            )
+
+        self.assertEqual(result["media_type"], "video_frames")
+        self.assertEqual(frigate.recording_calls, 16)
+        requested_times = [item[1] for item in frigate.recording_requests]
+        self.assertEqual(requested_times.count(104.0), 2)
+        for timestamp in [float(value) for value in range(100, 115) if value != 104]:
+            self.assertEqual(requested_times.count(timestamp), 1)
+
+    async def test_video_auth_error_cancels_queued_frame_requests(self) -> None:
+        event = {
+            "id": self.event_id,
+            "camera": "driveway",
+            "start_time": 100.0,
+            "data": {"snapshot_frame_time": 105.0},
+        }
+        frigate = EarlyVideoAuthFrigate(event, self.analysis)
+
+        with self.assertRaises(self.analysis.FrigateEventError):
+            await asyncio.wait_for(
+                self.analysis.analyze_event_video(
+                    self.recording_runtime(
+                        frigate,
+                        FakeProvider(self.analysis),
+                    ),
+                    event_id=self.event_id,
+                    camera_entity=None,
+                    prompt="Describe.",
+                    store=False,
+                    duration_seconds=15,
+                    pre_seconds=5,
+                ),
+                timeout=0.5,
+            )
+
+        self.assertLessEqual(frigate.recording_calls, 3)
+        self.assertGreaterEqual(frigate.cancelled_siblings, 1)
+        self.assertEqual(frigate.snapshot_calls, 0)
+
+    async def test_video_event_auth_error_does_not_fall_back(self) -> None:
+        auth_error = self.analysis.FrigateAuthenticationError(
+            "permanent authentication error"
+        )
+        frigate = FakeFrigate([auth_error], [jpeg()])
+        provider = FakeProvider(self.analysis)
+
+        with self.assertRaises(self.analysis.FrigateAuthenticationError):
+            await self.analysis.analyze_event_video(
+                self.recording_runtime(frigate, provider),
+                event_id=self.event_id,
+                camera_entity=None,
+                prompt="Describe.",
+                store=False,
+                duration_seconds=15,
+                pre_seconds=5,
+            )
+
+        self.assertEqual(frigate.event_calls, 1)
+        self.assertEqual(frigate.snapshot_calls, 0)
+        self.assertEqual(provider.calls, 0)
+
+    async def test_identical_video_calls_share_analysis_and_write(self) -> None:
+        event = {
+            "id": self.event_id,
+            "camera": "driveway",
+            "start_time": 100.0,
+            "data": {"snapshot_frame_time": 105.0},
+        }
+        frigate = FakeFrigate([event], [jpeg()], [jpeg()])
+        provider = FakeProvider(self.analysis, wait=True)
+        runtime = self.recording_runtime(frigate, provider)
+        calls = [
+            asyncio.create_task(
+                self.analysis.analyze_event_video(
+                    runtime,
+                    event_id=self.event_id,
+                    camera_entity="camera.driveway",
+                    prompt="Describe.",
+                    store=True,
+                    duration_seconds=15,
+                    pre_seconds=5,
+                )
+            )
+            for _index in range(2)
+        ]
+        await provider.started.wait()
+        provider.release.set()
+        results = await asyncio.gather(*calls)
+
+        self.assertEqual(provider.calls, 1)
+        self.assertEqual(frigate.recording_calls, 15)
+        self.assertEqual(frigate.write_calls, 1)
+        self.assertTrue(all(result["stored"] for result in results))
+        self.assertEqual(runtime.event_video_flights, {})
+
     async def test_event_and_snapshot_404_retry_then_write_once(self) -> None:
         transient = self.analysis.FrigateEventError(
             "not ready",
@@ -834,6 +1058,10 @@ class FakeSession:
         self.calls.append((url, kwargs))
         return self.responses.pop(0)
 
+    def post(self, url, **kwargs):
+        self.calls.append((url, kwargs))
+        return self.responses.pop(0)
+
 
 class FakeClient:
     validate_ssl = False
@@ -865,6 +1093,64 @@ class FakeConfigEntry:
     def __init__(self) -> None:
         self.entry_id = "frigate-entry"
         self.data = {"url": "https://frigate.example.test"}
+
+
+class ProviderTests(unittest.IsolatedAsyncioTestCase):
+    async def test_video_request_contains_ordered_labelled_images(self) -> None:
+        provider = ANALYSIS.OpenAICompatibleProvider(
+            FakeHass(),
+            {
+                "endpoint": "https://model.example.test/v1",
+                "model": "vision-model",
+            },
+        )
+        body = json.dumps({"choices": [{"message": {"content": "movement"}}]}).encode()
+        provider._session = FakeSession(FakeResponse(200, body))
+
+        with patch.object(
+            ANALYSIS,
+            "_prepare_jpeg",
+            side_effect=AssertionError("prepared frames must not be transcoded again"),
+        ):
+            result = await provider.analyze_video_frames(
+                [(-1.0, jpeg()), (0.0, jpeg())],
+                "Describe.",
+            )
+
+        self.assertEqual(result, "movement")
+        url, kwargs = provider._session.calls[0]
+        self.assertEqual(url, "https://model.example.test/v1/chat/completions")
+        request = json.loads(kwargs["data"])
+        content = request["messages"][0]["content"]
+        self.assertEqual(content[1], {"type": "text", "text": "Frame -1 s:"})
+        self.assertEqual(content[3], {"type": "text", "text": "Frame +0 s:"})
+        self.assertEqual(content[-1], {"type": "text", "text": "Describe."})
+        image_items = [item for item in content if item["type"] == "image_url"]
+        self.assertEqual(len(image_items), 2)
+        self.assertTrue(
+            all(
+                item["image_url"]["url"].startswith("data:image/jpeg;base64,")
+                for item in image_items
+            )
+        )
+
+    async def test_video_limit_counts_serialized_base64_and_json(self) -> None:
+        provider = ANALYSIS.OpenAICompatibleProvider(
+            FakeHass(),
+            {
+                "endpoint": "https://model.example.test/v1",
+                "model": "vision-model",
+            },
+        )
+        provider._session = FakeSession()
+
+        with (
+            patch.object(ANALYSIS, "MAX_VIDEO_PAYLOAD_BYTES", 200),
+            self.assertRaisesRegex(ANALYSIS.SourceError, "Provider-Payload"),
+        ):
+            await provider.analyze_video_frames([(0.0, jpeg())], "Describe.")
+
+        self.assertEqual(provider._session.calls, [])
 
 
 class AdapterTests(unittest.IsolatedAsyncioTestCase):

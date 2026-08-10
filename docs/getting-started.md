@@ -9,8 +9,9 @@ You need:
 - HACS;
 - an OpenAI-compatible Chat Completions endpoint with a vision-capable model.
 
-The integration analyzes still images. A provider may support video or audio,
-but version 0.2.x does not send those media types.
+The integration analyzes still images and chronologically ordered 1-fps
+recording sequences. The provider must support multiple images in one
+OpenAI-compatible multimodal Chat Completions request for video mode.
 
 ## Install one HACS package
 
@@ -23,14 +24,14 @@ Assistant instance:
 2. add `agrestisdavid/ha-frigate-vision` as a custom repository;
 3. select the **Integration** category.
 
-Download release `0.2.2`, then restart Home Assistant.
+Download release `0.3.0`, then restart Home Assistant.
 
 Do not add a separate Lovelace resource for the bundled Card.
 
 ### Upgrading from the split 0.1.x test packages
 
 Remove only the separate **Frigate Vision Card** Lovelace resource before
-loading version 0.2.x. Both versions register the same
+loading version 0.3.x. Both versions register the same
 `frigate-vision-card` custom element, so whichever module loads first would
 otherwise remain active until the browser is reloaded.
 

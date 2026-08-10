@@ -22,6 +22,23 @@ class BlueprintContractTests(unittest.TestCase):
         self.assertIn("max_exceeded: warning", self.source)
         self.assertNotIn("mode: single", self.source)
 
+    def test_image_is_default_and_video_has_a_separate_service_branch(self) -> None:
+        self.assertIn("analysis_media_type:", self.source)
+        self.assertIn("default: image", self.source)
+        self.assertIn("action: frigate_vision.analyze_event_video", self.source)
+        self.assertIn("action: frigate_vision.analyze_event\n", self.source)
+        self.assertIn("duration_seconds:", self.source)
+        self.assertIn("pre_seconds:", self.source)
+        for variable in (
+            "fv_media_type",
+            "fv_image_source",
+            "fv_source_frame_time",
+            "fv_frame_count",
+            "fv_window_start",
+            "fv_window_end",
+        ):
+            self.assertIn(variable, self.source)
+
     def test_analysis_is_not_gated_by_mute_or_cooldown(self) -> None:
         analysis_pos = self.source.index("- action: frigate_vision.analyze_event")
         self.assertGreater(analysis_pos, self.source.index("fv_notification_slot"))

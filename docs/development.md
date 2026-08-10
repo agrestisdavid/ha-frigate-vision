@@ -69,7 +69,7 @@ Version 9.7.7 is pinned for the current security-fixed release line.
 2. Run all local checks and scan for credentials, private hosts, event IDs, and
    personal configuration.
 3. Merge to `main`.
-4. Create a matching GitHub release and tag such as `v0.2.2`.
+4. Create a matching GitHub release and tag such as `v0.3.0`.
 5. Verify the Pages deployment.
 6. Install the release through HACS in a clean Home Assistant test path.
 7. Complete the config flow with newly entered provider credentials.
@@ -78,11 +78,18 @@ Version 9.7.7 is pinned for the current security-fixed release line.
 Never publish a release from manually copied Home Assistant files. Subsequent
 fixes should use a new GitHub tag and HACS version.
 
+## Version 0.3.0
+
+- 1-fps event-video analysis with configurable 5–60 second windows;
+- independent image and video single-flight tasks;
+- in-memory frame processing with a 25 MB serialized-request limit;
+- image/video selection and result variables in the notification Blueprint.
+
 ## Version 0.2.2
 
 - recording/main-stream event images with detect-snapshot fallback;
 - strict event-frame timestamp precedence and actual-source response metadata;
-- bounded recording readiness retries with immediate authentication error reporting;
+- bounded recording readiness retries with an immediate authentication failure;
 - no image upscaling and preserved ultra-wide aspect ratios.
 
 ## Version 0.2.1

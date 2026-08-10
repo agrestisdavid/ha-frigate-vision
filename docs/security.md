@@ -4,9 +4,10 @@
 
 For event analysis, Home Assistant reads the exact Frigate event and either a
 recording frame or its detect snapshot, converts the image to JPEG, and sends
-the image plus prompt to the configured provider. Images are processed only in
-memory: Frigate Vision creates no temporary image files. If requested, the
-returned text is written to that exact Frigate event.
+the image plus prompt to the configured provider. Event-video analysis reads
+recording frames at 1 fps and sends the prepared ordered sequence. Frames are
+processed only in memory: Frigate Vision creates no temporary image or video
+files. If requested, returned text is written to that exact Frigate event.
 
 Choose a provider and retention policy appropriate for the sensitivity of
 camera images. Frigate Vision does not make a provider private merely because

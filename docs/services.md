@@ -1,6 +1,6 @@
 # Services
 
-Both services return response data and can be used with
+All three services return response data and can be used with
 `response_variable` in Home Assistant actions.
 
 ## `frigate_vision.analyze_event`
@@ -48,6 +48,39 @@ once only after a non-empty response.
 Concurrent non-forced calls for the same event share one analysis. Concurrent
 callers requesting storage also share one description write.
 
+## `frigate_vision.analyze_event_video`
+
+Analyze an exact one-frame-per-second recording window:
+
+```yaml
+action: frigate_vision.analyze_event_video
+data:
+  event_id: example-event-id
+  camera_entity: camera.driveway
+  prompt: Describe the visible movement in chronological order.
+  duration_seconds: 15
+  pre_seconds: 5
+  store: false
+response_variable: analysis
+```
+
+`duration_seconds` accepts 5–60 and defaults to 15. `pre_seconds` defaults to
+5 and cannot exceed the duration. A 15/5 request samples 15 frames at offsets
+`-5` through `+9`, representing the half-open interval `[best-5, best+10)`.
+The camera and best-frame timestamp are captured once when the service starts.
+
+Fifteen frames are the compatibility default for the tested 49,152-token
+provider slot. Longer windows require a provider-side visual token budget that
+fits all frames plus prompt and response; the 60-second API limit is not a
+promise that every configured endpoint has enough context.
+
+Identical concurrent calls share frame acquisition and one provider request.
+An existing still-image description does not suppress video analysis. If the
+complete recording window cannot be assembled within the recording readiness
+timeout, a fresh normal event-image analysis is returned with
+`media_type: image_fallback`. Provider, authentication, and payload-limit
+errors remain visible and do not trigger that fallback.
+
 ## `frigate_vision.analyze_image`
 
 Analyze one explicitly allowed still-image source:
@@ -83,6 +116,8 @@ duration_ms: 1842
 
 For `analyze_image`, `event_id` is `null` and `stored` is always false.
 `duration_ms` includes source-readiness waiting for event analysis.
-A cached event result has `image_source: null`, because no image was read.
-`key_frame` remains the authenticated notification snapshot URL and is not a
-claim about the bytes that were analyzed.
+
+Video results additionally return `media_type`, `frame_count`, `window_start`,
+and `window_end`. A cached event result has `image_source: null`, because no
+image was read. `key_frame` remains the authenticated notification snapshot
+URL and is not a claim about the bytes that were analyzed.

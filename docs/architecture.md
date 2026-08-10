@@ -34,6 +34,14 @@ are outside the retry loop.
 Analysis and write tasks are attached to the Frigate Vision config entry so a
 reload or unload cancels work that still references its runtime.
 
+Video analysis has a separate single-flight key containing event ID, camera,
+prompt, duration, and pre-roll. It captures one fixed event timestamp, samples
+the recording at 1 fps with at most three Frigate extraction requests in
+parallel, immediately normalizes each frame to the configured width, and keeps
+successful frames while retrying only missing ones. The provider receives all
+ordered frames in one request. No video or image is written to a temporary
+file.
+
 ## Storage model
 
 Frigate owns:

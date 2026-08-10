@@ -45,6 +45,7 @@ from .const import (
     DEFAULT_RECORDING_WAIT_TIMEOUT,
     DEFAULT_TARGET_WIDTH,
     DEFAULT_TIMEOUT,
+    DEFAULT_VIDEO_TARGET_WIDTH,
     EVENT_IMAGE_SOURCE_SNAPSHOT,
     FRIGATE_DOMAIN,
     IMAGE_SOURCE_EVENT_SNAPSHOT,
@@ -52,6 +53,9 @@ from .const import (
     MAX_IMAGE_BYTES,
     MAX_IMAGE_PIXELS,
     MAX_PROVIDER_RESPONSE_BYTES,
+    MAX_VIDEO_DURATION,
+    MAX_VIDEO_PAYLOAD_BYTES,
+    MIN_VIDEO_DURATION,
 )
 from .utils import (
     event_description,
@@ -103,6 +107,10 @@ class FrigateAuthenticationError(FrigateEventError):
     """Frigate authentication failed permanently."""
 
 
+class VideoFramesUnavailable(FrigateEventError):
+    """The complete recording window could not be assembled."""
+
+
 async def _read_limited_response(
     response: ClientResponse,
     error_type: type[FrigateVisionError],
@@ -151,6 +159,9 @@ class RuntimeData:
         default_factory=dict,
         repr=False,
     )
+    event_video_flights: dict[
+        tuple[str, str | None, str, int, int], asyncio.Task[dict[str, Any]]
+    ] = field(default_factory=dict, repr=False)
     event_write_flights: dict[tuple[str, str], asyncio.Task[None]] = field(
         default_factory=dict,
         repr=False,
@@ -191,6 +202,28 @@ def _prepare_jpeg(image_bytes: bytes, target_width: int) -> bytes:
         raise SourceError("Die Quelle enthält kein unterstütztes Bild.") from err
 
 
+def _base64_size(byte_count: int) -> int:
+    """Return the exact encoded length without allocating the Base64 string."""
+    return 4 * ((byte_count + 2) // 3)
+
+
+def _bounded_video_frames(
+    frames: list[tuple[float, bytes]],
+) -> list[tuple[float, bytes]]:
+    """Validate already-normalized frames before building the provider request."""
+    encoded_total = 0
+    for relative_time, image_bytes in frames:
+        if not image_bytes:
+            raise SourceError("Die Videosequenz enthält einen leeren Frame.")
+        encoded_total += _base64_size(len(image_bytes))
+        if encoded_total > MAX_VIDEO_PAYLOAD_BYTES:
+            raise SourceError(
+                "Der Base64-Payload der Videosequenz überschreitet die "
+                "erlaubte Gesamtgröße von 25 MB."
+            )
+    return frames
+
+
 class OpenAICompatibleProvider:
     """Small multimodal Chat Completions client."""
 
@@ -202,6 +235,7 @@ class OpenAICompatibleProvider:
         self._model = str(config[CONF_MODEL]).strip()
         self._timeout = int(config.get(CONF_TIMEOUT, DEFAULT_TIMEOUT))
         self.target_width = int(config.get(CONF_TARGET_WIDTH, DEFAULT_TARGET_WIDTH))
+        self.video_target_width = DEFAULT_VIDEO_TARGET_WIDTH
         self._max_tokens = int(config.get(CONF_MAX_TOKENS, DEFAULT_MAX_TOKENS))
 
     async def analyze(self, image_bytes: bytes, prompt: str) -> str:
@@ -209,7 +243,54 @@ class OpenAICompatibleProvider:
         jpeg = await self._hass.async_add_executor_job(
             _prepare_jpeg, image_bytes, self.target_width
         )
+        content = [
+            {"type": "text", "text": prompt},
+            self._image_content(jpeg),
+        ]
+        return await self._analyze_content(content)
+
+    async def analyze_video_frames(
+        self,
+        frames: list[tuple[float, bytes]],
+        prompt: str,
+    ) -> str:
+        """Analyze chronologically ordered one-frame-per-second images."""
+        if not frames:
+            raise SourceError("Die Videosequenz enthält keine Frames.")
+        prepared = _bounded_video_frames(frames)
+        content: list[dict[str, Any]] = [
+            {
+                "type": "text",
+                "text": (
+                    "Zeitlich geordnete Videoframes mit einem Frame pro Sekunde. "
+                    "Die Zeitangaben beziehen sich auf das beste Ereignisbild."
+                ),
+            }
+        ]
+        for relative_time, jpeg in prepared:
+            content.append({"type": "text", "text": f"Frame {relative_time:+g} s:"})
+            content.append(self._image_content(jpeg))
+        content.append({"type": "text", "text": prompt})
+        return await self._analyze_content(
+            content,
+            max_request_bytes=MAX_VIDEO_PAYLOAD_BYTES,
+        )
+
+    @staticmethod
+    def _image_content(jpeg: bytes) -> dict[str, Any]:
         encoded = base64.b64encode(jpeg).decode("ascii")
+        return {
+            "type": "image_url",
+            "image_url": {"url": f"data:image/jpeg;base64,{encoded}"},
+        }
+
+    async def _analyze_content(
+        self,
+        content: list[dict[str, Any]],
+        *,
+        max_request_bytes: int | None = None,
+    ) -> str:
+        """Send one bounded multimodal Chat Completions request."""
         headers = {"Content-Type": "application/json"}
         if self._api_key:
             headers["Authorization"] = f"Bearer {self._api_key}"
@@ -218,22 +299,26 @@ class OpenAICompatibleProvider:
             "messages": [
                 {
                     "role": "user",
-                    "content": [
-                        {"type": "text", "text": prompt},
-                        {
-                            "type": "image_url",
-                            "image_url": {"url": f"data:image/jpeg;base64,{encoded}"},
-                        },
-                    ],
+                    "content": content,
                 }
             ],
             "max_tokens": self._max_tokens,
         }
+        request_body = json.dumps(
+            request,
+            ensure_ascii=False,
+            separators=(",", ":"),
+        ).encode("utf-8")
+        if max_request_bytes is not None and len(request_body) > max_request_bytes:
+            raise SourceError(
+                "Der serialisierte Provider-Payload der Videosequenz "
+                "überschreitet die erlaubte Gesamtgröße von 25 MB."
+            )
         try:
             async with self._session.post(
                 self._endpoint,
                 headers=headers,
-                json=request,
+                data=request_body,
                 timeout=ClientTimeout(total=self._timeout),
             ) as response:
                 body = await _read_limited_response(
@@ -683,7 +768,6 @@ def event_camera(event: dict[str, Any]) -> str | None:
 
 
 async def _sleep_for_retry(attempt: int, deadline: float) -> None:
-    """Sleep according to the bounded event retry schedule."""
     remaining = deadline - monotonic()
     if remaining <= 0:
         return
@@ -784,7 +868,13 @@ async def _wait_for_recording_snapshot(
                     allow_expired_attempt=allow_immediate_attempt,
                 ),
             )
-            return event, snapshot, "", IMAGE_SOURCE_RECORDING, frame_time
+            return (
+                event,
+                snapshot,
+                "",
+                IMAGE_SOURCE_RECORDING,
+                frame_time,
+            )
         except FrigateAuthenticationError:
             raise
         except FrigateEventError as err:
@@ -804,23 +894,6 @@ async def _wait_for_recording_snapshot(
         force=force,
         deadline=monotonic() + DETECT_FALLBACK_TIMEOUT,
         timeout_seconds=DETECT_FALLBACK_TIMEOUT,
-    )
-
-
-def _recording_wait_timeout(runtime: RuntimeData) -> float:
-    """Return the bounded recording readiness timeout for one entry."""
-    config = merged_config(runtime.entry)
-    return min(
-        30.0,
-        max(
-            0.0,
-            float(
-                config.get(
-                    CONF_RECORDING_WAIT_TIMEOUT,
-                    DEFAULT_RECORDING_WAIT_TIMEOUT,
-                )
-            ),
-        ),
     )
 
 
@@ -895,6 +968,268 @@ async def _analyze_event_once(
         "cached": False,
         "image_source": image_source,
         "source_frame_time": source_frame_time,
+    }
+
+
+def _recording_wait_timeout(runtime: RuntimeData) -> float:
+    """Return the bounded recording readiness timeout for one entry."""
+    config = merged_config(runtime.entry)
+    return min(
+        30.0,
+        max(
+            0.0,
+            float(
+                config.get(
+                    CONF_RECORDING_WAIT_TIMEOUT,
+                    DEFAULT_RECORDING_WAIT_TIMEOUT,
+                )
+            ),
+        ),
+    )
+
+
+async def _wait_for_video_event(
+    runtime: RuntimeData,
+    *,
+    event_id: str,
+    deadline: float,
+    allow_immediate_attempt: bool,
+) -> tuple[dict[str, Any], str, float]:
+    """Capture one stable camera and best-frame timestamp for video sampling."""
+    attempt = 0
+    first_attempt = True
+    last_error: FrigateEventError | None = None
+    while first_attempt or monotonic() < deadline:
+        first_attempt = False
+        try:
+            event = await runtime.frigate.get_event(
+                event_id,
+                timeout=_source_attempt_timeout(
+                    deadline,
+                    allow_expired_attempt=allow_immediate_attempt,
+                ),
+            )
+            camera = event_camera(event)
+            frame_time = event_frame_time(event)
+            if camera is not None and frame_time is not None:
+                return event, camera, frame_time
+            raise VideoFramesUnavailable(
+                f"Frigate-Ereignis {event_id} enthält keine vollständigen "
+                "Kamera- und Zeitangaben."
+            )
+        except FrigateAuthenticationError:
+            raise
+        except FrigateEventError as err:
+            if err.status in {401, 403}:
+                raise
+            last_error = err
+            if not err.transient:
+                break
+
+        if deadline - monotonic() <= 0:
+            break
+        await _sleep_for_retry(attempt, deadline)
+        attempt += 1
+
+    detail = str(last_error) if last_error else "Ereignisdaten nicht verfügbar"
+    raise VideoFramesUnavailable(
+        f"Das Videozeitfenster für Frigate-Ereignis {event_id} konnte nicht "
+        f"bestimmt werden: {detail}"
+    )
+
+
+async def _wait_for_video_frames(
+    runtime: RuntimeData,
+    *,
+    event_id: str,
+    camera: str,
+    center_time: float,
+    duration_seconds: int,
+    pre_seconds: int,
+    deadline: float,
+    allow_immediate_attempt: bool,
+) -> list[tuple[float, bytes]]:
+    """Fetch exact 1-fps recording frames with bounded Frigate concurrency."""
+    samples = [
+        (float(index - pre_seconds), center_time + index - pre_seconds)
+        for index in range(duration_seconds)
+    ]
+    frames: dict[float, bytes] = {}
+    attempt = 0
+    first_attempt = True
+    last_error: FrigateEventError | None = None
+    target_width = min(
+        DEFAULT_VIDEO_TARGET_WIDTH,
+        max(
+            1,
+            int(
+                getattr(
+                    runtime.provider,
+                    "video_target_width",
+                    DEFAULT_VIDEO_TARGET_WIDTH,
+                )
+            ),
+        ),
+    )
+
+    async def fetch_frame(
+        relative_time: float, timestamp: float
+    ) -> tuple[float, bytes]:
+        source = await runtime.frigate.get_recording_snapshot(
+            event_id,
+            camera,
+            timestamp,
+            timeout=_source_attempt_timeout(
+                deadline,
+                allow_expired_attempt=allow_immediate_attempt,
+            ),
+        )
+        prepared = await runtime.hass.async_add_executor_job(
+            _prepare_jpeg,
+            source,
+            target_width,
+        )
+        return relative_time, prepared
+
+    async def fetch_missing(
+        missing: list[tuple[float, float]],
+    ) -> list[tuple[float, bytes] | FrigateEventError]:
+        """Use three workers and stop queued requests on a fatal auth error."""
+        queue: asyncio.Queue[tuple[float, float]] = asyncio.Queue()
+        for sample in missing:
+            queue.put_nowait(sample)
+        results: list[tuple[float, bytes] | FrigateEventError] = []
+
+        async def worker() -> None:
+            while True:
+                try:
+                    relative_time, timestamp = queue.get_nowait()
+                except asyncio.QueueEmpty:
+                    return
+                try:
+                    results.append(await fetch_frame(relative_time, timestamp))
+                except FrigateAuthenticationError:
+                    raise
+                except FrigateEventError as err:
+                    if err.status in {401, 403}:
+                        raise
+                    results.append(err)
+
+        tasks = [
+            asyncio.create_task(worker()) for _index in range(min(3, len(missing)))
+        ]
+        try:
+            await asyncio.gather(*tasks)
+        except BaseException:
+            for task in tasks:
+                task.cancel()
+            await asyncio.gather(*tasks, return_exceptions=True)
+            raise
+        return results
+
+    while first_attempt or monotonic() < deadline:
+        first_attempt = False
+        missing = [sample for sample in samples if sample[0] not in frames]
+        results = await fetch_missing(missing)
+        permanent_error = False
+        for result in results:
+            if isinstance(result, FrigateEventError):
+                last_error = result
+                permanent_error = permanent_error or not result.transient
+                continue
+            relative_time, jpeg = result
+            frames[relative_time] = jpeg
+
+        if sum(_base64_size(len(frame)) for frame in frames.values()) > (
+            MAX_VIDEO_PAYLOAD_BYTES
+        ):
+            raise SourceError(
+                "Der Base64-Payload der Videosequenz überschreitet die "
+                "erlaubte Gesamtgröße von 25 MB."
+            )
+        if len(frames) == len(samples):
+            return [(relative, frames[relative]) for relative, _timestamp in samples]
+        if permanent_error or deadline - monotonic() <= 0:
+            break
+        await _sleep_for_retry(attempt, deadline)
+        attempt += 1
+
+    detail = str(last_error) if last_error else "Recording-Frames fehlen"
+    raise VideoFramesUnavailable(
+        f"Nur {len(frames)} von {len(samples)} Recording-Frames für Ereignis "
+        f"{event_id} waren rechtzeitig verfügbar: {detail}"
+    )
+
+
+async def _analyze_event_video_once(
+    runtime: RuntimeData,
+    *,
+    event_id: str,
+    camera_entity: str | None,
+    prompt: str,
+    duration_seconds: int,
+    pre_seconds: int,
+) -> dict[str, Any]:
+    """Analyze a fixed recording window or transparently use one still image."""
+    key_frame = runtime.frigate.key_frame_url(event_id, camera_entity)
+    wait_timeout = _recording_wait_timeout(runtime)
+    deadline = monotonic() + wait_timeout
+    allow_immediate_attempt = wait_timeout <= 0
+    center_time: float | None = None
+    try:
+        _event, camera, center_time = await _wait_for_video_event(
+            runtime,
+            event_id=event_id,
+            deadline=deadline,
+            allow_immediate_attempt=allow_immediate_attempt,
+        )
+        frames = await _wait_for_video_frames(
+            runtime,
+            event_id=event_id,
+            camera=camera,
+            center_time=center_time,
+            duration_seconds=duration_seconds,
+            pre_seconds=pre_seconds,
+            deadline=deadline,
+            allow_immediate_attempt=allow_immediate_attempt,
+        )
+    except VideoFramesUnavailable:
+        fallback = await _analyze_event_once(
+            runtime,
+            event_id=event_id,
+            camera_entity=camera_entity,
+            prompt=prompt,
+            force=True,
+        )
+        fallback_time = fallback.get("source_frame_time")
+        window_center = center_time if center_time is not None else fallback_time
+        return {
+            **fallback,
+            "media_type": "image_fallback",
+            "frame_count": 1,
+            "window_start": (
+                window_center - pre_seconds if window_center is not None else None
+            ),
+            "window_end": (
+                window_center + duration_seconds - pre_seconds
+                if window_center is not None
+                else None
+            ),
+        }
+
+    response_text = await runtime.provider.analyze_video_frames(frames, prompt)
+    return {
+        "response_text": response_text,
+        "event_id": event_id,
+        "key_frame": key_frame,
+        "stored": False,
+        "cached": False,
+        "media_type": "video_frames",
+        "image_source": IMAGE_SOURCE_RECORDING,
+        "source_frame_time": center_time,
+        "frame_count": len(frames),
+        "window_start": center_time - pre_seconds,
+        "window_end": center_time + duration_seconds - pre_seconds,
     }
 
 
@@ -1021,6 +1356,76 @@ async def analyze_event(
             event_id,
             result["response_text"],
         )
+        stored = True
+
+    return {
+        **result,
+        "stored": stored,
+        "duration_ms": round((monotonic() - started) * 1000),
+    }
+
+
+async def analyze_event_video(
+    runtime: RuntimeData,
+    *,
+    event_id: str,
+    camera_entity: str | None,
+    prompt: str,
+    store: bool,
+    duration_seconds: int,
+    pre_seconds: int,
+) -> dict[str, Any]:
+    """Analyze one fixed Frigate recording window with single-flight sharing."""
+    started = monotonic()
+    try:
+        event_id = validate_event_id(event_id)
+    except ValueError as err:
+        raise FrigateEventError(
+            "Die Frigate-Event-ID enthält ungültige Zeichen."
+        ) from err
+    if not MIN_VIDEO_DURATION <= duration_seconds <= MAX_VIDEO_DURATION:
+        raise FrigateEventError(
+            "Die Videolänge muss zwischen 5 und 60 Sekunden liegen."
+        )
+    if not 0 <= pre_seconds <= duration_seconds:
+        raise FrigateEventError(
+            "Der Vorlauf muss zwischen 0 und der Videolänge liegen."
+        )
+
+    flight_key = (
+        event_id,
+        camera_entity,
+        prompt,
+        duration_seconds,
+        pre_seconds,
+    )
+    task = runtime.event_video_flights.get(flight_key)
+    if task is None:
+        task = _create_entry_task(
+            runtime,
+            _analyze_event_video_once(
+                runtime,
+                event_id=event_id,
+                camera_entity=camera_entity,
+                prompt=prompt,
+                duration_seconds=duration_seconds,
+                pre_seconds=pre_seconds,
+            ),
+            f"Frigate Vision analyze event video {event_id}",
+        )
+        runtime.event_video_flights[flight_key] = task
+        task.add_done_callback(
+            lambda completed: _finish_flight(
+                runtime.event_video_flights,
+                flight_key,
+                completed,
+            )
+        )
+    result = await asyncio.shield(task)
+
+    stored = False
+    if store:
+        await _store_description_once(runtime, event_id, result["response_text"])
         stored = True
 
     return {

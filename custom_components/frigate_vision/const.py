@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 DOMAIN = "frigate_vision"
-VERSION = "0.2.2"
+VERSION = "0.3.0"
 
 FRONTEND_URL_BASE = "/frigate_vision/frontend"
 FRONTEND_MODULE = "frigate-vision-card.js"
@@ -23,6 +23,7 @@ CONF_GO2RTC_MODES = "go2rtc_modes"
 
 DEFAULT_TIMEOUT = 60
 DEFAULT_TARGET_WIDTH = 1280
+DEFAULT_VIDEO_TARGET_WIDTH = 1280
 DEFAULT_MAX_TOKENS = 500
 DEFAULT_EVENT_IMAGE_SOURCE = "recording_preferred"
 DEFAULT_RECORDING_WAIT_TIMEOUT = 20
@@ -31,6 +32,12 @@ DEFAULT_PROMPT = (
     "Beschreibe knapp und sachlich, was im Bild geschieht. "
     "Nenne relevante Personen, Fahrzeuge, Tiere und Handlungen. "
     "Spekuliere nicht über nicht sichtbare Details."
+)
+DEFAULT_VIDEO_PROMPT = (
+    "Beschreibe knapp und sachlich, was in dieser zeitlich geordneten "
+    "Bildsequenz geschieht. Nenne relevante Personen, Fahrzeuge, Tiere, "
+    "Handlungen und Bewegungsabläufe. Spekuliere nicht über nicht sichtbare "
+    "Details."
 )
 
 EVENT_IMAGE_SOURCE_RECORDING = "recording_preferred"
@@ -41,7 +48,13 @@ VALID_EVENT_IMAGE_SOURCES = frozenset(
     {EVENT_IMAGE_SOURCE_RECORDING, EVENT_IMAGE_SOURCE_SNAPSHOT}
 )
 
+DEFAULT_VIDEO_DURATION = 15
+DEFAULT_VIDEO_PRE_SECONDS = 5
+MIN_VIDEO_DURATION = 5
+MAX_VIDEO_DURATION = 60
+
 SERVICE_ANALYZE_EVENT = "analyze_event"
+SERVICE_ANALYZE_EVENT_VIDEO = "analyze_event_video"
 SERVICE_ANALYZE_IMAGE = "analyze_image"
 
 ATTR_RUNTIME_ENTRIES = "entries"
@@ -56,4 +69,5 @@ FRIGATE_DOMAIN = "frigate"
 VALID_GO2RTC_MODES = frozenset({"webrtc", "mse", "mp4", "hls", "mjpeg"})
 MAX_IMAGE_BYTES = 25 * 1024 * 1024
 MAX_IMAGE_PIXELS = 40_000_000
+MAX_VIDEO_PAYLOAD_BYTES = 25 * 1024 * 1024
 MAX_PROVIDER_RESPONSE_BYTES = 1024 * 1024

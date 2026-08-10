@@ -18,6 +18,7 @@ from .analysis import (
     FrigateVisionError,
     RuntimeData,
     analyze_event,
+    analyze_event_video,
     analyze_image,
     build_runtime,
     merged_config,
@@ -31,8 +32,14 @@ from .const import (
     CONF_GO2RTC_URL,
     CONF_GO2RTC_URL_EXTERNAL,
     DEFAULT_PROMPT,
+    DEFAULT_VIDEO_DURATION,
+    DEFAULT_VIDEO_PRE_SECONDS,
+    DEFAULT_VIDEO_PROMPT,
     DOMAIN,
+    MAX_VIDEO_DURATION,
+    MIN_VIDEO_DURATION,
     SERVICE_ANALYZE_EVENT,
+    SERVICE_ANALYZE_EVENT_VIDEO,
     SERVICE_ANALYZE_IMAGE,
 )
 from .frontend import async_register_frontend
@@ -51,6 +58,33 @@ EVENT_SCHEMA = vol.Schema(
         vol.Optional("store", default=False): cv.boolean,
         vol.Optional("force", default=False): cv.boolean,
     }
+)
+
+
+def _valid_video_window(data: dict[str, Any]) -> dict[str, Any]:
+    if data["pre_seconds"] > data["duration_seconds"]:
+        raise vol.Invalid("pre_seconds must not exceed duration_seconds")
+    return data
+
+
+VIDEO_EVENT_SCHEMA = vol.All(
+    vol.Schema(
+        {
+            vol.Required("event_id"): cv.string,
+            vol.Optional("camera_entity"): cv.entity_id,
+            vol.Optional("entry_id"): cv.string,
+            vol.Optional("prompt", default=DEFAULT_VIDEO_PROMPT): cv.string,
+            vol.Optional("store", default=False): cv.boolean,
+            vol.Optional("duration_seconds", default=DEFAULT_VIDEO_DURATION): vol.All(
+                vol.Coerce(int),
+                vol.Range(min=MIN_VIDEO_DURATION, max=MAX_VIDEO_DURATION),
+            ),
+            vol.Optional("pre_seconds", default=DEFAULT_VIDEO_PRE_SECONDS): vol.All(
+                vol.Coerce(int), vol.Range(min=0, max=60)
+            ),
+        }
+    ),
+    _valid_video_window,
 )
 
 
@@ -137,6 +171,7 @@ async def async_unload_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
     entries.pop(entry.entry_id, None)
     if not entries and domain_data.get(ATTR_SERVICES_REGISTERED):
         hass.services.async_remove(DOMAIN, SERVICE_ANALYZE_EVENT)
+        hass.services.async_remove(DOMAIN, SERVICE_ANALYZE_EVENT_VIDEO)
         hass.services.async_remove(DOMAIN, SERVICE_ANALYZE_IMAGE)
         domain_data[ATTR_SERVICES_REGISTERED] = False
     return True
@@ -232,11 +267,37 @@ def _register_services(hass: HomeAssistant) -> None:
         except FrigateVisionError as err:
             raise ServiceValidationError(str(err)) from err
 
+    async def handle_analyze_event_video(call: ServiceCall) -> dict[str, Any]:
+        runtime = _resolve_runtime(
+            hass,
+            entry_id=call.data.get("entry_id"),
+            entity_id=call.data.get("camera_entity"),
+        )
+        try:
+            return await analyze_event_video(
+                runtime,
+                event_id=call.data["event_id"].strip(),
+                camera_entity=call.data.get("camera_entity"),
+                prompt=call.data["prompt"].strip() or DEFAULT_VIDEO_PROMPT,
+                store=call.data["store"],
+                duration_seconds=call.data["duration_seconds"],
+                pre_seconds=call.data["pre_seconds"],
+            )
+        except FrigateVisionError as err:
+            raise ServiceValidationError(str(err)) from err
+
     hass.services.async_register(
         DOMAIN,
         SERVICE_ANALYZE_EVENT,
         handle_analyze_event,
         schema=EVENT_SCHEMA,
+        supports_response=SupportsResponse.ONLY,
+    )
+    hass.services.async_register(
+        DOMAIN,
+        SERVICE_ANALYZE_EVENT_VIDEO,
+        handle_analyze_event_video,
+        schema=VIDEO_EVENT_SCHEMA,
         supports_response=SupportsResponse.ONLY,
     )
     hass.services.async_register(

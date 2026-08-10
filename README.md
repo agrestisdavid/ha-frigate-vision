@@ -1,15 +1,17 @@
 # Frigate Vision
 
 Frigate Vision is a Home Assistant custom integration for analyzing exact
-Frigate event recording frames with an OpenAI-compatible multimodal endpoint.
-The single HACS package also ships the `custom:frigate-vision-card` frontend
-module and a reusable notification Blueprint.
+Frigate event recording frames with an OpenAI-compatible multimodal endpoint. The
+single HACS package also ships the `custom:frigate-vision-card` frontend module
+and a reusable notification Blueprint.
 
-Version `0.2.2` is deliberately independent of LLM Vision:
+Version `0.3.0` is deliberately independent of LLM Vision:
 
 - Frigate remains the canonical source for events, clips, and descriptions.
 - Recording/main-stream frames are preferred and the detect event snapshot is
   used as a fallback after the configurable readiness window.
+- Event video analysis sends an exact 1-fps frame sequence instead of an
+  opaque MP4 upload.
 - Concurrent requests for the same event share one model analysis.
 - Descriptions are written only after a successful, non-empty model response.
 - The bundled Card has its own custom elements and deep-link key.
@@ -29,7 +31,7 @@ Version `0.2.2` is deliberately independent of LLM Vision:
    Lovelace resource is required.
 
 If a split Frigate Vision 0.1.x test Card was installed previously, remove only
-that separate Lovelace resource before loading 0.2.x. Do not remove an LLM
+that separate Lovelace resource before loading 0.3.x. Do not remove an LLM
 Vision or legacy timeline Card resource.
 
 The config flow first selects an existing Frigate config entry, then asks for
@@ -72,11 +74,16 @@ snapshot. With `store: true`, a successful description is stored on that
 event. Existing descriptions are returned as cache hits unless `force: true`
 is requested.
 
+`frigate_vision.analyze_event_video` analyzes a 1-fps recording window around
+the best event frame. The default is 15 seconds, with five seconds before and
+ten seconds after that frame. If the complete recording window is unavailable,
+the service returns a marked single-image fallback.
+
 `frigate_vision.analyze_image` analyzes exactly one camera/image entity, Home
 Assistant Media Source, or allowlisted local image file. Arbitrary remote image
 URLs are intentionally rejected.
 
-Both services return response data:
+All three services return response data:
 
 ```yaml
 response_text: "A person walks toward the entrance."
