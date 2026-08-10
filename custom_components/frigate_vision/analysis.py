@@ -40,12 +40,14 @@ from .const import (
     CONF_RECORDING_WAIT_TIMEOUT,
     CONF_TARGET_WIDTH,
     CONF_TIMEOUT,
+    CONF_VIDEO_TIMEOUT,
     DEFAULT_EVENT_IMAGE_SOURCE,
     DEFAULT_MAX_TOKENS,
     DEFAULT_RECORDING_WAIT_TIMEOUT,
     DEFAULT_TARGET_WIDTH,
     DEFAULT_TIMEOUT,
-    DEFAULT_VIDEO_TARGET_WIDTH,
+    DEFAULT_VIDEO_TARGET_HEIGHT,
+    DEFAULT_VIDEO_TIMEOUT,
     EVENT_IMAGE_SOURCE_SNAPSHOT,
     FRIGATE_DOMAIN,
     IMAGE_SOURCE_EVENT_SNAPSHOT,
@@ -173,8 +175,12 @@ def merged_config(entry: ConfigEntry) -> dict[str, Any]:
     return {**entry.data, **entry.options}
 
 
-def _prepare_jpeg(image_bytes: bytes, target_width: int) -> bytes:
-    """Validate, resize and normalize an image to JPEG."""
+def _prepare_jpeg(
+    image_bytes: bytes,
+    target_width: int = 0,
+    target_height: int = 0,
+) -> bytes:
+    """Validate, proportionally downsize and normalize an image to JPEG."""
     if not image_bytes:
         raise SourceError("Die Bildquelle ist leer.")
     if len(image_bytes) > MAX_IMAGE_BYTES:
@@ -187,9 +193,15 @@ def _prepare_jpeg(image_bytes: bytes, target_width: int) -> bytes:
                 )
             image.load()
             image = image.convert("RGB")
-            if target_width > 0 and image.width > target_width:
-                height = max(1, round(image.height * target_width / image.width))
-                image = image.resize((target_width, height), Image.Resampling.LANCZOS)
+            scale = 1.0
+            if target_width > 0:
+                scale = min(scale, target_width / image.width)
+            if target_height > 0:
+                scale = min(scale, target_height / image.height)
+            if scale < 1.0:
+                width = max(1, round(image.width * scale))
+                height = max(1, round(image.height * scale))
+                image = image.resize((width, height), Image.Resampling.LANCZOS)
             output = BytesIO()
             image.save(output, format="JPEG", quality=88, optimize=True)
             return output.getvalue()
@@ -234,8 +246,9 @@ class OpenAICompatibleProvider:
         self._api_key = str(config.get(CONF_API_KEY, "")).strip()
         self._model = str(config[CONF_MODEL]).strip()
         self._timeout = int(config.get(CONF_TIMEOUT, DEFAULT_TIMEOUT))
+        self._video_timeout = int(config.get(CONF_VIDEO_TIMEOUT, DEFAULT_VIDEO_TIMEOUT))
         self.target_width = int(config.get(CONF_TARGET_WIDTH, DEFAULT_TARGET_WIDTH))
-        self.video_target_width = DEFAULT_VIDEO_TARGET_WIDTH
+        self.video_target_height = DEFAULT_VIDEO_TARGET_HEIGHT
         self._max_tokens = int(config.get(CONF_MAX_TOKENS, DEFAULT_MAX_TOKENS))
 
     async def analyze(self, image_bytes: bytes, prompt: str) -> str:
@@ -274,6 +287,7 @@ class OpenAICompatibleProvider:
         return await self._analyze_content(
             content,
             max_request_bytes=MAX_VIDEO_PAYLOAD_BYTES,
+            timeout_seconds=self._video_timeout,
         )
 
     @staticmethod
@@ -289,8 +303,10 @@ class OpenAICompatibleProvider:
         content: list[dict[str, Any]],
         *,
         max_request_bytes: int | None = None,
+        timeout_seconds: int | None = None,
     ) -> str:
         """Send one bounded multimodal Chat Completions request."""
+        request_timeout = self._timeout if timeout_seconds is None else timeout_seconds
         headers = {"Content-Type": "application/json"}
         if self._api_key:
             headers["Authorization"] = f"Bearer {self._api_key}"
@@ -319,7 +335,7 @@ class OpenAICompatibleProvider:
                 self._endpoint,
                 headers=headers,
                 data=request_body,
-                timeout=ClientTimeout(total=self._timeout),
+                timeout=ClientTimeout(total=request_timeout),
             ) as response:
                 body = await _read_limited_response(
                     response,
@@ -348,7 +364,7 @@ class OpenAICompatibleProvider:
             raise
         except (asyncio.TimeoutError, TimeoutError) as err:
             raise ProviderError(
-                f"Die Analyse hat das Zeitlimit von {self._timeout} Sekunden "
+                f"Die Analyse hat das Zeitlimit von {request_timeout} Sekunden "
                 "überschritten."
             ) from err
         except (ClientResponseError, ClientError) as err:
@@ -1058,15 +1074,15 @@ async def _wait_for_video_frames(
     attempt = 0
     first_attempt = True
     last_error: FrigateEventError | None = None
-    target_width = min(
-        DEFAULT_VIDEO_TARGET_WIDTH,
+    target_height = min(
+        DEFAULT_VIDEO_TARGET_HEIGHT,
         max(
             1,
             int(
                 getattr(
                     runtime.provider,
-                    "video_target_width",
-                    DEFAULT_VIDEO_TARGET_WIDTH,
+                    "video_target_height",
+                    DEFAULT_VIDEO_TARGET_HEIGHT,
                 )
             ),
         ),
@@ -1087,7 +1103,8 @@ async def _wait_for_video_frames(
         prepared = await runtime.hass.async_add_executor_job(
             _prepare_jpeg,
             source,
-            target_width,
+            0,
+            target_height,
         )
         return relative_time, prepared
 
@@ -1385,7 +1402,7 @@ async def analyze_event_video(
         ) from err
     if not MIN_VIDEO_DURATION <= duration_seconds <= MAX_VIDEO_DURATION:
         raise FrigateEventError(
-            "Die Videolänge muss zwischen 5 und 60 Sekunden liegen."
+            "Die Videolänge muss zwischen 5 und 15 Sekunden liegen."
         )
     if not 0 <= pre_seconds <= duration_seconds:
         raise FrigateEventError(

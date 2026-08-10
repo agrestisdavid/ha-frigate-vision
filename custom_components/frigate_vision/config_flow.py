@@ -22,12 +22,14 @@ from .const import (
     CONF_RECORDING_WAIT_TIMEOUT,
     CONF_TARGET_WIDTH,
     CONF_TIMEOUT,
+    CONF_VIDEO_TIMEOUT,
     DEFAULT_EVENT_IMAGE_SOURCE,
     DEFAULT_GO2RTC_MODES,
     DEFAULT_MAX_TOKENS,
     DEFAULT_RECORDING_WAIT_TIMEOUT,
     DEFAULT_TARGET_WIDTH,
     DEFAULT_TIMEOUT,
+    DEFAULT_VIDEO_TIMEOUT,
     DOMAIN,
     EVENT_IMAGE_SOURCE_RECORDING,
     EVENT_IMAGE_SOURCE_SNAPSHOT,
@@ -110,6 +112,10 @@ def _provider_schema(defaults: dict[str, Any]) -> vol.Schema:
                 default=defaults.get(CONF_TIMEOUT, DEFAULT_TIMEOUT),
             ): _number(5, 300, 1, "s"),
             vol.Required(
+                CONF_VIDEO_TIMEOUT,
+                default=defaults.get(CONF_VIDEO_TIMEOUT, DEFAULT_VIDEO_TIMEOUT),
+            ): _number(5, 600, 1, "s"),
+            vol.Required(
                 CONF_TARGET_WIDTH,
                 default=defaults.get(CONF_TARGET_WIDTH, DEFAULT_TARGET_WIDTH),
             ): _number(320, 4096, 16, "px"),
@@ -191,6 +197,7 @@ def _normalize_input(data: dict[str, Any]) -> dict[str, Any]:
         str(normalized.get(CONF_GO2RTC_MODES, ""))
     )
     normalized[CONF_TIMEOUT] = int(normalized[CONF_TIMEOUT])
+    normalized[CONF_VIDEO_TIMEOUT] = int(normalized[CONF_VIDEO_TIMEOUT])
     normalized[CONF_TARGET_WIDTH] = int(normalized[CONF_TARGET_WIDTH])
     normalized[CONF_EVENT_IMAGE_SOURCE] = str(normalized[CONF_EVENT_IMAGE_SOURCE])
     normalized[CONF_RECORDING_WAIT_TIMEOUT] = int(

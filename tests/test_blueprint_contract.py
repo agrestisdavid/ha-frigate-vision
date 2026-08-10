@@ -29,6 +29,8 @@ class BlueprintContractTests(unittest.TestCase):
         self.assertIn("action: frigate_vision.analyze_event\n", self.source)
         self.assertIn("duration_seconds:", self.source)
         self.assertIn("pre_seconds:", self.source)
+        self.assertNotIn("max: 60", self.source)
+        self.assertIn("[15, [value, 5] | max] | min", self.source)
         for variable in (
             "fv_media_type",
             "fv_image_source",

@@ -36,7 +36,7 @@ empty for a completely quiet shadow run.
 
 The analysis medium defaults to **Image**, preserving existing automation
 behavior. **Video** calls the 1-fps event-video service with configurable
-duration and pre-roll. The initial notification still runs before analysis;
+5–15 second duration and pre-roll. The initial notification still runs before analysis;
 recording readiness waiting occurs inside the service and introduces no fixed
 Blueprint delay.
 
@@ -70,6 +70,8 @@ The automation uses `mode: queued`, `max: 50`, and
 Blueprint instance, protecting the provider from parallel calls.
 Longer video analyses can therefore delay later queued events for the same
 Blueprint instance; they do not create parallel load on the model endpoint.
+Separate Blueprint instances, for example one per camera, can run in parallel
+and therefore use separate model-server slots.
 
 At more than 50 active and queued runs, Home Assistant rejects additional
 runs and logs a warning. This explicit overflow limit is not a persistent

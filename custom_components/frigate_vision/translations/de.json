@@ -26,7 +26,8 @@
           "endpoint": "OpenAI-kompatibler Endpunkt",
           "api_key": "API-Key",
           "model": "Modell",
-          "timeout": "Timeout",
+          "timeout": "Timeout für Einzelbilder",
+          "video_timeout": "Timeout für Videoanalysen",
           "target_width": "Zielbreite des Bildes",
           "event_image_source": "Bildquelle für Ereignisse",
           "recording_wait_timeout": "Wartezeit auf Aufnahmen",
@@ -37,6 +38,8 @@
         },
         "data_description": {
           "endpoint": "Basis-URL mit /v1 oder vollständige /chat/completions-URL.",
+          "timeout": "Maximale Dauer einer Provider-Anfrage für eine Einzelbildanalyse.",
+          "video_timeout": "Maximale Dauer einer Provider-Anfrage für eine Videoframe-Analyse.",
           "target_width": "Maximale Breite von Einzelbildern. Kleinere Bilder werden niemals vergrößert.",
           "event_image_source": "Bevorzugt ein Bild aus Recording/Mainstream oder verwendet immer Frigates Detect-Ereignisbild.",
           "recording_wait_timeout": "So lange wird auf Recording-Frames gewartet, bevor das Detect-Bild verwendet wird.",
@@ -60,7 +63,8 @@
           "endpoint": "OpenAI-kompatibler Endpunkt",
           "api_key": "API-Key",
           "model": "Modell",
-          "timeout": "Timeout",
+          "timeout": "Timeout für Einzelbilder",
+          "video_timeout": "Timeout für Videoanalysen",
           "target_width": "Zielbreite des Bildes",
           "event_image_source": "Bildquelle für Ereignisse",
           "recording_wait_timeout": "Wartezeit auf Aufnahmen",
@@ -70,6 +74,8 @@
           "go2rtc_modes": "Fallback-Reihenfolge der Live-Transporte"
         },
         "data_description": {
+          "timeout": "Maximale Dauer einer Provider-Anfrage für eine Einzelbildanalyse.",
+          "video_timeout": "Maximale Dauer einer Provider-Anfrage für eine Videoframe-Analyse.",
           "target_width": "Maximale Breite von Einzelbildern. Kleinere Bilder werden niemals vergrößert.",
           "event_image_source": "Bevorzugt ein Bild aus Recording/Mainstream oder verwendet immer Frigates Detect-Ereignisbild.",
           "recording_wait_timeout": "So lange wird auf Recording-Frames gewartet, bevor das Detect-Bild verwendet wird.",
