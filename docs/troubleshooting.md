@@ -6,9 +6,16 @@ Symptom: an automation fires immediately, while the Frigate REST event or
 snapshot temporarily returns 404.
 
 Frigate can publish `new`, `update`, and `end` MQTT messages for the same event,
-and REST availability may trail the first message. Frigate Vision 0.2.x retries
-temporary event and snapshot failures for up to 20 seconds. If the deadline is
-still exceeded, the provider is not called and Frigate is not changed.
+and REST availability may trail the first message. Frigate Vision 0.2.2 waits
+up to the configured recording timeout, then gives the detect event snapshot a
+separate five-second fallback window.
+
+## Recording frames fall back to the detect snapshot
+
+An in-progress event can be visible before Frigate has finalized the recording
+segment containing its best frame. HTTP 404 from the recording-snapshot route
+is retried for up to 20 seconds by default. `analyze_event` then continues with
+the detect snapshot and reports `image_source: event_snapshot`.
 
 ## The model claims it cannot see the image
 

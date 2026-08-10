@@ -9,6 +9,8 @@
 | `key_frame` | string | Relative snapshot path or input source |
 | `stored` | boolean | This caller completed a Frigate description write |
 | `cached` | boolean | Existing Frigate description was used |
+| `image_source` | string or null | Actual source: `recording`, `event_snapshot`, or null for a cache hit |
+| `source_frame_time` | number or null | Frigate timestamp selected for analysis |
 | `duration_ms` | integer | Total service duration |
 
 ## Card top-level options
@@ -74,6 +76,7 @@ There is no external fallback to the local direct URL.
 - decoded image: 40 million pixels;
 - provider response body: 1 MB;
 - Frigate event metadata body: 2 MB;
-- event readiness: 20 seconds;
+- recording readiness: configurable 0–30 seconds, default 20;
+- detect snapshot fallback: 5 seconds;
 - MP4 metadata wait: 40 seconds;
 - HLS fallback wait: 60 seconds.

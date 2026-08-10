@@ -177,6 +177,16 @@ class PackageContractTests(unittest.TestCase):
             )
             self.assertIn("endpoint", steps["provider"]["data"])
             self.assertIn("model", steps["provider"]["data"])
+            for key in (
+                "event_image_source",
+                "recording_wait_timeout",
+                "target_width",
+            ):
+                self.assertIn(key, steps["provider"]["data"])
+            self.assertEqual(
+                set(translation["selector"]["event_image_source"]["options"]),
+                {"recording_preferred", "event_snapshot"},
+            )
 
     def test_manifest_and_runtime_versions_match(self):
         manifest = json.loads((COMPONENT / "manifest.json").read_text(encoding="utf-8"))

@@ -12,20 +12,27 @@ from homeassistant.helpers import selector
 from .const import (
     CONF_API_KEY,
     CONF_ENDPOINT,
+    CONF_EVENT_IMAGE_SOURCE,
     CONF_FRIGATE_ENTRY_ID,
     CONF_GO2RTC_MODES,
     CONF_GO2RTC_URL,
     CONF_GO2RTC_URL_EXTERNAL,
     CONF_MAX_TOKENS,
     CONF_MODEL,
+    CONF_RECORDING_WAIT_TIMEOUT,
     CONF_TARGET_WIDTH,
     CONF_TIMEOUT,
+    DEFAULT_EVENT_IMAGE_SOURCE,
     DEFAULT_GO2RTC_MODES,
     DEFAULT_MAX_TOKENS,
+    DEFAULT_RECORDING_WAIT_TIMEOUT,
     DEFAULT_TARGET_WIDTH,
     DEFAULT_TIMEOUT,
     DOMAIN,
+    EVENT_IMAGE_SOURCE_RECORDING,
+    EVENT_IMAGE_SOURCE_SNAPSHOT,
     FRIGATE_DOMAIN,
+    VALID_EVENT_IMAGE_SOURCES,
 )
 from .utils import (
     normalize_chat_completions_url,
@@ -107,6 +114,27 @@ def _provider_schema(defaults: dict[str, Any]) -> vol.Schema:
                 default=defaults.get(CONF_TARGET_WIDTH, DEFAULT_TARGET_WIDTH),
             ): _number(320, 4096, 16, "px"),
             vol.Required(
+                CONF_EVENT_IMAGE_SOURCE,
+                default=defaults.get(
+                    CONF_EVENT_IMAGE_SOURCE, DEFAULT_EVENT_IMAGE_SOURCE
+                ),
+            ): selector.SelectSelector(
+                selector.SelectSelectorConfig(
+                    options=[
+                        EVENT_IMAGE_SOURCE_RECORDING,
+                        EVENT_IMAGE_SOURCE_SNAPSHOT,
+                    ],
+                    mode=selector.SelectSelectorMode.DROPDOWN,
+                    translation_key="event_image_source",
+                )
+            ),
+            vol.Required(
+                CONF_RECORDING_WAIT_TIMEOUT,
+                default=defaults.get(
+                    CONF_RECORDING_WAIT_TIMEOUT, DEFAULT_RECORDING_WAIT_TIMEOUT
+                ),
+            ): _number(0, 30, 1, "s"),
+            vol.Required(
                 CONF_MAX_TOKENS,
                 default=defaults.get(CONF_MAX_TOKENS, DEFAULT_MAX_TOKENS),
             ): _number(32, 8192, 1),
@@ -134,6 +162,8 @@ def _validate_input(data: dict[str, Any]) -> dict[str, str]:
         errors[CONF_ENDPOINT] = "invalid_endpoint"
     if not str(data.get(CONF_MODEL, "")).strip():
         errors[CONF_MODEL] = "model_required"
+    if str(data.get(CONF_EVENT_IMAGE_SOURCE, "")) not in VALID_EVENT_IMAGE_SOURCES:
+        errors[CONF_EVENT_IMAGE_SOURCE] = "invalid_image_source"
     for key in (CONF_GO2RTC_URL, CONF_GO2RTC_URL_EXTERNAL):
         value = str(data.get(key, "")).strip()
         if value:
@@ -162,6 +192,10 @@ def _normalize_input(data: dict[str, Any]) -> dict[str, Any]:
     )
     normalized[CONF_TIMEOUT] = int(normalized[CONF_TIMEOUT])
     normalized[CONF_TARGET_WIDTH] = int(normalized[CONF_TARGET_WIDTH])
+    normalized[CONF_EVENT_IMAGE_SOURCE] = str(normalized[CONF_EVENT_IMAGE_SOURCE])
+    normalized[CONF_RECORDING_WAIT_TIMEOUT] = int(
+        normalized[CONF_RECORDING_WAIT_TIMEOUT]
+    )
     normalized[CONF_MAX_TOKENS] = int(normalized[CONF_MAX_TOKENS])
     return normalized
 

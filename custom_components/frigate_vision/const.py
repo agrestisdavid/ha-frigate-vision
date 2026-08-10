@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 DOMAIN = "frigate_vision"
-VERSION = "0.2.1"
+VERSION = "0.2.2"
 
 FRONTEND_URL_BASE = "/frigate_vision/frontend"
 FRONTEND_MODULE = "frigate-vision-card.js"
@@ -15,6 +15,8 @@ CONF_MODEL = "model"
 CONF_TIMEOUT = "timeout"
 CONF_TARGET_WIDTH = "target_width"
 CONF_MAX_TOKENS = "max_tokens"
+CONF_EVENT_IMAGE_SOURCE = "event_image_source"
+CONF_RECORDING_WAIT_TIMEOUT = "recording_wait_timeout"
 CONF_GO2RTC_URL = "go2rtc_url"
 CONF_GO2RTC_URL_EXTERNAL = "go2rtc_url_external"
 CONF_GO2RTC_MODES = "go2rtc_modes"
@@ -22,11 +24,21 @@ CONF_GO2RTC_MODES = "go2rtc_modes"
 DEFAULT_TIMEOUT = 60
 DEFAULT_TARGET_WIDTH = 1280
 DEFAULT_MAX_TOKENS = 500
+DEFAULT_EVENT_IMAGE_SOURCE = "recording_preferred"
+DEFAULT_RECORDING_WAIT_TIMEOUT = 20
 DEFAULT_GO2RTC_MODES = "webrtc,mse,mp4,hls,mjpeg"
 DEFAULT_PROMPT = (
     "Beschreibe knapp und sachlich, was im Bild geschieht. "
     "Nenne relevante Personen, Fahrzeuge, Tiere und Handlungen. "
     "Spekuliere nicht über nicht sichtbare Details."
+)
+
+EVENT_IMAGE_SOURCE_RECORDING = "recording_preferred"
+EVENT_IMAGE_SOURCE_SNAPSHOT = "event_snapshot"
+IMAGE_SOURCE_RECORDING = "recording"
+IMAGE_SOURCE_EVENT_SNAPSHOT = "event_snapshot"
+VALID_EVENT_IMAGE_SOURCES = frozenset(
+    {EVENT_IMAGE_SOURCE_RECORDING, EVENT_IMAGE_SOURCE_SNAPSHOT}
 )
 
 SERVICE_ANALYZE_EVENT = "analyze_event"
