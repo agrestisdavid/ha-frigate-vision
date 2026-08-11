@@ -6,7 +6,8 @@ All three services return response data and can be used with
 ## `frigate_vision.analyze_event`
 
 Analyze one exact Frigate event. The configured default prefers a
-recording/main-stream frame and falls back to the detect event snapshot.
+recording/main-stream frame, then tries the clean event snapshot and finally
+the normal annotated event snapshot.
 
 ```yaml
 action: frigate_vision.analyze_event
@@ -111,6 +112,7 @@ stored: true
 cached: false
 image_source: recording
 source_frame_time: 1720000000.125
+image_has_overlay: false
 duration_ms: 1842
 ```
 
@@ -119,5 +121,8 @@ For `analyze_image`, `event_id` is `null` and `stored` is always false.
 
 Video results additionally return `media_type`, `frame_count`, `window_start`,
 and `window_end`. A cached event result has `image_source: null`, because no
-image was read. `key_frame` remains the authenticated notification snapshot
-URL and is not a claim about the bytes that were analyzed.
+image was read, and `image_has_overlay: null`. Recording frames and Frigate's
+clean event snapshot report `image_has_overlay: false`; the annotated
+last-resort event fallback reports `true`. `key_frame` remains the authenticated
+notification snapshot URL and is not a claim about the bytes that were
+analyzed.

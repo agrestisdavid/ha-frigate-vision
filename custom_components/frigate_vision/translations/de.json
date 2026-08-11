@@ -41,8 +41,8 @@
           "timeout": "Maximale Dauer einer Provider-Anfrage für eine Einzelbildanalyse.",
           "video_timeout": "Maximale Dauer einer Provider-Anfrage für eine Videoframe-Analyse.",
           "target_width": "Maximale Breite von Einzelbildern. Kleinere Bilder werden niemals vergrößert.",
-          "event_image_source": "Bevorzugt ein Bild aus Recording/Mainstream oder verwendet immer Frigates Detect-Ereignisbild.",
-          "recording_wait_timeout": "So lange wird auf Recording-Frames gewartet, bevor das Detect-Bild verwendet wird.",
+          "event_image_source": "Bevorzugt ein Bild aus Recording/Mainstream oder startet direkt mit Frigates sauberem Ereignisbild und dem annotierten Fallback.",
+          "recording_wait_timeout": "So lange wird auf Recording-Frames gewartet, bevor die Ereignisbild-Fallbacks versucht werden.",
           "go2rtc_url": "Optionaler lokaler/interner Override. Leer lassen für den Home-Assistant-Proxy. Externe Clients verwenden diese URL niemals.",
           "go2rtc_url_external": "Leer lassen, um extern den Home-Assistant-Proxy zu verwenden. Externe Clients fallen niemals auf die lokale go2rtc-URL zurück.",
           "go2rtc_modes": "Kommagetrennt: webrtc,mse,mp4,hls,mjpeg. WebRTC wird zuerst versucht, MSE ist der erste Fallback."
@@ -77,8 +77,8 @@
           "timeout": "Maximale Dauer einer Provider-Anfrage für eine Einzelbildanalyse.",
           "video_timeout": "Maximale Dauer einer Provider-Anfrage für eine Videoframe-Analyse.",
           "target_width": "Maximale Breite von Einzelbildern. Kleinere Bilder werden niemals vergrößert.",
-          "event_image_source": "Bevorzugt ein Bild aus Recording/Mainstream oder verwendet immer Frigates Detect-Ereignisbild.",
-          "recording_wait_timeout": "So lange wird auf Recording-Frames gewartet, bevor das Detect-Bild verwendet wird.",
+          "event_image_source": "Bevorzugt ein Bild aus Recording/Mainstream oder startet direkt mit Frigates sauberem Ereignisbild und dem annotierten Fallback.",
+          "recording_wait_timeout": "So lange wird auf Recording-Frames gewartet, bevor die Ereignisbild-Fallbacks versucht werden.",
           "go2rtc_url": "Optionaler lokaler/interner Override. Leer lassen für den Home-Assistant-Proxy. Externe Clients verwenden diese URL niemals.",
           "go2rtc_url_external": "Leer lassen, um extern den Home-Assistant-Proxy zu verwenden. Externe Clients fallen niemals auf die lokale go2rtc-URL zurück.",
           "go2rtc_modes": "Kommagetrennt: webrtc,mse,mp4,hls,mjpeg. WebRTC wird zuerst versucht, MSE ist der erste Fallback."
@@ -90,7 +90,7 @@
     "event_image_source": {
       "options": {
         "recording_preferred": "Recording/Mainstream mit Detect-Fallback",
-        "event_snapshot": "Detect-Ereignisbild"
+        "event_snapshot": "Sauberes Ereignisbild mit annotiertem Fallback"
       }
     }
   }

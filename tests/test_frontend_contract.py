@@ -16,7 +16,7 @@ class FrontendContractTests(unittest.TestCase):
         card = FRONTEND / "frigate-vision-card.js"
         self.assertTrue(card.is_file())
         source = card.read_text(encoding="utf-8")
-        self.assertIn('const CARD_VERSION = "0.3.1";', source)
+        self.assertIn('const CARD_VERSION = "0.3.2";', source)
         self.assertIn('customElements.get("frigate-vision-card")', source)
         self.assertNotIn("/api/llmvision", source.lower())
 
@@ -32,7 +32,7 @@ class FrontendContractTests(unittest.TestCase):
 
     def test_manifest_declares_frontend_dependency_and_shared_version(self) -> None:
         manifest = json.loads((COMPONENT / "manifest.json").read_text(encoding="utf-8"))
-        self.assertEqual(manifest["version"], "0.3.1")
+        self.assertEqual(manifest["version"], "0.3.2")
         self.assertIn("frontend", manifest["dependencies"])
         self.assertEqual(
             manifest["documentation"],

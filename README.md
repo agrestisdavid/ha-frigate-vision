@@ -5,11 +5,12 @@ Frigate event recording frames with an OpenAI-compatible multimodal endpoint. Th
 single HACS package also ships the `custom:frigate-vision-card` frontend module
 and a reusable notification Blueprint.
 
-Version `0.3.1` is deliberately independent of LLM Vision:
+Version `0.3.2` is deliberately independent of LLM Vision:
 
 - Frigate remains the canonical source for events, clips, and descriptions.
-- Recording/main-stream frames are preferred and the detect event snapshot is
-  used as a fallback after the configurable readiness window.
+- Recording/main-stream frames are preferred. Frigate's clean event snapshot
+  is the first fallback; the annotated event snapshot is used only as a final
+  compatibility fallback.
 - Event video analysis sends 5–15 exact 1-fps recording frames, reduced to at
   most 1080 pixels high without upscaling, instead of an opaque MP4 upload.
 - Video provider requests use a separate 180-second default timeout.
@@ -94,6 +95,7 @@ stored: true
 cached: false
 image_source: recording
 source_frame_time: 1720000000.125
+image_has_overlay: false
 duration_ms: 1842
 ```
 
@@ -110,6 +112,10 @@ In `active` mode, allowed events are analyzed sequentially. Mute and cooldown
 settings suppress only notifications; analysis continues. A dedicated
 restoring timer helper is required when the notification cooldown is greater
 than zero.
+
+The initial and completed notification use the same tag but different
+cache-busting snapshot URLs. The completed notification therefore refreshes
+the annotated Frigate snapshot together with the AI response.
 
 ## Documentation
 

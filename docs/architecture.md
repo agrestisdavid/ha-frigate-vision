@@ -22,8 +22,8 @@ integration registers a versioned Home Assistant module URL once per process.
 2. Join or create the event-scoped analysis task.
 3. Read event metadata directly with Frigate authentication.
 4. Return a newly visible cached description when `force` is false.
-5. Read the recording frame at the preferred event timestamp, or use the
-   detect snapshot after the recording deadline.
+5. Read the recording frame at the preferred event timestamp, then try the
+   clean event snapshot and finally the annotated event snapshot.
 6. Call the provider once.
 7. Join or create one event-scoped description write when requested.
 8. Return the shared result with caller-specific duration and storage status.

@@ -572,6 +572,22 @@ class FrigateAdapter:
             size_label="25 MB",
         )
 
+    async def get_clean_snapshot(
+        self,
+        event_id: str,
+        *,
+        timeout: float = MAX_SOURCE_ATTEMPT_TIMEOUT,
+    ) -> bytes:
+        """Read Frigate's clean event snapshot without annotations."""
+        return await self._get_binary(
+            path=f"api/events/{event_id}/snapshot-clean.webp",
+            source="Clean-Snapshot",
+            event_id=event_id,
+            timeout=timeout,
+            max_bytes=MAX_IMAGE_BYTES,
+            size_label="25 MB",
+        )
+
     async def get_recording_snapshot(
         self,
         event_id: str,
@@ -798,8 +814,15 @@ async def _wait_for_detect_snapshot(
     force: bool,
     deadline: float,
     timeout_seconds: float,
-) -> tuple[dict[str, Any], bytes | None, str, str | None, float | None]:
-    """Wait until event metadata and its detect-role snapshot are ready."""
+) -> tuple[
+    dict[str, Any],
+    bytes | None,
+    str,
+    str | None,
+    float | None,
+    bool | None,
+]:
+    """Prefer a clean event snapshot, then use the annotated snapshot."""
     attempt = 0
     last_error: FrigateEventError | None = None
 
@@ -811,20 +834,40 @@ async def _wait_for_detect_snapshot(
             )
             cached_description = event_description(event)
             if cached_description and not force:
-                return event, None, cached_description, None, event_frame_time(event)
+                return (
+                    event,
+                    None,
+                    cached_description,
+                    None,
+                    event_frame_time(event),
+                    None,
+                )
 
             if monotonic() >= deadline:
                 break
-            snapshot = await runtime.frigate.get_snapshot(
-                event_id,
-                timeout=_source_attempt_timeout(deadline),
-            )
+            try:
+                snapshot = await runtime.frigate.get_clean_snapshot(
+                    event_id,
+                    timeout=_source_attempt_timeout(deadline),
+                )
+                image_has_overlay = False
+            except FrigateAuthenticationError:
+                raise
+            except FrigateEventError as clean_error:
+                if clean_error.status in {401, 403}:
+                    raise
+                snapshot = await runtime.frigate.get_snapshot(
+                    event_id,
+                    timeout=_source_attempt_timeout(deadline),
+                )
+                image_has_overlay = True
             return (
                 event,
                 snapshot,
                 "",
                 IMAGE_SOURCE_EVENT_SNAPSHOT,
                 event_frame_time(event),
+                image_has_overlay,
             )
         except FrigateEventError as err:
             if not err.transient:
@@ -850,8 +893,15 @@ async def _wait_for_recording_snapshot(
     event_id: str,
     force: bool,
     wait_timeout: float,
-) -> tuple[dict[str, Any], bytes | None, str, str | None, float | None]:
-    """Prefer a recording-role frame, then fall back to the detect snapshot."""
+) -> tuple[
+    dict[str, Any],
+    bytes | None,
+    str,
+    str | None,
+    float | None,
+    bool | None,
+]:
+    """Prefer a recording-role frame, then use event-snapshot fallbacks."""
     deadline = monotonic() + max(0.0, wait_timeout)
     attempt = 0
     first_attempt = True
@@ -869,7 +919,14 @@ async def _wait_for_recording_snapshot(
             )
             cached_description = event_description(event)
             if cached_description and not force:
-                return event, None, cached_description, None, event_frame_time(event)
+                return (
+                    event,
+                    None,
+                    cached_description,
+                    None,
+                    event_frame_time(event),
+                    None,
+                )
 
             camera = event_camera(event)
             frame_time = event_frame_time(event)
@@ -890,6 +947,7 @@ async def _wait_for_recording_snapshot(
                 "",
                 IMAGE_SOURCE_RECORDING,
                 frame_time,
+                False,
             )
         except FrigateAuthenticationError:
             raise
@@ -918,7 +976,14 @@ async def _acquire_event_snapshot(
     *,
     event_id: str,
     force: bool,
-) -> tuple[dict[str, Any], bytes | None, str, str | None, float | None]:
+) -> tuple[
+    dict[str, Any],
+    bytes | None,
+    str,
+    str | None,
+    float | None,
+    bool | None,
+]:
     """Acquire an event image according to the config-entry source policy."""
     config = merged_config(runtime.entry)
     source = str(config.get(CONF_EVENT_IMAGE_SOURCE, DEFAULT_EVENT_IMAGE_SOURCE))
@@ -955,6 +1020,7 @@ async def _analyze_event_once(
         cached_description,
         image_source,
         source_frame_time,
+        image_has_overlay,
     ) = await _acquire_event_snapshot(
         runtime,
         event_id=event_id,
@@ -969,6 +1035,7 @@ async def _analyze_event_once(
             "cached": True,
             "image_source": None,
             "source_frame_time": source_frame_time,
+            "image_has_overlay": None,
         }
 
     if snapshot is None:
@@ -984,6 +1051,7 @@ async def _analyze_event_once(
         "cached": False,
         "image_source": image_source,
         "source_frame_time": source_frame_time,
+        "image_has_overlay": image_has_overlay,
     }
 
 
@@ -1244,6 +1312,7 @@ async def _analyze_event_video_once(
         "media_type": "video_frames",
         "image_source": IMAGE_SOURCE_RECORDING,
         "source_frame_time": center_time,
+        "image_has_overlay": False,
         "frame_count": len(frames),
         "window_start": center_time - pre_seconds,
         "window_end": center_time + duration_seconds - pre_seconds,

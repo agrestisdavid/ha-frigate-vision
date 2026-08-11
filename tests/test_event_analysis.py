@@ -186,9 +186,11 @@ class FakeProvider:
         self.release = asyncio.Event()
         self.video_target_height = 1080
         self.video_frames = []
+        self.images = []
 
-    async def analyze(self, _snapshot: bytes, _prompt: str) -> str:
+    async def analyze(self, snapshot: bytes, _prompt: str) -> str:
         self.calls += 1
+        self.images.append(snapshot)
         self.started.set()
         if self.wait:
             await self.release.wait()
@@ -209,13 +211,23 @@ class FakeProvider:
 
 class FakeFrigate:
     def __init__(
-        self, event_outcomes, snapshot_outcomes, recording_outcomes=None
+        self,
+        event_outcomes,
+        snapshot_outcomes,
+        recording_outcomes=None,
+        clean_snapshot_outcomes=None,
     ) -> None:
         self.event_outcomes = list(event_outcomes)
         self.snapshot_outcomes = list(snapshot_outcomes)
+        self.clean_snapshot_outcomes = list(
+            snapshot_outcomes
+            if clean_snapshot_outcomes is None
+            else clean_snapshot_outcomes
+        )
         self.event_calls = 0
         self.event_timeouts = []
         self.snapshot_calls = 0
+        self.clean_snapshot_calls = 0
         self.recording_calls = 0
         self.recording_requests = []
         self.recording_timeouts = []
@@ -238,6 +250,10 @@ class FakeFrigate:
     async def get_snapshot(self, _event_id: str, *, timeout: float):
         self.snapshot_calls += 1
         return self._next(self.snapshot_outcomes)
+
+    async def get_clean_snapshot(self, _event_id: str, *, timeout: float):
+        self.clean_snapshot_calls += 1
+        return self._next(self.clean_snapshot_outcomes)
 
     async def get_recording_snapshot(
         self, _event_id: str, camera: str, frame_time: float, *, timeout: float
@@ -382,7 +398,8 @@ class EventAnalysisTests(unittest.IsolatedAsyncioTestCase):
             "start_time": 100.0,
             "data": {"snapshot_frame_time": 105.25},
         }
-        frigate = FakeFrigate([event], [b"detect"], [jpeg()])
+        recording_image = jpeg()
+        frigate = FakeFrigate([event], [b"detect"], [recording_image])
         provider = FakeProvider(self.analysis)
 
         result = await self.analysis.analyze_event(
@@ -398,6 +415,8 @@ class EventAnalysisTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(frigate.snapshot_calls, 0)
         self.assertEqual(result["image_source"], "recording")
         self.assertEqual(result["source_frame_time"], 105.25)
+        self.assertFalse(result["image_has_overlay"])
+        self.assertEqual(provider.images, [recording_image])
 
     async def test_detect_snapshot_policy_skips_recording(self) -> None:
         event = {
@@ -418,9 +437,73 @@ class EventAnalysisTests(unittest.IsolatedAsyncioTestCase):
         )
 
         self.assertEqual(frigate.recording_calls, 0)
-        self.assertEqual(frigate.snapshot_calls, 1)
+        self.assertEqual(frigate.clean_snapshot_calls, 1)
+        self.assertEqual(frigate.snapshot_calls, 0)
         self.assertEqual(result["image_source"], "event_snapshot")
         self.assertEqual(result["source_frame_time"], 101.5)
+        self.assertFalse(result["image_has_overlay"])
+
+    async def test_clean_event_snapshot_is_sent_to_provider(self) -> None:
+        event = {
+            "id": self.event_id,
+            "camera": "driveway",
+            "start_time": 100.0,
+            "data": {"frame_time": 101.5},
+        }
+        frigate = FakeFrigate(
+            [event],
+            [b"annotated-snapshot"],
+            clean_snapshot_outcomes=[b"clean-snapshot"],
+        )
+        provider = FakeProvider(self.analysis)
+
+        result = await self.analysis.analyze_event(
+            self.runtime(frigate, provider),
+            event_id=self.event_id,
+            camera_entity=None,
+            prompt="Describe.",
+            store=False,
+            force=False,
+        )
+
+        self.assertEqual(provider.images, [b"clean-snapshot"])
+        self.assertEqual(frigate.clean_snapshot_calls, 1)
+        self.assertEqual(frigate.snapshot_calls, 0)
+        self.assertFalse(result["image_has_overlay"])
+
+    async def test_annotated_snapshot_is_last_resort_and_reported(self) -> None:
+        unavailable = self.analysis.FrigateEventError(
+            "clean snapshot unavailable",
+            transient=True,
+            status=404,
+        )
+        event = {
+            "id": self.event_id,
+            "camera": "driveway",
+            "start_time": 100.0,
+            "data": {"frame_time": 101.5},
+        }
+        frigate = FakeFrigate(
+            [event],
+            [b"annotated-snapshot"],
+            clean_snapshot_outcomes=[unavailable],
+        )
+        provider = FakeProvider(self.analysis)
+
+        result = await self.analysis.analyze_event(
+            self.runtime(frigate, provider),
+            event_id=self.event_id,
+            camera_entity=None,
+            prompt="Describe.",
+            store=False,
+            force=False,
+        )
+
+        self.assertEqual(provider.images, [b"annotated-snapshot"])
+        self.assertEqual(frigate.clean_snapshot_calls, 1)
+        self.assertEqual(frigate.snapshot_calls, 1)
+        self.assertEqual(result["image_source"], "event_snapshot")
+        self.assertTrue(result["image_has_overlay"])
 
     async def test_old_entry_without_new_options_uses_runtime_defaults(self) -> None:
         event = {
@@ -459,9 +542,11 @@ class EventAnalysisTests(unittest.IsolatedAsyncioTestCase):
         )
 
         self.assertEqual(frigate.recording_calls, 0)
-        self.assertEqual(frigate.snapshot_calls, 1)
+        self.assertEqual(frigate.clean_snapshot_calls, 1)
+        self.assertEqual(frigate.snapshot_calls, 0)
         self.assertEqual(result["image_source"], "event_snapshot")
         self.assertIsNone(result["source_frame_time"])
+        self.assertFalse(result["image_has_overlay"])
 
     async def test_recording_auth_error_never_falls_back(self) -> None:
         unauthorized = self.analysis.FrigateEventError(
@@ -486,6 +571,7 @@ class EventAnalysisTests(unittest.IsolatedAsyncioTestCase):
             )
 
         self.assertEqual(frigate.snapshot_calls, 0)
+        self.assertEqual(frigate.clean_snapshot_calls, 0)
 
     async def test_permanent_recording_source_error_still_uses_fallback(self) -> None:
         unsupported = self.analysis.FrigateEventError(
@@ -511,7 +597,8 @@ class EventAnalysisTests(unittest.IsolatedAsyncioTestCase):
         )
 
         self.assertEqual(frigate.recording_calls, 1)
-        self.assertEqual(frigate.snapshot_calls, 1)
+        self.assertEqual(frigate.clean_snapshot_calls, 1)
+        self.assertEqual(frigate.snapshot_calls, 0)
         self.assertEqual(result["image_source"], "event_snapshot")
 
     async def test_zero_recording_wait_still_attempts_once_then_falls_back(
@@ -540,7 +627,8 @@ class EventAnalysisTests(unittest.IsolatedAsyncioTestCase):
         )
 
         self.assertEqual(frigate.recording_calls, 1)
-        self.assertEqual(frigate.snapshot_calls, 1)
+        self.assertEqual(frigate.clean_snapshot_calls, 1)
+        self.assertEqual(frigate.snapshot_calls, 0)
         self.assertEqual(frigate.event_timeouts[0], 1.0)
         self.assertEqual(frigate.recording_timeouts[0], 1.0)
         self.assertEqual(result["image_source"], "event_snapshot")
@@ -569,6 +657,7 @@ class EventAnalysisTests(unittest.IsolatedAsyncioTestCase):
 
         self.assertEqual(result["image_source"], "recording")
         self.assertEqual(frigate.snapshot_calls, 0)
+        self.assertEqual(frigate.clean_snapshot_calls, 0)
         self.assertEqual(frigate.recording_timeouts, [1.0])
 
     async def test_recording_404_retries_for_full_window_before_detect_fallback(
@@ -604,7 +693,8 @@ class EventAnalysisTests(unittest.IsolatedAsyncioTestCase):
 
         self.assertEqual(clock.value, 20.0)
         self.assertGreater(frigate.recording_calls, 4)
-        self.assertEqual(frigate.snapshot_calls, 1)
+        self.assertEqual(frigate.clean_snapshot_calls, 1)
+        self.assertEqual(frigate.snapshot_calls, 0)
         self.assertEqual(result["image_source"], "event_snapshot")
 
     async def test_video_uses_exact_fifteen_ordered_recording_frames(self) -> None:
@@ -628,6 +718,7 @@ class EventAnalysisTests(unittest.IsolatedAsyncioTestCase):
         )
 
         self.assertEqual(result["media_type"], "video_frames")
+        self.assertFalse(result["image_has_overlay"])
         self.assertEqual(result["frame_count"], 15)
         self.assertEqual(result["window_start"], 115.0)
         self.assertEqual(result["window_end"], 130.0)
@@ -677,7 +768,12 @@ class EventAnalysisTests(unittest.IsolatedAsyncioTestCase):
             **event,
             "data": {"snapshot_frame_time": 110.0},
         }
-        frigate = FakeFrigate([event, updated_event], [jpeg()], [unavailable])
+        frigate = FakeFrigate(
+            [event, updated_event],
+            [jpeg()],
+            [unavailable],
+            clean_snapshot_outcomes=[unavailable],
+        )
 
         result = await self.analysis.analyze_event_video(
             self.recording_runtime(frigate, FakeProvider(self.analysis)),
@@ -695,7 +791,9 @@ class EventAnalysisTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(result["source_frame_time"], 110.0)
         self.assertEqual(result["window_start"], 100.0)
         self.assertEqual(result["window_end"], 115.0)
+        self.assertEqual(frigate.clean_snapshot_calls, 1)
         self.assertEqual(frigate.snapshot_calls, 1)
+        self.assertTrue(result["image_has_overlay"])
 
     async def test_video_retry_requests_only_the_missing_frame(self) -> None:
         transient = self.analysis.FrigateEventError(
@@ -759,6 +857,7 @@ class EventAnalysisTests(unittest.IsolatedAsyncioTestCase):
         self.assertLessEqual(frigate.recording_calls, 3)
         self.assertGreaterEqual(frigate.cancelled_siblings, 1)
         self.assertEqual(frigate.snapshot_calls, 0)
+        self.assertEqual(frigate.clean_snapshot_calls, 0)
 
     async def test_video_event_auth_error_does_not_fall_back(self) -> None:
         auth_error = self.analysis.FrigateAuthenticationError(
@@ -780,6 +879,7 @@ class EventAnalysisTests(unittest.IsolatedAsyncioTestCase):
 
         self.assertEqual(frigate.event_calls, 1)
         self.assertEqual(frigate.snapshot_calls, 0)
+        self.assertEqual(frigate.clean_snapshot_calls, 0)
         self.assertEqual(provider.calls, 0)
 
     async def test_identical_video_calls_share_analysis_and_write(self) -> None:
@@ -841,7 +941,8 @@ class EventAnalysisTests(unittest.IsolatedAsyncioTestCase):
             )
 
         self.assertEqual(frigate.event_calls, 3)
-        self.assertEqual(frigate.snapshot_calls, 2)
+        self.assertEqual(frigate.clean_snapshot_calls, 2)
+        self.assertEqual(frigate.snapshot_calls, 1)
         self.assertEqual(provider.calls, 1)
         self.assertEqual(frigate.write_calls, 1)
         self.assertTrue(result["stored"])
@@ -872,6 +973,7 @@ class EventAnalysisTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(frigate.write_calls, 0)
         self.assertTrue(result["cached"])
         self.assertIsNone(result["image_source"])
+        self.assertIsNone(result["image_has_overlay"])
 
     async def test_permanently_missing_event_expires_without_provider(self) -> None:
         transient = self.analysis.FrigateEventError(
@@ -1278,6 +1380,21 @@ class AdapterTests(unittest.IsolatedAsyncioTestCase):
         with self.assertRaises(self.analysis.FrigateEventError) as context:
             await adapter.get_snapshot(self.event_id, timeout=3.0)
         self.assertTrue(context.exception.transient)
+
+    async def test_clean_snapshot_uses_annotation_free_frigate_route(self) -> None:
+        adapter, _client = self.adapter(FakeResponse(200, b"clean-webp"))
+
+        result = await adapter.get_clean_snapshot(self.event_id, timeout=3.0)
+
+        self.assertEqual(result, b"clean-webp")
+        url, kwargs = adapter._session.calls[0]
+        self.assertEqual(
+            str(url),
+            "https://frigate.example.test/api/events/"
+            "example-event-id/snapshot-clean.webp",
+        )
+        self.assertEqual(kwargs["headers"]["Authorization"], "test-header")
+        self.assertFalse(kwargs["ssl"])
 
     async def test_recording_snapshot_uses_exact_camera_and_timestamp(self) -> None:
         adapter, _client = self.adapter(FakeResponse(200, jpeg()))

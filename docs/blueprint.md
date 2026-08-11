@@ -57,11 +57,15 @@ The action selector receives stable variables including:
 - `fv_notification_tag` and `fv_notification_group`;
 - snapshot, thumbnail, and clip URLs;
 - `fv_analysis`, `fv_response_text`, `fv_stored`, and `fv_cached`.
-- `fv_media_type`, `fv_image_source`, and `fv_source_frame_time`;
+- `fv_media_type`, `fv_image_source`, `fv_image_has_overlay`, and
+  `fv_source_frame_time`;
 - `fv_frame_count`, `fv_window_start`, and `fv_window_end`.
 
 The initial and analysis phases use the same tag, allowing a mobile
-notification update instead of a second notification.
+notification update instead of a second notification. Both request an
+annotated Frigate snapshot, but use distinct `v=initial` and `v=analysis`
+query values. This bypasses the long-lived snapshot cache so the completed
+notification refreshes its image together with the AI response.
 
 ## Queue behavior
 

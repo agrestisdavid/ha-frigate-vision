@@ -10,12 +10,14 @@ and REST availability may trail the first message. Frigate Vision 0.3.x waits
 up to the configured recording timeout, then gives the detect event snapshot a
 separate five-second fallback window.
 
-## Recording frames fall back to the detect snapshot
+## Recording frames fall back to an event snapshot
 
 An in-progress event can be visible before Frigate has finalized the recording
 segment containing its best frame. HTTP 404 from the recording-snapshot route
-is retried for up to 20 seconds by default. `analyze_event` then continues with
-the detect snapshot and reports `image_source: event_snapshot`.
+is retried for up to 20 seconds by default. `analyze_event` then prefers
+Frigate's clean event snapshot without annotations. If that copy is not
+available, it uses the normal event snapshot as the final fallback and reports
+`image_source: event_snapshot` together with `image_has_overlay: true`.
 
 Video needs the complete time window. If one or more frames remain unavailable,
 it reports `media_type: image_fallback`. Check Frigate recording retention,
