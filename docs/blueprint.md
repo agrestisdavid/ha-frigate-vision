@@ -63,10 +63,13 @@ The action selector receives stable variables including:
 - `fv_frame_count`, `fv_window_start`, and `fv_window_end`.
 
 The initial and analysis phases use the same tag, allowing a mobile
-notification update instead of a second notification. Both request an
-annotated Frigate snapshot, but use distinct `v=initial` and `v=analysis`
-query values. This bypasses the long-lived snapshot cache so the completed
-notification refreshes its image together with the AI response.
+notification update instead of a second notification. The initial phase uses
+Frigate's lightweight event thumbnail; the analysis phase replaces it with the
+stored event snapshot. Both are query-free relative URLs. Query parameters are
+intentionally avoided because the iOS notification attachment loader can
+interpret them as part of the relative path and receive HTTP 404 from the Home
+Assistant Frigate proxy. The final snapshot retains Frigate's configured
+annotations.
 
 ## Queue behavior
 
