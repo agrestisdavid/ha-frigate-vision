@@ -152,7 +152,8 @@ blueprint:
             KI-Ergebnis. fv_notification_tag bleibt dabei identisch. Verfügbar
             sind unter anderem fv_title, fv_message, fv_snapshot_url,
             fv_thumbnail_url, fv_clip_url, fv_event_id, fv_camera_entity,
-            fv_camera_key, fv_label, fv_analysis und fv_analysis_ok.
+            fv_camera_key, fv_label, fv_analysis, fv_analysis_ok und
+            fv_image_has_overlay.
           default: []
           selector:
             action:
@@ -302,8 +303,9 @@ variables:
        if fv_client_id | length > 0 else '/api/frigate' }}
   fv_notification_tag: "{{ fv_tag_prefix | trim }}-{{ fv_event_id }}"
   fv_notification_group: "{{ fv_tag_prefix | trim }}-{{ fv_camera_key }}"
-  fv_snapshot_url: >-
+  fv_snapshot_base_url: >-
     {{ fv_proxy_prefix ~ '/notifications/' ~ fv_event_id ~ '/snapshot.jpg' }}
+  fv_snapshot_url: "{{ fv_snapshot_base_url ~ '?bbox=1&v=initial' }}"
   fv_thumbnail_url: >-
     {{ fv_proxy_prefix ~ '/notifications/' ~ fv_event_id ~ '/thumbnail.jpg' }}
   fv_clip_url: >-
@@ -320,6 +322,7 @@ variables:
   fv_duration_ms: 0
   fv_media_type: ""
   fv_image_source: ""
+  fv_image_has_overlay: "{{ none }}"
   fv_source_frame_time: 0
   fv_frame_count: 0
   fv_window_start: 0
@@ -414,6 +417,8 @@ actions:
   - variables:
       fv_phase: initial
       fv_message: "Die Erkennung wird analysiert."
+      fv_snapshot_url: "{{ fv_snapshot_base_url ~ '?bbox=1&v=initial' }}"
+      fv_image_url: "{{ fv_snapshot_base_url ~ '?bbox=1&v=initial' }}"
 
   - choose:
       - conditions:
@@ -477,6 +482,9 @@ actions:
       fv_image_source: >-
         {{ fv_analysis.get('image_source', '')
            if fv_analysis is mapping else '' }}
+      fv_image_has_overlay: >-
+        {{ fv_analysis.get('image_has_overlay')
+           if fv_analysis is mapping else none }}
       fv_source_frame_time: >-
         {{ fv_analysis.get('source_frame_time', 0) | float(0)
            if fv_analysis is mapping else 0 }}
@@ -498,6 +506,10 @@ actions:
            else 'error' }}
       fv_message: >-
         {{ fv_response_text if fv_analysis_ok else fv_error_message }}
+      fv_snapshot_url: >-
+        {{ fv_snapshot_base_url ~ '?bbox=1&v=analysis' }}
+      fv_image_url: >-
+        {{ fv_snapshot_base_url ~ '?bbox=1&v=analysis' }}
 
   - choose:
       - conditions:

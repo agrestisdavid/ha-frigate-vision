@@ -11,6 +11,7 @@
 | `cached` | boolean | Existing Frigate description was used |
 | `image_source` | string or null | Actual source: `recording`, `event_snapshot`, or null for a cache hit |
 | `source_frame_time` | number or null | Frigate timestamp selected for analysis |
+| `image_has_overlay` | boolean or null | Whether the analyzed fallback image may already contain Frigate annotations; null for a cache hit |
 | `media_type` | string | Video service only: `video_frames` or `image_fallback` |
 | `frame_count` | integer | Video service only: analyzed frame count |
 | `window_start` | number or null | Video service recording-window start |
@@ -82,7 +83,7 @@ There is no external fallback to the local direct URL.
 - provider response body: 1 MB;
 - Frigate event metadata body: 2 MB;
 - recording readiness: configurable 0–30 seconds, default 20;
-- detect snapshot fallback: 5 seconds;
+- clean/annotated event-snapshot fallback: 5 seconds;
 - still-image provider timeout: configurable, default 60 seconds;
 - video-frame provider timeout: configurable, default 180 seconds;
 - event video: 5–15 one-frame-per-second frames, at most 1080 pixels high;

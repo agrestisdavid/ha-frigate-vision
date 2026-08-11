@@ -17,10 +17,11 @@ to come from Frigate.
 ## What version 0.3.x provides
 
 Event creation and REST availability are not always simultaneous. The
-integration therefore waits for a recording/main-stream frame and then falls
-back to the detect event snapshot. The video service samples a fixed recording
-window at 1 fps and falls back to one fresh image if that complete window is
-unavailable. Provider calls and Frigate writes are never retried automatically.
+integration therefore waits for a recording/main-stream frame, then tries a
+clean event snapshot before the normal annotated snapshot. The video service
+samples a fixed recording window at 1 fps and falls back to one fresh image if
+that complete window is unavailable. Provider calls and Frigate writes are
+never retried automatically.
 
 The Card is bundled with the integration and registered as a versioned
 frontend module. A separate HACS dashboard package or manual Lovelace resource

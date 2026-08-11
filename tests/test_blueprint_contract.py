@@ -34,6 +34,7 @@ class BlueprintContractTests(unittest.TestCase):
         for variable in (
             "fv_media_type",
             "fv_image_source",
+            "fv_image_has_overlay",
             "fv_source_frame_time",
             "fv_frame_count",
             "fv_window_start",
@@ -62,6 +63,22 @@ class BlueprintContractTests(unittest.TestCase):
         )
         self.assertIn("and fv_notification_slot", self.source)
         self.assertIn("fv_notification_is_stale", self.source)
+
+    def test_notification_snapshot_is_refetched_after_analysis(self) -> None:
+        initial = "fv_snapshot_base_url ~ '?bbox=1&v=initial'"
+        analysis = "fv_snapshot_base_url ~ '?bbox=1&v=analysis'"
+        self.assertGreaterEqual(self.source.count(initial), 3)
+        self.assertGreaterEqual(self.source.count(analysis), 2)
+        self.assertNotEqual(initial, analysis)
+        self.assertIn(
+            'fv_notification_tag: "{{ fv_tag_prefix | trim }}-{{ fv_event_id }}"',
+            self.source,
+        )
+        analysis_url_pos = self.source.rindex(analysis)
+        final_notification_pos = self.source.rindex(
+            "sequence: !input notification_actions"
+        )
+        self.assertLess(analysis_url_pos, final_notification_pos)
 
     def test_notification_state_is_evaluated_when_queued_run_starts(self) -> None:
         action_variables = self.source.index(

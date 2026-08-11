@@ -19,8 +19,8 @@ Only one Frigate Vision entry can be created for a given Frigate entry.
 | Still-image timeout | Maximum provider request duration for image analysis |
 | Video-analysis timeout | Maximum provider request duration for video-frame analysis; default 180 seconds |
 | Target width | Maximum image width sent to the provider |
-| Event image source | Prefer recording/main stream or always use the detect snapshot |
-| Recording readiness timeout | Wait before falling back to the detect snapshot |
+| Event image source | Prefer recording/main stream or start with the event-snapshot fallbacks |
+| Recording readiness timeout | Wait before trying clean and annotated event snapshots |
 | Token limit | Maximum response token count |
 | Home Assistant Frigate proxy | Default authenticated live path; no URL required |
 | Direct local go2rtc URL | Optional advanced/standalone override |
@@ -89,5 +89,5 @@ bound to that entry and are cancelled during unload.
 Existing entries created before 0.2.2 use compatibility defaults without a
 migration: recording is preferred, recording readiness is 20 seconds, and the
 still-image target width remains 1280 pixels. Existing entries also receive
-the 180-second video timeout without a migration. Version 0.3.1 uses a fixed
-maximum video-frame height of 1080 pixels.
+the 180-second video timeout without a migration. Version 0.3.1 and later use
+a fixed maximum video-frame height of 1080 pixels.

@@ -2,7 +2,8 @@ analyze_event:
   name: Frigate event analysis
   description: >-
     Analyzes the configured recording/main-stream frame of one exact Frigate
-    event, with a detect-snapshot fallback, and can store the completed response.
+    event, with clean and annotated event-snapshot fallbacks, and can store the
+    completed response.
   fields:
     event_id:
       name: Event ID
