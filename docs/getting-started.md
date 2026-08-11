@@ -24,7 +24,7 @@ Assistant instance:
 2. add `agrestisdavid/ha-frigate-vision` as a custom repository;
 3. select the **Integration** category.
 
-Download release `0.3.2`, then restart Home Assistant.
+Download release `0.3.3`, then restart Home Assistant.
 
 Do not add a separate Lovelace resource for the bundled Card.
 

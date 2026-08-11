@@ -69,7 +69,7 @@ Version 9.7.7 is pinned for the current security-fixed release line.
 2. Run all local checks and scan for credentials, private hosts, event IDs, and
    personal configuration.
 3. Merge to `main`.
-4. Create a matching GitHub release and tag such as `v0.3.2`.
+4. Create a matching GitHub release and tag such as `v0.3.3`.
 5. Verify the Pages deployment.
 6. Install the release through HACS in a clean Home Assistant test path.
 7. Complete the config flow with newly entered provider credentials.
@@ -77,6 +77,12 @@ Version 9.7.7 is pinned for the current security-fixed release line.
 
 Never publish a release from manually copied Home Assistant files. Subsequent
 fixes should use a new GitHub tag and HACS version.
+
+## Version 0.3.3
+
+- latest Frigate sub-label and confidence in event-service responses;
+- recognized-person titles in the Blueprint and bundled Card;
+- no duplicate analysis for later face-recognition MQTT updates.
 
 ## Version 0.3.2
 

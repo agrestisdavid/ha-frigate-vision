@@ -9,7 +9,7 @@ import sys
 import types
 import unittest
 from pathlib import Path
-from unittest.mock import patch
+from unittest.mock import AsyncMock, patch
 
 ROOT = Path(__file__).resolve().parents[1]
 COMPONENT = ROOT / "custom_components" / "frigate_vision"
@@ -187,10 +187,12 @@ class FakeProvider:
         self.video_target_height = 1080
         self.video_frames = []
         self.images = []
+        self.prompts = []
 
-    async def analyze(self, snapshot: bytes, _prompt: str) -> str:
+    async def analyze(self, snapshot: bytes, prompt: str) -> str:
         self.calls += 1
         self.images.append(snapshot)
+        self.prompts.append(prompt)
         self.started.set()
         if self.wait:
             await self.release.wait()
@@ -198,9 +200,10 @@ class FakeProvider:
             raise self.error
         return "Eine Person geht zur Einfahrt."
 
-    async def analyze_video_frames(self, frames, _prompt: str) -> str:
+    async def analyze_video_frames(self, frames, prompt: str) -> str:
         self.calls += 1
         self.video_frames = list(frames)
+        self.prompts.append(prompt)
         self.started.set()
         if self.wait:
             await self.release.wait()
@@ -376,6 +379,143 @@ class EventAnalysisTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(self.analysis.event_frame_time(event), 10)
         event["start_time"] = float("inf")
         self.assertIsNone(self.analysis.event_frame_time(event))
+
+    def test_event_sub_label_normalizes_api_and_mqtt_formats(self) -> None:
+        self.assertEqual(
+            self.analysis.event_sub_label(
+                {
+                    "sub_label": " Alex ",
+                    "data": {"sub_label_score": "0.98"},
+                }
+            ),
+            ("Alex", 0.98),
+        )
+        self.assertEqual(
+            self.analysis.event_sub_label({"sub_label": ["Jamie", 0.91]}),
+            ("Jamie", 0.91),
+        )
+        self.assertEqual(
+            self.analysis.event_sub_label(
+                {"sub_label": "Alex", "sub_label_score": 0.96}
+            ),
+            ("Alex", 0.96),
+        )
+        for event in (
+            {"sub_label": None},
+            {"sub_label": [None, 0.9]},
+            {"sub_label": ""},
+        ):
+            with self.subTest(event=event):
+                self.assertEqual(self.analysis.event_sub_label(event), (None, None))
+        self.assertEqual(
+            self.analysis.event_sub_label(
+                {"sub_label": "Alex", "data": {"sub_label_score": 1.5}}
+            ),
+            ("Alex", None),
+        )
+
+    async def test_analysis_refreshes_a_late_face_recognition(self) -> None:
+        event = {
+            "id": self.event_id,
+            "camera": "driveway",
+            "start_time": 100.0,
+            "data": {"frame_time": 101.5},
+        }
+        recognized_event = {
+            **event,
+            "sub_label": "Alex",
+            "data": {"frame_time": 101.5, "sub_label_score": 0.98},
+        }
+        frigate = FakeFrigate([event, recognized_event], [jpeg()])
+        provider = FakeProvider(self.analysis)
+
+        result = await self.analysis.analyze_event(
+            self.runtime(frigate, provider),
+            event_id=self.event_id,
+            camera_entity=None,
+            prompt="Describe only what is visible.",
+            store=False,
+            force=False,
+        )
+
+        self.assertEqual(result["sub_label"], "Alex")
+        self.assertEqual(result["sub_label_score"], 0.98)
+        self.assertEqual(frigate.event_calls, 2)
+        self.assertNotIn("Alex", provider.prompts[0])
+
+    async def test_sub_label_refresh_failure_keeps_successful_analysis(self) -> None:
+        event = {
+            "id": self.event_id,
+            "camera": "driveway",
+            "start_time": 100.0,
+            "sub_label": "Alex",
+            "data": {"sub_label_score": 0.91},
+        }
+        unavailable = self.analysis.FrigateEventError(
+            "metadata unavailable",
+            transient=True,
+        )
+        frigate = FakeFrigate([event, unavailable], [jpeg()])
+
+        result = await self.analysis.analyze_event(
+            self.runtime(frigate, FakeProvider(self.analysis)),
+            event_id=self.event_id,
+            camera_entity=None,
+            prompt="Describe.",
+            store=False,
+            force=False,
+        )
+
+        self.assertEqual(result["sub_label"], "Alex")
+        self.assertEqual(result["sub_label_score"], 0.91)
+        self.assertEqual(frigate.event_calls, 2)
+
+    async def test_cached_event_returns_existing_sub_label_without_provider(
+        self,
+    ) -> None:
+        event = {
+            "id": self.event_id,
+            "sub_label": "Alex",
+            "data": {
+                "description": "Already described.",
+                "sub_label_score": 0.97,
+            },
+        }
+        frigate = FakeFrigate([event], [jpeg()])
+        provider = FakeProvider(self.analysis)
+
+        result = await self.analysis.analyze_event(
+            self.runtime(frigate, provider),
+            event_id=self.event_id,
+            camera_entity=None,
+            prompt="Describe.",
+            store=False,
+            force=False,
+        )
+
+        self.assertTrue(result["cached"])
+        self.assertEqual(result["sub_label"], "Alex")
+        self.assertEqual(result["sub_label_score"], 0.97)
+        self.assertEqual(frigate.event_calls, 1)
+        self.assertEqual(provider.calls, 0)
+
+    async def test_direct_image_result_has_null_sub_label_fields(self) -> None:
+        runtime = self.runtime(FakeFrigate([{}], [jpeg()]), FakeProvider(self.analysis))
+        with patch.object(
+            self.analysis,
+            "load_entity_image",
+            AsyncMock(return_value=(jpeg(), "/image.jpg")),
+        ):
+            result = await self.analysis.analyze_image(
+                runtime,
+                image_entity="camera.driveway",
+                media_source_id=None,
+                file_path=None,
+                prompt="Describe.",
+            )
+
+        self.assertIsNone(result["sub_label"])
+        self.assertIsNone(result["sub_label_score"])
 
     def test_image_resize_never_upscales_and_preserves_panorama_ratio(self) -> None:
         small = self.analysis._prepare_jpeg(jpeg(640, 360), 1280)
@@ -731,6 +871,40 @@ class EventAnalysisTests(unittest.IsolatedAsyncioTestCase):
         )
         self.assertEqual(jpeg_size(provider.video_frames[0][1]), (3563, 1080))
 
+    async def test_video_refreshes_a_late_face_recognition(self) -> None:
+        event = {
+            "id": self.event_id,
+            "camera": "ultra_wide",
+            "start_time": 100.0,
+            "data": {"snapshot_frame_time": 120.0},
+        }
+        recognized_event = {
+            **event,
+            "sub_label": "Jamie",
+            "data": {"snapshot_frame_time": 120.0, "sub_label_score": 0.94},
+        }
+        frigate = FakeFrigate(
+            [event, recognized_event],
+            [jpeg()],
+            [jpeg(5120, 1552)],
+        )
+        provider = FakeProvider(self.analysis)
+
+        result = await self.analysis.analyze_event_video(
+            self.recording_runtime(frigate, provider),
+            event_id=self.event_id,
+            camera_entity="camera.ultra_wide",
+            prompt="Describe only visible movement.",
+            store=False,
+            duration_seconds=5,
+            pre_seconds=2,
+        )
+
+        self.assertEqual(result["sub_label"], "Jamie")
+        self.assertEqual(result["sub_label_score"], 0.94)
+        self.assertEqual(frigate.event_calls, 2)
+        self.assertNotIn("Jamie", provider.prompts[0])
+
     async def test_video_rejects_durations_outside_stable_range(self) -> None:
         runtime = self.recording_runtime(
             FakeFrigate([{}], [jpeg()]),
@@ -766,7 +940,8 @@ class EventAnalysisTests(unittest.IsolatedAsyncioTestCase):
         }
         updated_event = {
             **event,
-            "data": {"snapshot_frame_time": 110.0},
+            "sub_label": "Alex",
+            "data": {"snapshot_frame_time": 110.0, "sub_label_score": 0.95},
         }
         frigate = FakeFrigate(
             [event, updated_event],
@@ -794,6 +969,8 @@ class EventAnalysisTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(frigate.clean_snapshot_calls, 1)
         self.assertEqual(frigate.snapshot_calls, 1)
         self.assertTrue(result["image_has_overlay"])
+        self.assertEqual(result["sub_label"], "Alex")
+        self.assertEqual(result["sub_label_score"], 0.95)
 
     async def test_video_retry_requests_only_the_missing_frame(self) -> None:
         transient = self.analysis.FrigateEventError(
@@ -940,7 +1117,7 @@ class EventAnalysisTests(unittest.IsolatedAsyncioTestCase):
                 force=False,
             )
 
-        self.assertEqual(frigate.event_calls, 3)
+        self.assertEqual(frigate.event_calls, 4)
         self.assertEqual(frigate.clean_snapshot_calls, 2)
         self.assertEqual(frigate.snapshot_calls, 1)
         self.assertEqual(provider.calls, 1)

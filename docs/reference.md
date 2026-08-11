@@ -12,6 +12,8 @@
 | `image_source` | string or null | Actual source: `recording`, `event_snapshot`, or null for a cache hit |
 | `source_frame_time` | number or null | Frigate timestamp selected for analysis |
 | `image_has_overlay` | boolean or null | Whether the analyzed fallback image may already contain Frigate annotations; null for a cache hit |
+| `sub_label` | string or null | Latest Frigate sub-label, including a recognized person's name |
+| `sub_label_score` | number or null | Frigate confidence score associated with the sub-label |
 | `media_type` | string | Video service only: `video_frames` or `image_fallback` |
 | `frame_count` | integer | Video service only: analyzed frame count |
 | `window_start` | number or null | Video service recording-window start |

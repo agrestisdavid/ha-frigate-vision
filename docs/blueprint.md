@@ -53,7 +53,8 @@ The action selector receives stable variables including:
 
 - `fv_phase`: `initial`, `analysis`, `shadow`, or `error`;
 - `fv_title` and `fv_message`;
-- `fv_event_id`, `fv_camera_key`, and `fv_label`;
+- `fv_event_id`, `fv_camera_key`, `fv_label`, `fv_sub_label`, and
+  `fv_sub_label_score`;
 - `fv_notification_tag` and `fv_notification_group`;
 - snapshot, thumbnail, and clip URLs;
 - `fv_analysis`, `fv_response_text`, `fv_stored`, and `fv_cached`.
@@ -101,12 +102,23 @@ push. A timer failure closes the notification slot but does not stop analysis.
 Error actions are an unthrottled diagnostic path and still run when analysis
 fails. Do not place a push action there if it must obey mute and cooldown.
 
-## Generic title
+## Notification title and face recognition
 
-Both push phases use:
+Without a recognized person, both push phases use:
 
 ```text
 <Detection> in <Camera> wurde erkannt
 ```
 
-The model creates only the description. It does not create or store the title.
+After analysis, the event services refresh Frigate metadata once. If Frigate
+has assigned a person sub-label in the meantime, the final update uses:
+
+```text
+Person (<Name>) in <Camera> wurde erkannt
+```
+
+The Blueprint still reacts only to the original `frigate/events` `new`
+message. Later face updates never start a second analysis. The model creates
+only the visual description; the recognized identity is neither sent to the
+provider nor stored as part of that description. Custom actions can branch on
+the normalized metadata, for example `{{ fv_sub_label == 'Alex' }}`.

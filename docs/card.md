@@ -50,8 +50,10 @@ Titles are derived locally and are not sent to or stored in Frigate:
 ```
 
 Known labels are translated, for example `person` to `Person` and `dog` to
-`Hund`. Unknown labels are converted to readable title case. AI descriptions,
-review titles, and sub-labels do not change the title.
+`Hund`. A recognized person sub-label changes the title to, for example,
+`Person (Alex) in Eingang wurde erkannt`. Unknown labels are converted to
+readable title case. AI descriptions and review titles do not change the title;
+sub-labels on non-person objects remain metadata only.
 
 ## Clip playback order
 

@@ -99,6 +99,10 @@ class BlueprintContractTests(unittest.TestCase):
             "{{ fv_label_display ~ ' in ' ~ fv_camera_name ~ ' wurde erkannt' }}",
             self.source,
         )
+        self.assertIn(
+            "fv_label_display ~ ' (' ~ fv_sub_label ~ ') in '",
+            self.source,
+        )
         for mapping in (
             "person: Person",
             "dog: Hund",
@@ -112,6 +116,18 @@ class BlueprintContractTests(unittest.TestCase):
             with self.subTest(mapping=mapping):
                 self.assertIn(mapping, self.source)
         self.assertNotIn("fv_camera_name ~ ': ' ~ fv_label_display", self.source)
+
+    def test_late_face_recognition_updates_only_the_final_title(self) -> None:
+        self.assertIn("fv_initial_sub_label:", self.source)
+        self.assertIn("fv_initial_sub_label_score:", self.source)
+        self.assertIn("fv_analysis.get('sub_label')", self.source)
+        self.assertIn("fv_analysis.get('sub_label_score')", self.source)
+        self.assertIn("fv_sub_label_score", self.source)
+        self.assertIn("fv_label == 'person'", self.source)
+        self.assertNotIn("frigate/tracked_object_update", self.source)
+        final_title = self.source.rindex("fv_title: >-")
+        final_notification = self.source.rindex("sequence: !input notification_actions")
+        self.assertLess(final_title, final_notification)
 
     def test_only_new_events_pass_the_filter(self) -> None:
         self.assertIn("fv_event_type == 'new'", self.source)

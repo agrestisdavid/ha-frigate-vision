@@ -1023,7 +1023,7 @@ test("API enrichment preserves an embedded Frigate description when API data is 
   assert.equal(event._ts.getTime(), 1712345678 * 1000);
 });
 
-test("event titles use only the translated label and configured camera name", () => {
+test("event titles show recognized people without reusing unrelated metadata", () => {
   const card = new FrigateVisionCard();
   card.setConfig({
     cameras: {
@@ -1046,7 +1046,7 @@ test("event titles use only the translated label and configured camera name", ()
 
   assert.equal(
     card._eventTitle(event, "en", { event_label: "Event" }),
-    "Person in Einfahrt wurde erkannt",
+    "Person (Bekannter Besucher) in Einfahrt wurde erkannt",
   );
 
   event._label = "delivery_box";

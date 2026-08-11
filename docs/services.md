@@ -113,11 +113,20 @@ cached: false
 image_source: recording
 source_frame_time: 1720000000.125
 image_has_overlay: false
+sub_label: Alex
+sub_label_score: 0.98
 duration_ms: 1842
 ```
 
 For `analyze_image`, `event_id` is `null` and `stored` is always false.
 `duration_ms` includes source-readiness waiting for event analysis.
+
+Event services refresh Frigate metadata once after a new model response and
+return the latest `sub_label` and `sub_label_score`. This captures face
+recognition that completed while the image or video was being analyzed. The
+refresh is best-effort and never invalidates an otherwise successful analysis.
+The identity is not appended to the provider prompt or stored AI description.
+`analyze_image` returns both fields as `null` because it has no Frigate event.
 
 Video results additionally return `media_type`, `frame_count`, `window_start`,
 and `window_end`. A cached event result has `image_source: null`, because no
