@@ -331,9 +331,9 @@ variables:
   fv_notification_group: "{{ fv_tag_prefix | trim }}-{{ fv_camera_key }}"
   fv_snapshot_base_url: >-
     {{ fv_proxy_prefix ~ '/notifications/' ~ fv_event_id ~ '/snapshot.jpg' }}
-  fv_snapshot_url: "{{ fv_snapshot_base_url ~ '?bbox=1&v=initial' }}"
   fv_thumbnail_url: >-
     {{ fv_proxy_prefix ~ '/notifications/' ~ fv_event_id ~ '/thumbnail.jpg' }}
+  fv_snapshot_url: "{{ fv_thumbnail_url }}"
   fv_clip_url: >-
     {{ fv_proxy_prefix ~ '/notifications/' ~ fv_event_id ~ '/clip.mp4' }}
   fv_image_url: "{{ fv_snapshot_url }}"
@@ -448,8 +448,8 @@ actions:
   - variables:
       fv_phase: initial
       fv_message: "Die Erkennung wird analysiert."
-      fv_snapshot_url: "{{ fv_snapshot_base_url ~ '?bbox=1&v=initial' }}"
-      fv_image_url: "{{ fv_snapshot_base_url ~ '?bbox=1&v=initial' }}"
+      fv_snapshot_url: "{{ fv_thumbnail_url }}"
+      fv_image_url: "{{ fv_thumbnail_url }}"
 
   - choose:
       - conditions:
@@ -548,10 +548,8 @@ actions:
            else 'error' }}
       fv_message: >-
         {{ fv_response_text if fv_analysis_ok else fv_error_message }}
-      fv_snapshot_url: >-
-        {{ fv_snapshot_base_url ~ '?bbox=1&v=analysis' }}
-      fv_image_url: >-
-        {{ fv_snapshot_base_url ~ '?bbox=1&v=analysis' }}
+      fv_snapshot_url: "{{ fv_snapshot_base_url }}"
+      fv_image_url: "{{ fv_snapshot_base_url }}"
 
   - variables:
       fv_title: >-

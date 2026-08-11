@@ -5,7 +5,7 @@ Frigate event recording frames with an OpenAI-compatible multimodal endpoint. Th
 single HACS package also ships the `custom:frigate-vision-card` frontend module
 and a reusable notification Blueprint.
 
-Version `0.3.3` is deliberately independent of LLM Vision:
+Version `0.3.4` is deliberately independent of LLM Vision:
 
 - Frigate remains the canonical source for events, clips, and descriptions.
 - Recording/main-stream frames are preferred. Frigate's clean event snapshot
@@ -117,9 +117,11 @@ settings suppress only notifications; analysis continues. A dedicated
 restoring timer helper is required when the notification cooldown is greater
 than zero.
 
-The initial and completed notification use the same tag but different
-cache-busting snapshot URLs. The completed notification therefore refreshes
-the annotated Frigate snapshot together with the AI response.
+The initial and completed notification use the same tag. The initial push uses
+Frigate's lightweight thumbnail, while the completed push uses the stored
+event snapshot. Both relative URLs deliberately have no query parameters,
+because the iOS notification attachment loader treats them as part of a path
+and can otherwise receive HTTP 404 from the Home Assistant Frigate proxy.
 
 ## Documentation
 

@@ -64,17 +64,22 @@ class BlueprintContractTests(unittest.TestCase):
         self.assertIn("and fv_notification_slot", self.source)
         self.assertIn("fv_notification_is_stale", self.source)
 
-    def test_notification_snapshot_is_refetched_after_analysis(self) -> None:
-        initial = "fv_snapshot_base_url ~ '?bbox=1&v=initial'"
-        analysis = "fv_snapshot_base_url ~ '?bbox=1&v=analysis'"
-        self.assertGreaterEqual(self.source.count(initial), 3)
-        self.assertGreaterEqual(self.source.count(analysis), 2)
-        self.assertNotEqual(initial, analysis)
+    def test_notification_snapshot_uses_an_ios_safe_relative_url(self) -> None:
+        initial_url = 'fv_snapshot_url: "{{ fv_thumbnail_url }}"'
+        initial_image = 'fv_image_url: "{{ fv_thumbnail_url }}"'
+        final_url = 'fv_snapshot_url: "{{ fv_snapshot_base_url }}"'
+        final_image = 'fv_image_url: "{{ fv_snapshot_base_url }}"'
+        self.assertGreaterEqual(self.source.count(initial_url), 2)
+        self.assertGreaterEqual(self.source.count(initial_image), 1)
+        self.assertGreaterEqual(self.source.count(final_url), 1)
+        self.assertGreaterEqual(self.source.count(final_image), 1)
+        self.assertNotIn("?bbox=", self.source)
+        self.assertNotIn("&v=", self.source)
         self.assertIn(
             'fv_notification_tag: "{{ fv_tag_prefix | trim }}-{{ fv_event_id }}"',
             self.source,
         )
-        analysis_url_pos = self.source.rindex(analysis)
+        analysis_url_pos = self.source.rindex(final_image)
         final_notification_pos = self.source.rindex(
             "sequence: !input notification_actions"
         )
