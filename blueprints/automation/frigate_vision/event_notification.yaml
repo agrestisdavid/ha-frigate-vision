@@ -152,8 +152,8 @@ blueprint:
             KI-Ergebnis. fv_notification_tag bleibt dabei identisch. Verfügbar
             sind unter anderem fv_title, fv_message, fv_snapshot_url,
             fv_thumbnail_url, fv_clip_url, fv_event_id, fv_camera_entity,
-            fv_camera_key, fv_label, fv_analysis, fv_analysis_ok und
-            fv_image_has_overlay.
+            fv_camera_key, fv_label, fv_sub_label, fv_sub_label_score,
+            fv_analysis, fv_analysis_ok und fv_image_has_overlay.
           default: []
           selector:
             action:
@@ -281,7 +281,33 @@ variables:
   fv_client_id: >-
     {{ state_attr(fv_camera_entity, 'client_id')
        | default('', true) | string | trim }}
-  fv_sub_label: "{{ fv_after.get('sub_label', '') | string | trim }}"
+  fv_initial_sub_label: >-
+    {% set value = fv_after.get('sub_label') %}
+    {% if value is string %}
+      {{ value | trim }}
+    {% elif value is sequence and value is not string and value | count > 0
+              and value[0] is string %}
+      {{ value[0] | string | trim }}
+    {% else %}
+      {{ '' }}
+    {% endif %}
+  fv_initial_sub_label_score: >-
+    {% set value = fv_after.get('sub_label') %}
+    {% set data = fv_after.get('data', {}) %}
+    {% if value is sequence and value is not string and value | count > 1
+          and value[0] is string and value[0] | trim | length > 0 %}
+      {{ value[1] | float(none) }}
+    {% elif value is string and value | trim | length > 0
+              and fv_after.get('sub_label_score') is not none %}
+      {{ fv_after.get('sub_label_score') | float(none) }}
+    {% elif value is string and value | trim | length > 0
+              and data is mapping and data.get('sub_label_score') is not none %}
+      {{ data.get('sub_label_score') | float(none) }}
+    {% else %}
+      {{ none }}
+    {% endif %}
+  fv_sub_label: "{{ fv_initial_sub_label }}"
+  fv_sub_label_score: "{{ fv_initial_sub_label_score }}"
   fv_label_translations:
     person: Person
     dog: Hund
@@ -330,7 +356,12 @@ variables:
   fv_error_message: ""
   fv_phase: filter
   fv_title: >-
-    {{ fv_label_display ~ ' in ' ~ fv_camera_name ~ ' wurde erkannt' }}
+    {% if fv_label == 'person' and fv_sub_label | length > 0 %}
+      {{ fv_label_display ~ ' (' ~ fv_sub_label ~ ') in '
+         ~ fv_camera_name ~ ' wurde erkannt' }}
+    {% else %}
+      {{ fv_label_display ~ ' in ' ~ fv_camera_name ~ ' wurde erkannt' }}
+    {% endif %}
   fv_message: ""
 
 triggers:
@@ -473,6 +504,17 @@ actions:
       fv_cached: >-
         {{ fv_analysis.get('cached', false)
            if fv_analysis is mapping else false }}
+      fv_sub_label: >-
+        {% set value = fv_analysis.get('sub_label')
+           if fv_analysis is mapping else none %}
+        {{ value | string | trim
+           if value is string and value | trim | length > 0
+           else fv_initial_sub_label }}
+      fv_sub_label_score: >-
+        {% set value = fv_analysis.get('sub_label_score')
+           if fv_analysis is mapping else none %}
+        {{ value | float(none)
+           if value is not none else fv_initial_sub_label_score }}
       fv_duration_ms: >-
         {{ fv_analysis.get('duration_ms', 0) | int(0)
            if fv_analysis is mapping else 0 }}
@@ -510,6 +552,15 @@ actions:
         {{ fv_snapshot_base_url ~ '?bbox=1&v=analysis' }}
       fv_image_url: >-
         {{ fv_snapshot_base_url ~ '?bbox=1&v=analysis' }}
+
+  - variables:
+      fv_title: >-
+        {% if fv_label == 'person' and fv_sub_label | length > 0 %}
+          {{ fv_label_display ~ ' (' ~ fv_sub_label ~ ') in '
+             ~ fv_camera_name ~ ' wurde erkannt' }}
+        {% else %}
+          {{ fv_label_display ~ ' in ' ~ fv_camera_name ~ ' wurde erkannt' }}
+        {% endif %}
 
   - choose:
       - conditions:

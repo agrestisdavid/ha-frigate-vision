@@ -74,6 +74,7 @@ EVENT_RETRY_DELAYS = (0.5, 1.0, 2.0, 4.0)
 MAX_EVENT_RESPONSE_BYTES = 2 * 1024 * 1024
 MAX_SOURCE_ATTEMPT_TIMEOUT = 10.0
 IMMEDIATE_SOURCE_ATTEMPT_TIMEOUT = 1.0
+EVENT_METADATA_REFRESH_TIMEOUT = 5.0
 TRANSIENT_SOURCE_STATUSES = frozenset({404, 408, 425, 429, *range(500, 600)})
 _FlightKey = TypeVar("_FlightKey")
 
@@ -799,6 +800,73 @@ def event_camera(event: dict[str, Any]) -> str | None:
     return value or None
 
 
+def event_sub_label(event: dict[str, Any]) -> tuple[str | None, float | None]:
+    """Return one normalized Frigate sub-label and its optional score."""
+    raw_sub_label = event.get("sub_label")
+    raw_score: Any = None
+    if isinstance(raw_sub_label, str):
+        sub_label = raw_sub_label.strip()
+    elif (
+        isinstance(raw_sub_label, (list, tuple))
+        and raw_sub_label
+        and isinstance(raw_sub_label[0], str)
+    ):
+        sub_label = raw_sub_label[0].strip()
+        if len(raw_sub_label) > 1:
+            raw_score = raw_sub_label[1]
+    else:
+        sub_label = ""
+
+    if not sub_label:
+        return None, None
+
+    data = event.get("data")
+    if raw_score is None:
+        raw_score = event.get("sub_label_score")
+    if raw_score is None and isinstance(data, dict):
+        raw_score = data.get("sub_label_score")
+    if isinstance(raw_score, bool):
+        return sub_label, None
+    try:
+        score = float(raw_score)
+    except (TypeError, ValueError):
+        return sub_label, None
+    if not math.isfinite(score) or not 0 <= score <= 1:
+        return sub_label, None
+    return sub_label, score
+
+
+def _event_sub_label_result(event: dict[str, Any]) -> dict[str, Any]:
+    """Build the public sub-label response fields for one event."""
+    sub_label, sub_label_score = event_sub_label(event)
+    return {
+        "sub_label": sub_label,
+        "sub_label_score": sub_label_score,
+    }
+
+
+async def _refresh_event_sub_label(
+    runtime: RuntimeData,
+    *,
+    event_id: str,
+    fallback_event: dict[str, Any],
+) -> dict[str, Any]:
+    """Best-effort refresh metadata after analysis without invalidating success."""
+    try:
+        event = await runtime.frigate.get_event(
+            event_id,
+            timeout=EVENT_METADATA_REFRESH_TIMEOUT,
+        )
+    except FrigateEventError as err:
+        _LOGGER.debug(
+            "Frigate sub-label refresh for event %s failed: %s",
+            event_id,
+            err,
+        )
+        event = fallback_event
+    return _event_sub_label_result(event)
+
+
 async def _sleep_for_retry(attempt: int, deadline: float) -> None:
     remaining = deadline - monotonic()
     if remaining <= 0:
@@ -1015,7 +1083,7 @@ async def _analyze_event_once(
     """Run one cache/readiness/provider pipeline for an exact event."""
     key_frame = runtime.frigate.key_frame_url(event_id, camera_entity)
     (
-        _event,
+        event,
         snapshot,
         cached_description,
         image_source,
@@ -1036,6 +1104,7 @@ async def _analyze_event_once(
             "image_source": None,
             "source_frame_time": source_frame_time,
             "image_has_overlay": None,
+            **_event_sub_label_result(event),
         }
 
     if snapshot is None:
@@ -1043,6 +1112,11 @@ async def _analyze_event_once(
             f"Snapshot für Frigate-Ereignis {event_id} ist nicht verfügbar."
         )
     response_text = await runtime.provider.analyze(snapshot, prompt)
+    sub_label_result = await _refresh_event_sub_label(
+        runtime,
+        event_id=event_id,
+        fallback_event=event,
+    )
     return {
         "response_text": response_text,
         "event_id": event_id,
@@ -1052,6 +1126,7 @@ async def _analyze_event_once(
         "image_source": image_source,
         "source_frame_time": source_frame_time,
         "image_has_overlay": image_has_overlay,
+        **sub_label_result,
     }
 
 
@@ -1262,7 +1337,7 @@ async def _analyze_event_video_once(
     allow_immediate_attempt = wait_timeout <= 0
     center_time: float | None = None
     try:
-        _event, camera, center_time = await _wait_for_video_event(
+        event, camera, center_time = await _wait_for_video_event(
             runtime,
             event_id=event_id,
             deadline=deadline,
@@ -1303,6 +1378,11 @@ async def _analyze_event_video_once(
         }
 
     response_text = await runtime.provider.analyze_video_frames(frames, prompt)
+    sub_label_result = await _refresh_event_sub_label(
+        runtime,
+        event_id=event_id,
+        fallback_event=event,
+    )
     return {
         "response_text": response_text,
         "event_id": event_id,
@@ -1316,6 +1396,7 @@ async def _analyze_event_video_once(
         "frame_count": len(frames),
         "window_start": center_time - pre_seconds,
         "window_end": center_time + duration_seconds - pre_seconds,
+        **sub_label_result,
     }
 
 
@@ -1547,5 +1628,7 @@ async def analyze_image(
         "key_frame": key_frame,
         "stored": False,
         "cached": False,
+        "sub_label": None,
+        "sub_label_score": None,
         "duration_ms": round((monotonic() - started) * 1000),
     }

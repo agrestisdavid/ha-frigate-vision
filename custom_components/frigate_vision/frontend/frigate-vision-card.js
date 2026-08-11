@@ -1,4 +1,4 @@
-const CARD_VERSION = "0.3.2";
+const CARD_VERSION = "0.3.3";
 
 const VALID_LIVE_PROVIDERS = ["auto", "go2rtc", "mjpeg", "off"];
 const VALID_GO2RTC_MODES = ["webrtc", "mse", "mp4", "hls", "mjpeg"];
@@ -5441,7 +5441,12 @@ class FrigateVisionCard extends LitElement {
   _eventTitle(ev, _lang, _t) {
     const detection = translateLabel(ev?._label || "", "de") || "Ereignis";
     const camera = this._camName(ev?._camera || "") || "Frigate";
-    return `${detection} in ${camera} wurde erkannt`;
+    const subLabel = String(ev?._frigate?.subLabel || "").trim();
+    const identity =
+      String(ev?._label || "").trim().toLowerCase() === "person" && subLabel
+        ? ` (${subLabel})`
+        : "";
+    return `${detection}${identity} in ${camera} wurde erkannt`;
   }
 
   _eventShortDesc(ev) {

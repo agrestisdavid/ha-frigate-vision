@@ -5,7 +5,7 @@ Frigate event recording frames with an OpenAI-compatible multimodal endpoint. Th
 single HACS package also ships the `custom:frigate-vision-card` frontend module
 and a reusable notification Blueprint.
 
-Version `0.3.2` is deliberately independent of LLM Vision:
+Version `0.3.3` is deliberately independent of LLM Vision:
 
 - Frigate remains the canonical source for events, clips, and descriptions.
 - Recording/main-stream frames are preferred. Frigate's clean event snapshot
@@ -16,6 +16,8 @@ Version `0.3.2` is deliberately independent of LLM Vision:
 - Video provider requests use a separate 180-second default timeout.
 - Concurrent requests for the same event share one model analysis.
 - Descriptions are written only after a successful, non-empty model response.
+- Frigate face-recognition sub-labels are refreshed after event analysis and
+  exposed without sending a person's identity to the model provider.
 - The bundled Card has its own custom elements and deep-link key.
 - No provider credentials, fixed hosts, or private addresses are embedded in
   the Card or Blueprint.
@@ -96,6 +98,8 @@ cached: false
 image_source: recording
 source_frame_time: 1720000000.125
 image_has_overlay: false
+sub_label: Alex
+sub_label_score: 0.98
 duration_ms: 1842
 ```
 

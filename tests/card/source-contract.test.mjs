@@ -110,7 +110,7 @@ test("does not classify generic HLS timeouts and network failures as no clip", (
   assert.doesNotMatch(classifier, /manifestLoadTimeOut.*no_clip/s);
 });
 
-test("builds generic German titles without AI or review metadata", () => {
+test("builds German titles with recognized person sub-labels only", () => {
   const titleStart = source.indexOf("  _eventTitle(");
   const titleEnd = source.indexOf("  _eventShortDesc(", titleStart);
   assert.ok(titleStart >= 0 && titleEnd > titleStart);
@@ -118,9 +118,11 @@ test("builds generic German titles without AI or review metadata", () => {
   assert.match(titleHelper, /translateLabel\(ev\?\._label \|\| "", "de"\)/);
   assert.match(
     titleHelper,
-    /`\$\{detection\} in \$\{camera\} wurde erkannt`/,
+    /`\$\{detection\}\$\{identity\} in \$\{camera\} wurde erkannt`/,
   );
-  for (const forbidden of ["reviewTitle", "subLabel", "description"]) {
+  assert.match(titleHelper, /ev\?\._frigate\?\.subLabel/);
+  assert.match(titleHelper, /=== "person" && subLabel/);
+  for (const forbidden of ["reviewTitle", "description"]) {
     assert.doesNotMatch(titleHelper, new RegExp(forbidden));
   }
 });
