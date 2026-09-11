@@ -31,7 +31,7 @@ const EXPECTED_VENDOR_DIR = resolve(
   "vendor",
 );
 const PACKAGES = Object.freeze({
-  esbuild: "0.28.1",
+  esbuild: "0.28.2",
   "hls.js": "1.5.17",
   "lit-element": "2.5.1",
   "lit-html": "1.4.1",

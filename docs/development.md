@@ -2,20 +2,22 @@
 
 ## Local checks
 
-Create a documentation environment and install the lock file:
+Create a local environment and install the development and documentation
+lock files:
 
 ```powershell
 python -m venv .venv
+.\.venv\Scripts\python.exe -m pip install -r requirements-dev.txt
 .\.venv\Scripts\python.exe -m pip install -r requirements-docs.txt
 ```
 
 Run:
 
 ```powershell
-python -m compileall custom_components
-python -m ruff check custom_components tests
-python -m ruff format --check custom_components tests
-python -m unittest discover -s tests -p "test_*.py" -v
+.\.venv\Scripts\python.exe -m compileall custom_components
+.\.venv\Scripts\python.exe -m ruff check custom_components tests
+.\.venv\Scripts\python.exe -m ruff format --check custom_components tests
+.\.venv\Scripts\python.exe -m unittest discover -s tests -p "test_*.py" -v
 npm ci
 npm run verify
 .\.venv\Scripts\python.exe -m mkdocs build --strict
