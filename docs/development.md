@@ -77,8 +77,23 @@ Version 9.7.7 is pinned for the current security-fixed release line.
 7. Complete the config flow with newly entered provider credentials.
 8. Confirm the Card loads without a manual Lovelace resource.
 
+For a first beta, use the same SemVer prerelease string (for example,
+`0.3.5-beta.1`) in package metadata, the manifest, Python constant, and Card;
+create only a matching GitHub **pre-release** tag. Validate HACS beta selection
+and downgrade to the previous stable version in a disposable Home Assistant
+profile before asking productive users to test. The exact beta control in HACS
+is UI-version dependent. Keep the stable install instructions stable-only and
+maintain the separate [German beta checklist](beta-testing.md).
+
 Never publish a release from manually copied Home Assistant files. Subsequent
 fixes should use a new GitHub tag and HACS version.
+
+## Version 0.3.5-beta.1 (pre-release candidate)
+
+- bundled hls.js 1.7.3 and Lit 3.3.3 (LitElement 4.2.2 / lit-html 3.3.3);
+- actual-vendored-runtime browser test and beta-branch CI validation;
+- see [Beta-Test: 0.3.5-beta.1](beta-testing.md) for productive installation,
+  testing, and manual rollback guidance; stable remains 0.3.4.
 
 ## Version 0.3.4
 

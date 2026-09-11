@@ -1,0 +1,12 @@
+<!doctype html>
+<meta charset="utf-8">
+<title>Frigate Vision vendored runtime harness</title>
+<script>
+  Object.defineProperty(navigator, "maxTouchPoints", { value: 1, configurable: true });
+</script>
+<script type="module">
+  import "../../custom_components/frigate_vision/frontend/frigate-vision-card.js";
+  import Hls from "../../custom_components/frigate_vision/frontend/vendor/hls-1.7.3.js";
+
+  window.__frigateVisionBrowserRuntime = { hlsVersion: Hls.version };
+</script>
