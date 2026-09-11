@@ -32,9 +32,15 @@ const EXPECTED_VENDOR_DIR = resolve(
 );
 const PACKAGES = Object.freeze({
   esbuild: "0.28.2",
-  "hls.js": "1.5.17",
-  "lit-element": "2.5.1",
-  "lit-html": "1.4.1",
+  "hls.js": "1.7.3",
+  lit: "3.3.3",
+  "lit-element": "4.2.2",
+  "lit-html": "3.3.3",
+  "@lit/reactive-element": "2.1.2",
+});
+const PACKAGE_PATHS = Object.freeze({
+  "lit-element": ["lit", "node_modules", "lit-element"],
+  "lit-html": ["lit", "node_modules", "lit-html"],
 });
 const GENERATED_BY = "scripts/build-vendor.mjs";
 const CHECK_ONLY = process.argv.includes("--check");
@@ -51,7 +57,10 @@ function packagePath(packageName, ...parts) {
 async function assertInstalledVersions() {
   for (const [packageName, expectedVersion] of Object.entries(PACKAGES)) {
     const metadata = JSON.parse(
-      await readFile(packagePath(packageName, "package.json"), "utf8"),
+      await readFile(
+        packagePath(...(PACKAGE_PATHS[packageName] || [packageName]), "package.json"),
+        "utf8",
+      ),
     );
     if (metadata.version !== expectedVersion) {
       throw new Error(
@@ -106,8 +115,8 @@ async function generate(outputDirectory) {
 
   await build({
     absWorkingDir: ROOT,
-    entryPoints: [packagePath("lit-element", "lit-element.js")],
-    outfile: join(outputDirectory, "lit-element-2.5.1.js"),
+    entryPoints: [packagePath("lit", "index.js")],
+    outfile: join(outputDirectory, "lit-3.3.3.js"),
     bundle: true,
     charset: "utf8",
     format: "esm",
@@ -118,14 +127,14 @@ async function generate(outputDirectory) {
     sourcemap: false,
     target: ["es2018"],
     banner: {
-      js: "/* Vendored LitElement 2.5.1 + lit-html 1.4.1; see adjacent license files. */",
+      js: "/* Vendored Lit 3.3.3 (LitElement 4.2.2, lit-html 3.3.3, @lit/reactive-element 2.1.2); see adjacent license files. */",
     },
   });
 
   await build({
     absWorkingDir: ROOT,
     entryPoints: [packagePath("hls.js", "dist", "hls.mjs")],
-    outfile: join(outputDirectory, "hls-1.5.17.js"),
+    outfile: join(outputDirectory, "hls-1.7.3.js"),
     bundle: true,
     charset: "utf8",
     format: "esm",
@@ -136,16 +145,20 @@ async function generate(outputDirectory) {
     sourcemap: false,
     target: ["es2018"],
     banner: {
-      js: "/* Vendored hls.js 1.5.17; see hls.js-LICENSE.txt. */",
+      js: "/* Vendored hls.js 1.7.3; see hls.js-LICENSE.txt. */",
     },
   });
   await copyFile(
-    packagePath("lit-element", "LICENSE"),
+    packagePath("lit", "node_modules", "lit-element", "LICENSE"),
     join(outputDirectory, "lit-element-LICENSE.txt"),
   );
   await copyFile(
-    packagePath("lit-html", "LICENSE"),
+    packagePath("lit", "node_modules", "lit-html", "LICENSE"),
     join(outputDirectory, "lit-html-LICENSE.txt"),
+  );
+  await copyFile(
+    packagePath("@lit/reactive-element", "LICENSE"),
+    join(outputDirectory, "lit-reactive-element-LICENSE.txt"),
   );
   await copyFile(
     packagePath("hls.js", "LICENSE"),
@@ -154,10 +167,11 @@ async function generate(outputDirectory) {
 
   await writeManifest(outputDirectory, [
     "hls.js-LICENSE.txt",
-    "hls-1.5.17.js",
+    "hls-1.7.3.js",
     "lit-element-LICENSE.txt",
-    "lit-element-2.5.1.js",
+    "lit-3.3.3.js",
     "lit-html-LICENSE.txt",
+    "lit-reactive-element-LICENSE.txt",
   ]);
 }
 

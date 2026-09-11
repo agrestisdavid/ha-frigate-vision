@@ -15,14 +15,14 @@ const vendorManifest = JSON.parse(
   await readFile(new URL("vendor-manifest.json", vendorRoot), "utf8"),
 );
 const litRuntime = await readFile(
-  new URL("lit-element-2.5.1.js", vendorRoot),
+  new URL("lit-3.3.3.js", vendorRoot),
   "utf8",
 );
 const hlsRuntime = await readFile(
-  new URL("hls-1.5.17.js", vendorRoot),
+  new URL("hls-1.7.3.js", vendorRoot),
   "utf8",
 );
-const hlsModule = await import(new URL("hls-1.5.17.js", vendorRoot));
+const hlsModule = await import(new URL("hls-1.7.3.js", vendorRoot));
 
 test("uses independent card and custom-element names", () => {
   for (const name of [
@@ -152,14 +152,16 @@ test("retains all five go2rtc transports and the pinned HLS runtime", () => {
   for (const mode of ["webrtc", "mse", "mp4", "hls", "mjpeg"]) {
     assert.match(source, new RegExp(`mode === ["']${mode}["']`));
   }
-  assert.equal(vendorManifest.packages["hls.js"], "1.5.17");
-  assert.match(source, /const HLS_MODULE = "\.\/vendor\/hls-1\.5\.17\.js"/);
+  assert.equal(vendorManifest.packages["hls.js"], "1.7.3");
+  assert.match(source, /const HLS_MODULE = "\.\/vendor\/hls-1\.7\.3\.js"/);
 });
 
 test("loads browser dependencies only from the bundled vendor directory", () => {
-  assert.equal(vendorManifest.packages["lit-element"], "2.5.1");
-  assert.equal(vendorManifest.packages["lit-html"], "1.4.1");
-  assert.match(source, /from "\.\/vendor\/lit-element-2\.5\.1\.js"/);
+  assert.equal(vendorManifest.packages.lit, "3.3.3");
+  assert.equal(vendorManifest.packages["lit-element"], "4.2.2");
+  assert.equal(vendorManifest.packages["lit-html"], "3.3.3");
+  assert.equal(vendorManifest.packages["@lit/reactive-element"], "2.1.2");
+  assert.match(source, /from "\.\/vendor\/lit-3\.3\.3\.js"/);
   assert.match(source, /import\(HLS_MODULE\)/);
   for (const runtimeSource of [source, litRuntime, hlsRuntime]) {
     assert.doesNotMatch(
@@ -207,7 +209,7 @@ test("uses the authenticated HA Frigate proxy without logging signaling secrets"
 
 test("bundled hls.js exposes the pinned default runtime", () => {
   assert.equal(typeof hlsModule.default, "function");
-  assert.equal(hlsModule.default.version, "1.5.17");
+  assert.equal(hlsModule.default.version, "1.7.3");
 });
 
 test("keeps standalone URLs and supports the optional central profile", () => {

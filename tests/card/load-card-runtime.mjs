@@ -98,7 +98,7 @@ export async function loadCardRuntime() {
     );
     const source = await readFile(sourceUrl, "utf8");
     const litImport =
-      /import\s*\{\s*LitElement,\s*html,\s*css,\s*\}\s*from\s*"\.\/vendor\/lit-element-2\.5\.1\.js";/;
+      /import\s*\{\s*LitElement,\s*html,\s*css,\s*\}\s*from\s*"\.\/vendor\/lit-3\.3\.3\.js";/;
     if (!litImport.test(source)) {
       throw new Error("Lit import in frigate-vision-card.js was not found");
     }
