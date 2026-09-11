@@ -138,14 +138,12 @@ published at:
 
 ## Development
 
-```powershell
-python -m compileall custom_components
-python -m ruff check custom_components tests
-python -m ruff format --check custom_components tests
-python -m unittest discover -s tests -p "test_*.py" -v
-npm run verify
-python -m mkdocs build --strict
-```
+Follow the [complete local setup and validation instructions](docs/development.md)
+for Python 3.12, Node.js 24, and the pinned development/documentation dependencies.
+Install Chromium with `npx playwright install chromium` after `npm ci` and before
+`npm run verify`; installing the npm packages alone does not install the browser.
+The validation includes Python checks, actual Chromium rendering tests, vendor
+reproducibility checks, and a strict documentation build.
 
 ## License
 

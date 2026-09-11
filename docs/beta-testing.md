@@ -5,6 +5,21 @@
 Home-Assistant-Installation; sie behauptet **nicht**, dass ein Downgrade auf
 deiner Installation getestet wurde.
 
+## Umfang und Grenzen der bisherigen Prüfung
+
+Automatische Tests prüfen die Zustandslogik und echtes Chromium-Rendering der
+Card und des Editors. Der Browser-Test lädt auch das tatsächliche HLS-Modul,
+spielt aber kein Video ab. Echte Frigate-Wiedergabe, Safari/iOS, HACS-Installation
+und Downgrade müssen noch manuell getestet werden. Eine statische Typprüfung
+ist weiterhin nicht eingerichtet.
+
+Werkzeugupdates sind separat committed; HLS und Lit wurden entgegen der
+ursprünglich geplanten Aufteilung gemeinsam in einem Runtime-Commit
+aktualisiert. Bei Problemen daher zunächst die vollständige stabile Version
+wiederherstellen, nicht einzelne Bibliotheksdateien zwischen Versionen mischen.
+Das neue HLS-Bundle ist ungefähr 194 KB größer; ein längeres erstmaliges Laden
+auf langsamen Verbindungen ist eine mögliche Beobachtung im Beta-Test.
+
 ## Vor der Installation
 
 1. Notiere die installierte stabile Version und erstelle manuell ein Backup von

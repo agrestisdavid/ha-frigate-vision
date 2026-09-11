@@ -2,11 +2,13 @@
 
 ## Local checks
 
-Create a local environment and install the development and documentation
-lock files:
+Use Python 3.12 and Node.js 24 to match CI. Create a local environment and
+install the development and documentation lock files. On Windows, use the
+Python launcher below, or the explicit path to a Python 3.12 executable if it
+is not registered with the launcher:
 
 ```powershell
-python -m venv .venv
+py -3.12 -m venv .venv
 .\.venv\Scripts\python.exe -m pip install -r requirements-dev.txt
 .\.venv\Scripts\python.exe -m pip install -r requirements-docs.txt
 ```
@@ -19,10 +21,19 @@ Run:
 .\.venv\Scripts\python.exe -m ruff format --check custom_components tests
 .\.venv\Scripts\python.exe -m unittest discover -s tests -p "test_*.py" -v
 npm ci
+npx playwright install chromium
 npm run verify
 .\.venv\Scripts\python.exe -m mkdocs build --strict
 .\.venv\Scripts\python.exe tests\check_built_docs.py site
 ```
+
+`npm ci` installs Playwright but does not install its browser executable.
+The Chromium installation is required before `npm run verify`; do not skip the
+browser test when the executable is missing. On Linux, use
+`npx playwright install --with-deps chromium` when browser system libraries
+also need installing. Run `npm run test:browser` for the browser test alone.
+For an isolated fresh-browser check, set `PLAYWRIGHT_BROWSERS_PATH` to a new
+empty directory for both the install and verification commands.
 
 Pull requests run Python, JavaScript, HACS, hassfest, and strict documentation
 validation. Actions are referenced by immutable commit SHA. Dependabot watches
@@ -79,11 +90,14 @@ Version 9.7.7 is pinned for the current security-fixed release line.
 
 For a first beta, use the same SemVer prerelease string (for example,
 `0.3.5-beta.1`) in package metadata, the manifest, Python constant, and Card;
-create only a matching GitHub **pre-release** tag. Validate HACS beta selection
-and downgrade to the previous stable version in a disposable Home Assistant
-profile before asking productive users to test. The exact beta control in HACS
-is UI-version dependent. Keep the stable install instructions stable-only and
-maintain the separate [German beta checklist](beta-testing.md).
+create a matching Git tag and mark its GitHub release as **pre-release**, not
+latest. Prefer validating HACS beta selection and downgrade in a disposable
+Home Assistant instance. If the owner explicitly chooses a productive first
+test, follow the [German beta checklist](beta-testing.md): require a manual
+backup, disclose that installation and downgrade are unverified, and obtain
+the owner's test feedback before any stable/main promotion. The exact beta
+control in HACS is UI-version dependent. Keep stable install instructions
+stable-only; never describe manual checks as already completed.
 
 Never publish a release from manually copied Home Assistant files. Subsequent
 fixes should use a new GitHub tag and HACS version.

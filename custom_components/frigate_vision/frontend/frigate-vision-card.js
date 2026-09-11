@@ -2136,7 +2136,7 @@ class FrigateVisionCard extends LitElement {
   }
 
   firstUpdated() {
-    // Lit 3 creates renderRoot during the first update, after connectedCallback.
+    // Attach touch handlers once after the first render, with renderRoot available.
     this._setupIOSTouchFallback();
   }
 
