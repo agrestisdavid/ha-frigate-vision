@@ -1,4 +1,4 @@
-const CARD_VERSION = "0.3.4";
+const CARD_VERSION = "0.3.5";
 
 const VALID_LIVE_PROVIDERS = ["auto", "go2rtc", "mjpeg", "off"];
 const VALID_GO2RTC_MODES = ["webrtc", "mse", "mp4", "hls", "mjpeg"];
@@ -612,9 +612,12 @@ import {
   LitElement,
   html,
   css,
-} from "./vendor/lit-element-2.5.1.js";
+} from "./vendor/lit-3.3.3.js";
 
-const HLS_MODULE = "./vendor/hls-1.5.17.js";
+// The vendored ESM HLS build runs transmuxing on the main thread unless a
+// separately served workerPath is configured. Keep the prior no-worker delivery
+// model rather than adding a new runtime asset or network path for this update.
+const HLS_MODULE = "./vendor/hls-1.7.3.js";
 let _hlsLoadPromise = null;
 function loadHls() {
   if (_hlsLoadPromise) return _hlsLoadPromise;
@@ -2085,7 +2088,6 @@ class FrigateVisionCard extends LitElement {
         }
       });
     }
-    this._setupIOSTouchFallback();
     this._onHashChange = () => this._checkHashForClip();
     window.addEventListener("hashchange", this._onHashChange);
     this._onLocationChanged = () => this._checkHashForClip();
@@ -2133,6 +2135,11 @@ class FrigateVisionCard extends LitElement {
     }
   }
 
+  firstUpdated() {
+    // Attach touch handlers once after the first render, with renderRoot available.
+    this._setupIOSTouchFallback();
+  }
+
   _setupIOSTouchFallback() {
     if (this._iosTouchFallbackAttached) return;
     if (typeof navigator === "undefined" || !navigator.maxTouchPoints) return;
@@ -2141,7 +2148,7 @@ class FrigateVisionCard extends LitElement {
       "control-btn", "iconbtn", "cam-close", "closebtn",
       "overlay-btn", "filter-btn", "loadmore", "loadless",
     ];
-    this.shadowRoot.addEventListener("touchend", (e) => {
+    this.renderRoot.addEventListener("touchend", (e) => {
       const path = e.composedPath();
       const btn = path.find((el) =>
         el.classList && INTERACTIVE.some((cls) => el.classList.contains(cls))

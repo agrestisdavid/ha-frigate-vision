@@ -2,16 +2,19 @@
   "schema": 1,
   "generated_by": "scripts/build-vendor.mjs",
   "packages": {
-    "esbuild": "0.28.1",
-    "hls.js": "1.5.17",
-    "lit-element": "2.5.1",
-    "lit-html": "1.4.1"
+    "esbuild": "0.28.2",
+    "hls.js": "1.7.3",
+    "lit": "3.3.3",
+    "lit-element": "4.2.2",
+    "lit-html": "3.3.3",
+    "@lit/reactive-element": "2.1.2"
   },
   "sha256": {
-    "hls-1.5.17.js": "f0d2da3ab924758790ab85994130b50645ebdc5b4119e6b877f89754549d5f8e",
+    "hls-1.7.3.js": "b2b89f60a68a1d3d28d0f143633ea0a057aa58e6c9b22edfca267b613a7e1f21",
     "hls.js-LICENSE.txt": "ca8773cf798c7ed997d4dd7c8e23c348699f8d5b7462636694cc14de6cda12db",
-    "lit-element-2.5.1.js": "b27d7d61c699f80301cbb4c4c33d58270718a689a940a747013064251750253a",
-    "lit-element-LICENSE.txt": "1a5ae5ab221af81b68f4f4c156c0d2e044851272c5e2e6c07d685946557878ea",
-    "lit-html-LICENSE.txt": "1a5ae5ab221af81b68f4f4c156c0d2e044851272c5e2e6c07d685946557878ea"
+    "lit-3.3.3.js": "b0dd260dea4dd5e0f0feaa97dc38e660e4b8f277eacc08d711f7184c22a807b5",
+    "lit-element-LICENSE.txt": "45d31799d0db956cc3eb5469346abbd9b7025babc5ff29fab10d7095da992ef1",
+    "lit-html-LICENSE.txt": "2b66f9390afde29edfe4314daff93f01fb182e1178053e228120178987e5db75",
+    "lit-reactive-element-LICENSE.txt": "45d31799d0db956cc3eb5469346abbd9b7025babc5ff29fab10d7095da992ef1"
   }
 }

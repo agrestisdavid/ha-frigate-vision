@@ -1,6 +1,6 @@
 {
   "name": "ha-frigate-vision",
-  "version": "0.3.4",
+  "version": "0.3.5",
   "private": true,
   "type": "module",
   "scripts": {
@@ -8,15 +8,16 @@
     "build:vendor": "node scripts/build-vendor.mjs",
     "check:brand": "node scripts/build-brand.mjs --check",
     "check:vendor": "node scripts/build-vendor.mjs --check",
-    "check": "npm run check:brand && npm run check:vendor && node --check custom_components/frigate_vision/frontend/frigate-vision-card.js && node --check custom_components/frigate_vision/frontend/vendor/lit-element-2.5.1.js && node --check custom_components/frigate_vision/frontend/vendor/hls-1.5.17.js",
+    "check": "npm run check:brand && npm run check:vendor && node --check custom_components/frigate_vision/frontend/frigate-vision-card.js && node --check custom_components/frigate_vision/frontend/vendor/lit-3.3.3.js && node --check custom_components/frigate_vision/frontend/vendor/hls-1.7.3.js",
     "test": "node --test tests/card/*.test.mjs",
+    "test:browser": "node --test tests/card/browser-runtime.test.mjs",
     "verify": "npm run check && npm test"
   },
   "devDependencies": {
-    "esbuild": "0.28.1",
-    "hls.js": "1.5.17",
-    "lit-element": "2.5.1",
-    "lit-html": "1.4.1"
+    "esbuild": "0.28.2",
+    "hls.js": "1.7.3",
+    "lit": "3.3.3",
+    "playwright": "1.62.1"
   },
   "engines": {
     "node": ">=20"

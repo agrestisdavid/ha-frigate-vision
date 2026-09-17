@@ -2,25 +2,38 @@
 
 ## Local checks
 
-Create a documentation environment and install the lock file:
+Use Python 3.12 and Node.js 24 to match CI. Create a local environment and
+install the development and documentation lock files. On Windows, use the
+Python launcher below, or the explicit path to a Python 3.12 executable if it
+is not registered with the launcher:
 
 ```powershell
-python -m venv .venv
+py -3.12 -m venv .venv
+.\.venv\Scripts\python.exe -m pip install -r requirements-dev.txt
 .\.venv\Scripts\python.exe -m pip install -r requirements-docs.txt
 ```
 
 Run:
 
 ```powershell
-python -m compileall custom_components
-python -m ruff check custom_components tests
-python -m ruff format --check custom_components tests
-python -m unittest discover -s tests -p "test_*.py" -v
+.\.venv\Scripts\python.exe -m compileall custom_components
+.\.venv\Scripts\python.exe -m ruff check custom_components tests
+.\.venv\Scripts\python.exe -m ruff format --check custom_components tests
+.\.venv\Scripts\python.exe -m unittest discover -s tests -p "test_*.py" -v
 npm ci
+npx playwright install chromium
 npm run verify
 .\.venv\Scripts\python.exe -m mkdocs build --strict
 .\.venv\Scripts\python.exe tests\check_built_docs.py site
 ```
+
+`npm ci` installs Playwright but does not install its browser executable.
+The Chromium installation is required before `npm run verify`; do not skip the
+browser test when the executable is missing. On Linux, use
+`npx playwright install --with-deps chromium` when browser system libraries
+also need installing. Run `npm run test:browser` for the browser test alone.
+For an isolated fresh-browser check, set `PLAYWRIGHT_BROWSERS_PATH` to a new
+empty directory for both the install and verification commands.
 
 Pull requests run Python, JavaScript, HACS, hassfest, and strict documentation
 validation. Actions are referenced by immutable commit SHA. Dependabot watches
@@ -75,8 +88,36 @@ Version 9.7.7 is pinned for the current security-fixed release line.
 7. Complete the config flow with newly entered provider credentials.
 8. Confirm the Card loads without a manual Lovelace resource.
 
+For a first beta, use the same SemVer prerelease string (for example,
+`0.3.5-beta.1`) in package metadata, the manifest, Python constant, and Card;
+create a matching Git tag and mark its GitHub release as **pre-release**, not
+latest. Prefer validating HACS beta selection and downgrade in a disposable
+Home Assistant instance. If the owner explicitly chooses a productive first
+test, follow the [German beta checklist](beta-testing.md): require a manual
+backup, disclose that installation and downgrade are unverified, and obtain
+the owner's test feedback before any stable/main promotion. The exact beta
+control in HACS is UI-version dependent. Keep stable install instructions
+stable-only; never describe manual checks as already completed.
+
 Never publish a release from manually copied Home Assistant files. Subsequent
 fixes should use a new GitHub tag and HACS version.
+
+## Version 0.3.5
+
+- stable release of the 0.3.5 line, superseding the `0.3.5-beta.1`
+  pre-release;
+- bundled hls.js 1.7.3 and Lit 3.3.3 (LitElement 4.2.2 / lit-html 3.3.3);
+- actual-vendored-runtime Chromium browser test in CI and local validation;
+- Card validation runs on Node 24; the `beta/**` CI trigger stays enabled for
+  future pre-releases.
+
+## Version 0.3.5-beta.1 (pre-release candidate)
+
+- bundled hls.js 1.7.3 and Lit 3.3.3 (LitElement 4.2.2 / lit-html 3.3.3);
+- actual-vendored-runtime browser test and beta-branch CI validation;
+- see [Beta-Test: 0.3.5-beta.1](beta-testing.md) for productive installation,
+  testing, and manual rollback guidance; superseded by the stable 0.3.5
+  release.
 
 ## Version 0.3.4
 
