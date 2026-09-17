@@ -112,6 +112,11 @@ stable-only; never describe manual checks as already completed.
 Never publish a release from manually copied Home Assistant files. Subsequent
 fixes should use a new GitHub tag and HACS version.
 
+## Version 0.3.7
+
+- use a Markdown image in the README so HACS resolves the repository image URL;
+- no integration behavior changes.
+
 ## Version 0.3.6
 
 - violet winged-eye icon and logo bundled with the integration;
