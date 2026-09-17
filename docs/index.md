@@ -1,5 +1,7 @@
 # Frigate Vision
 
+![Frigate Vision: violet eye with wings](assets/frigate-vision.png){ width="160" }
+
 Frigate Vision combines three components in one Home Assistant HACS package:
 
 - a custom integration that analyzes exact Frigate recording frames or

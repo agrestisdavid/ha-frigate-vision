@@ -53,12 +53,22 @@ npm run check:vendor
 `npm run verify` fails if the committed vendor files no longer match the
 exact dependency versions in `package-lock.json`.
 
-The local integration icons are deterministic project assets:
+The local integration icons are generated from the approved violet winged-eye
+artwork in `assets/brand/frigate-vision.png`. Keep that square, full-resolution
+PNG as the source. The pinned `sharp` development dependency produces the
+256-pixel `icon.png` and 512-pixel `icon@2x.png` in
+`custom_components/frigate_vision/brand/`.
+
+The same build also exports the integration logos, local documentation logo
+and favicon, and `assets/brand/social-preview.png` for GitHub's social preview.
 
 ```powershell
 npm run build:brand
 npm run check:brand
 ```
+
+Commit the source and all generated brand images together. `check:brand` detects
+outputs that no longer match the source; it does not rewrite them.
 
 ## Documentation dependencies
 
@@ -101,6 +111,19 @@ stable-only; never describe manual checks as already completed.
 
 Never publish a release from manually copied Home Assistant files. Subsequent
 fixes should use a new GitHub tag and HACS version.
+
+## Version 0.3.6
+
+- violet winged-eye icon and logo bundled with the integration;
+- project image in the GitHub/HACS README and documentation, including favicon;
+- reproducible image exports from the approved full-resolution source;
+- no changes to event analysis, notifications, or streaming behavior.
+
+Local integration brand images require Home Assistant 2026.3 or newer. Older
+versions can still use the integration but may show a generic integration icon.
+HACS 2.0.5 still uses the legacy brands CDN for repository-list icons; support
+for local brand images is tracked in
+[HACS issue #5179](https://github.com/hacs/integration/issues/5179).
 
 ## Version 0.3.5
 

@@ -1,0 +1,2 @@
+# Preserve the byte-for-byte checksums of committed browser dependencies.
+custom_components/frigate_vision/frontend/vendor/* text eol=lf

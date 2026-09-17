@@ -1,5 +1,9 @@
 # Frigate Vision
 
+<p align="center">
+  <img src="custom_components/frigate_vision/brand/icon@2x.png" alt="Frigate Vision: violet eye with wings" width="160" height="160">
+</p>
+
 Frigate Vision is a Home Assistant custom integration for analyzing exact
 Frigate event recording frames with an OpenAI-compatible multimodal endpoint. The
 single HACS package also ships the `custom:frigate-vision-card` frontend module
@@ -22,7 +26,9 @@ Version `0.3.4` is deliberately independent of LLM Vision:
 - No provider credentials, fixed hosts, or private addresses are embedded in
   the Card or Blueprint.
 
-`0.3.5` is the current stable release. The German beta-test checklist for
+`0.3.6` is the current stable release and introduces the violet winged-eye
+project icon. Home Assistant 2026.3 or newer displays the bundled brand images
+directly. The German beta-test checklist for
 `0.3.5-beta.1` is kept in [Beta-Test: 0.3.5-beta.1](docs/beta-testing.md) as a
 reference for the productive installation, testing, and manual-downgrade
 procedure used during the beta phase.

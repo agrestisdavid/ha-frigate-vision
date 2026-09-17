@@ -40,7 +40,9 @@ class DocumentationContractTests(unittest.TestCase):
 
     def test_docs_only_reference_reviewed_my_home_assistant_badges(self) -> None:
         sources = [ROOT / "README.md"] + [
-            path for path in DOCS.rglob("*") if path.is_file()
+            path
+            for path in DOCS.rglob("*")
+            if path.is_file() and path.suffix in {".md", ".html", ".css", ".js"}
         ]
         combined = "\n".join(path.read_text(encoding="utf-8") for path in sources)
         remote_images = re.findall(
