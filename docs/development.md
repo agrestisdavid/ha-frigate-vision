@@ -102,12 +102,22 @@ stable-only; never describe manual checks as already completed.
 Never publish a release from manually copied Home Assistant files. Subsequent
 fixes should use a new GitHub tag and HACS version.
 
+## Version 0.3.5
+
+- stable release of the 0.3.5 line, superseding the `0.3.5-beta.1`
+  pre-release;
+- bundled hls.js 1.7.3 and Lit 3.3.3 (LitElement 4.2.2 / lit-html 3.3.3);
+- actual-vendored-runtime Chromium browser test in CI and local validation;
+- Card validation runs on Node 24; the `beta/**` CI trigger stays enabled for
+  future pre-releases.
+
 ## Version 0.3.5-beta.1 (pre-release candidate)
 
 - bundled hls.js 1.7.3 and Lit 3.3.3 (LitElement 4.2.2 / lit-html 3.3.3);
 - actual-vendored-runtime browser test and beta-branch CI validation;
 - see [Beta-Test: 0.3.5-beta.1](beta-testing.md) for productive installation,
-  testing, and manual rollback guidance; stable remains 0.3.4.
+  testing, and manual rollback guidance; superseded by the stable 0.3.5
+  release.
 
 ## Version 0.3.4
 

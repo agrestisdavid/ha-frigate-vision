@@ -1,7 +1,7 @@
-# Beta-Test: 0.3.5-beta.1
+# Beta-Test: 0.3.5-beta.1 (abgeschlossen)
 
-`0.3.5-beta.1` ist ein Vorab-Release zum Testen. Die stabile Version bleibt
-`0.3.4`. Diese Checkliste beschreibt einen bewussten Test in einer produktiven
+`0.3.5-beta.1` war ein Vorab-Release zum Testen; die stabile Version ist
+`0.3.5`. Diese Checkliste beschreibt einen bewussten Test in einer produktiven
 Home-Assistant-Installation; sie behauptet **nicht**, dass ein Downgrade auf
 deiner Installation getestet wurde.
 

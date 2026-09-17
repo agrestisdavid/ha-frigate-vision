@@ -5,7 +5,7 @@ Frigate event recording frames with an OpenAI-compatible multimodal endpoint. Th
 single HACS package also ships the `custom:frigate-vision-card` frontend module
 and a reusable notification Blueprint.
 
-Stable version `0.3.4` is deliberately independent of LLM Vision:
+Version `0.3.4` is deliberately independent of LLM Vision:
 
 - Frigate remains the canonical source for events, clips, and descriptions.
 - Recording/main-stream frames are preferred. Frigate's clean event snapshot
@@ -22,10 +22,10 @@ Stable version `0.3.4` is deliberately independent of LLM Vision:
 - No provider credentials, fixed hosts, or private addresses are embedded in
   the Card or Blueprint.
 
-`0.3.5-beta.1` is a pre-release test candidate, not the stable release. Its
-German installation, productive-test, and manual-downgrade checklist is in
-[Beta-Test: 0.3.5-beta.1](docs/beta-testing.md). It does not claim a downgrade
-was tested on an individual Home Assistant installation.
+`0.3.5` is the current stable release. The German beta-test checklist for
+`0.3.5-beta.1` is kept in [Beta-Test: 0.3.5-beta.1](docs/beta-testing.md) as a
+reference for the productive installation, testing, and manual-downgrade
+procedure used during the beta phase.
 
 ## Installation with HACS
 
