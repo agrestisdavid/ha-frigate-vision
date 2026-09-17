@@ -1,4 +1,4 @@
-const CARD_VERSION = "0.3.5-beta.1";
+const CARD_VERSION = "0.3.5";
 
 const VALID_LIVE_PROVIDERS = ["auto", "go2rtc", "mjpeg", "off"];
 const VALID_GO2RTC_MODES = ["webrtc", "mse", "mp4", "hls", "mjpeg"];
