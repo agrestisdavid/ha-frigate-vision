@@ -24,9 +24,14 @@ Version `0.3.4` is deliberately independent of LLM Vision:
 - No provider credentials, fixed hosts, or private addresses are embedded in
   the Card or Blueprint.
 
-`0.3.7` is the current stable release and introduces the violet winged-eye
-project icon. Home Assistant 2026.3 or newer displays the bundled brand images
-directly. The German beta-test checklist for
+`0.3.8` is the current stable release and adds a per-camera **Ultra-Wide**
+option to the Card editor. Enabled cameras occupy the full multiview grid
+width, independently of the desktop or mobile column count. The option is off
+by default and preserves existing camera settings; see the
+[Card documentation](docs/card.md#ultra-wide-cameras-in-multiview).
+
+Home Assistant 2026.3 or newer displays the bundled violet winged-eye brand
+images directly. The German beta-test checklist for
 `0.3.5-beta.1` is kept in [Beta-Test: 0.3.5-beta.1](docs/beta-testing.md) as a
 reference for the productive installation, testing, and manual-downgrade
 procedure used during the beta phase.
