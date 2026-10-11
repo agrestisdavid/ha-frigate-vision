@@ -112,6 +112,18 @@ stable-only; never describe manual checks as already completed.
 Never publish a release from manually copied Home Assistant files. Subsequent
 fixes should use a new GitHub tag and HACS version.
 
+## Version 0.3.8
+
+- per-camera **Ultra-Wide** editor switch (`ultra_wide: true`), off by default;
+- full-row multiview tiles across all desktop or mobile grid columns, without
+  changing stream selection or media aspect ratio;
+- saved camera settings survive editor changes and reloads; disabling the
+  option restores the normal column width;
+- regression tests for existing camera formats, editor persistence, and
+  responsive mixed normal/Ultra-Wide layouts using the actual Lit/Chromium runtime;
+- Ruff development dependency updated to 0.16.8 and hassfest action reference
+  refreshed through the reviewed Dependabot updates.
+
 ## Version 0.3.7
 
 - use a Markdown image in the README so HACS resolves the repository image URL;
