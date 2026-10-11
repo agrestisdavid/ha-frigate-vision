@@ -2386,9 +2386,12 @@ class FrigateVisionCard extends LitElement {
 
   static _normalizeCamerasMap(config) {
     const map = {};
+    // ultra_wide is a strict boolean: only literal `true` enables the wide tile.
     const put = (id) => {
       const key = String(id).toLowerCase();
-      if (!map[key]) map[key] = { name: "", main: null, sub: null };
+      if (!map[key]) {
+        map[key] = { name: "", main: null, sub: null, ultra_wide: false };
+      }
       return map[key];
     };
 
@@ -2400,18 +2403,20 @@ class FrigateVisionCard extends LitElement {
         if (e.name) entry.name = String(e.name);
         if (e.main) entry.main = String(e.main);
         if (e.sub) entry.sub = String(e.sub);
+        entry.ultra_wide = e.ultra_wide === true;
       }
     } else if (Array.isArray(c)) {
       for (const item of c) {
         if (typeof item === "string") { put(item); continue; }
         if (item && typeof item === "object") {
           const keys = Object.keys(item);
-          // supports both: {einfahrt: {main, sub, name}} OR {id: "einfahrt", main, sub, name}
+          // supports both: {einfahrt: {main, sub, name, ultra_wide}} OR {id: "einfahrt", main, sub, name, ultra_wide}
           if (item.id) {
             const entry = put(item.id);
             if (item.name) entry.name = String(item.name);
             if (item.main) entry.main = String(item.main);
             if (item.sub) entry.sub = String(item.sub);
+            entry.ultra_wide = item.ultra_wide === true;
           } else if (keys.length === 1) {
             const id = keys[0];
             const val = item[id];
@@ -2420,6 +2425,7 @@ class FrigateVisionCard extends LitElement {
               if (val.name) entry.name = String(val.name);
               if (val.main) entry.main = String(val.main);
               if (val.sub) entry.sub = String(val.sub);
+              entry.ultra_wide = val.ultra_wide === true;
             }
           }
         }
@@ -5315,6 +5321,7 @@ class FrigateVisionCard extends LitElement {
       <div class="multiview-grid" style="grid-template-columns: repeat(${cols}, 1fr);">
         ${cameras.map((camId) => html`
           <frigate-vision-live-tile
+            class=${this._camEntry(camId)?.ultra_wide === true ? "multiview-tile-wide" : ""}
             .hass=${this.hass}
             .cameraId=${camId}
             .cameraEntry=${this._camEntry(camId) || { name: camId }}
@@ -5740,9 +5747,14 @@ class FrigateVisionCard extends LitElement {
         display: grid;
         grid-template-columns: 1fr;
         gap: 4px;
+        min-width: 0;
       }
       .split.is-split > .left .multiview-grid {
         height: auto;
+      }
+      .multiview-grid > .multiview-tile-wide {
+        grid-column: 1 / -1;
+        min-width: 0;
       }
       .multiview-tile-placeholder {
         position: relative;
@@ -6951,6 +6963,7 @@ class FrigateVisionCardEditor extends LitElement {
       displayName: e.name || "",
       main: e.main || "",
       sub: e.sub || "",
+      ultraWide: e.ultra_wide === true,
     }));
   }
 
@@ -6963,6 +6976,8 @@ class FrigateVisionCardEditor extends LitElement {
       if (e.displayName) entry.name = e.displayName;
       if (e.main) entry.main = e.main;
       if (e.sub) entry.sub = e.sub;
+      // Only enabled cameras write the field, so old configs stay unchanged.
+      if (e.ultraWide === true) entry.ultra_wide = true;
       cameras[id] = entry;
     }
     const newConfig = { ...this._config };
@@ -7162,6 +7177,18 @@ class FrigateVisionCardEditor extends LitElement {
                   ></ha-textfield>
                 </div>
                 <p class="hint">go2rtc-Stream-Namen. Main = Fullscreen-HD, Sub = Kachel-Livestream (niedriger Bandbreiten-Verbrauch).</p>
+                <ha-formfield label="Ultra-Wide (Multiview-Kachel über alle Spalten)">
+                  <ha-switch
+                    .checked=${entry.ultraWide === true}
+                    @change=${(e) => {
+                      const newEntries = [...this._cameraEntries];
+                      newEntries[idx] = { ...entry, ultraWide: e.target.checked };
+                      this._cameraEntries = newEntries;
+                      this._applyCameraEntries();
+                    }}
+                  ></ha-switch>
+                </ha-formfield>
+                <p class="hint">Standard: deaktiviert. Eine Ultra-Wide-Kachel belegt in der Multiview-Ansicht alle vorhandenen Grid-Spalten der Card (nicht die gesamte Dashboard-Breite).</p>
               </div>
             ` : ""}
           </div>
@@ -7171,7 +7198,7 @@ class FrigateVisionCardEditor extends LitElement {
       <button
         class="add-btn"
         @click=${() => {
-          this._cameraEntries = [...this._cameraEntries, { id: "", displayName: "", main: "", sub: "" }];
+          this._cameraEntries = [...this._cameraEntries, { id: "", displayName: "", main: "", sub: "", ultraWide: false }];
           this._expandedCam = this._cameraEntries.length - 1;
         }}
       >

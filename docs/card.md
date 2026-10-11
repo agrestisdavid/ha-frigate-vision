@@ -99,6 +99,41 @@ direct overrides; normal proxy mode uses WebRTC followed by MSE.
 `go2rtc_url_external` when set and otherwise returns to the Home Assistant
 proxy; it never exposes or reuses the local direct URL externally.
 
+## Ultra-Wide cameras in multiview
+
+In the visual Card editor, open **Kameras**, expand a camera, and enable
+**Ultra-Wide** to give that camera a complete row in the multiview grid. The
+option is off by default. It is saved separately for each camera and can be
+turned off again without changing that camera's name or stream settings.
+
+The equivalent per-camera configuration is `ultra_wide: true`:
+
+```yaml
+type: custom:frigate-vision-card
+multiview: true
+multiview_columns_desktop: 3
+multiview_columns_mobile: 2
+cameras:
+  entrance:
+    name: Entrance
+  panorama:
+    name: Panorama
+    ultra_wide: true
+  garden:
+    name: Garden
+```
+
+An Ultra-Wide camera spans all columns, regardless of the desktop or mobile
+column count. Other cameras still occupy one column each and retain their
+configured order. Multiple Ultra-Wide cameras each get their own full row.
+The width is the **multiview grid inside this Card**, not the entire Home
+Assistant dashboard or a neighbouring event list.
+
+Omitting `ultra_wide` or setting it to `false` restores the normal grid layout.
+Only the boolean value `true` enables it. Existing camera configurations remain
+valid. The option does not change stream resolution, aspect ratio, image fit,
+or the single-camera player.
+
 ## Multiple Frigate Vision entries
 
 One loaded Frigate Vision entry is selected automatically. When Home Assistant
