@@ -363,7 +363,7 @@ class OpenAICompatibleProvider:
                     ) from err
         except ProviderError:
             raise
-        except (asyncio.TimeoutError, TimeoutError) as err:
+        except TimeoutError as err:
             raise ProviderError(
                 f"Die Analyse hat das Zeitlimit von {request_timeout} Sekunden "
                 "überschritten."
@@ -536,7 +536,7 @@ class FrigateAdapter:
             raise
         except ClientResponseError as err:
             raise self._http_error(source, event_id, err.status) from err
-        except (asyncio.TimeoutError, TimeoutError, ClientError) as err:
+        except (TimeoutError, ClientError) as err:
             raise FrigateEventError(
                 f"Ereignisdaten für Frigate-Ereignis {event_id} sind "
                 "vorübergehend nicht erreichbar.",
@@ -644,7 +644,7 @@ class FrigateAdapter:
             raise
         except ClientResponseError as err:
             raise self._http_error(source, event_id, err.status) from err
-        except (asyncio.TimeoutError, TimeoutError, ClientError) as err:
+        except (TimeoutError, ClientError) as err:
             raise FrigateEventError(
                 f"{source} für Frigate-Ereignis {event_id} ist "
                 "vorübergehend nicht erreichbar.",
