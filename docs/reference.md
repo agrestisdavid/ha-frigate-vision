@@ -7,7 +7,8 @@
 | `response_text` | string | Cached or newly generated description |
 | `event_id` | string or null | Exact Frigate ID for event analysis |
 | `key_frame` | string | Relative snapshot path or input source |
-| `stored` | boolean | This caller completed a Frigate description write |
+| `stored` | boolean | This caller completed a Frigate description write, or confirmed it by exact readback after an ambiguous failure |
+| `store_error` | string or null | Event services: storage could not be confirmed; the completed `response_text` remains usable |
 | `cached` | boolean | Existing Frigate description was used |
 | `image_source` | string or null | Actual source: `recording`, `event_snapshot`, or null for a cache hit |
 | `source_frame_time` | number or null | Frigate timestamp selected for analysis |

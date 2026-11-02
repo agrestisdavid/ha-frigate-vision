@@ -149,7 +149,8 @@ blueprint:
           description: >-
             Wird im Active-Modus zweimal ausgeführt: mit fv_phase="initial"
             für die Sofortmeldung und mit fv_phase="analysis" für das
-            KI-Ergebnis. fv_notification_tag bleibt dabei identisch. Verfügbar
+            KI-Ergebnis oder fv_phase="error" bei fehlgeschlagener Analyse.
+            fv_notification_tag bleibt dabei identisch. Verfügbar
             sind unter anderem fv_title, fv_message, fv_snapshot_url,
             fv_thumbnail_url, fv_clip_url, fv_event_id, fv_camera_entity,
             fv_camera_key, fv_label, fv_sub_label, fv_sub_label_score,
@@ -161,8 +162,9 @@ blueprint:
           name: Fehleraktionen
           description: >-
             Optional. Wird nach einer fehlgeschlagenen oder leeren Analyse mit
-            fv_phase="error" ausgeführt. Im Active-Modus bleibt die zuvor
-            ausgelöste Sofortmeldung bestehen.
+            fv_phase="error" ausgeführt. Im Active-Modus wird eine zuvor
+            ausgelöste Sofortmeldung zuerst mit der Fehlermeldung aktualisiert;
+            danach laufen diese Zusatzaktionen.
           default: []
           selector:
             action:
@@ -572,4 +574,11 @@ actions:
           - condition: template
             value_template: "{{ fv_analysis_ok and fv_mode == 'shadow' }}"
         sequence: !input shadow_actions
-    default: !input error_actions
+    default:
+      - choose:
+          - conditions:
+              - condition: template
+                value_template: "{{ fv_mode == 'active' and fv_notification_slot }}"
+            sequence: !input notification_actions
+        continue_on_error: true
+      - sequence: !input error_actions
