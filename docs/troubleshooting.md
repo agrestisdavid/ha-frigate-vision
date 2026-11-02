@@ -31,6 +31,17 @@ process the configured frame count without restarting. A llama.cpp error such
 as `Output buffer size mismatch` is a model-runtime failure, not a Frigate
 camera-resolution problem. Still-image analysis remains usable independently.
 
+## The model returns an empty or incomplete description
+
+A reasoning model can spend the entire token limit on internal thinking and
+return no final answer, even with HTTP 200. Check the model server for a token
+limit stop before increasing camera timeouts. In Frigate Vision options, increase
+**Maximum response tokens**, or select **Reasoning: Off** if the provider/model
+supports `reasoning_effort: none`. Version 0.3.9 adds this per-integration option;
+Server default leaves existing requests unchanged. More tokens alone do not
+guarantee that thinking finishes. Separately returned reasoning is intentionally
+not stored or sent as a camera description.
+
 ## The model claims it cannot see the image
 
 Check:

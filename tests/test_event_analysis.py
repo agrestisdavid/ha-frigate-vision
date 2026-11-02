@@ -1405,6 +1405,74 @@ class FakeConfigEntry:
 
 
 class ProviderTests(unittest.IsolatedAsyncioTestCase):
+    async def test_reasoning_setting_controls_image_and_video_requests(self) -> None:
+        for setting in (None, "server_default", "none"):
+            with self.subTest(setting=setting):
+                config = {
+                    "endpoint": "https://model.example.test/v1",
+                    "model": "vision-model",
+                    "max_tokens": 500,
+                }
+                if setting is not None:
+                    config["reasoning_effort"] = setting
+                provider = ANALYSIS.OpenAICompatibleProvider(FakeHass(), config)
+                body = json.dumps(
+                    {
+                        "choices": [
+                            {
+                                "message": {
+                                    "content": "Eine Person steht an der Tür.",
+                                    "reasoning_content": "Internal reasoning.",
+                                }
+                            }
+                        ]
+                    }
+                ).encode()
+                provider._session = FakeSession(
+                    FakeResponse(200, body), FakeResponse(200, body)
+                )
+
+                image_result = await provider.analyze(jpeg(), "Describe image.")
+                video_result = await provider.analyze_video_frames(
+                    [(0.0, jpeg())], "Describe video."
+                )
+
+                self.assertEqual(image_result, "Eine Person steht an der Tür.")
+                self.assertEqual(video_result, image_result)
+                for _url, kwargs in provider._session.calls:
+                    request = json.loads(kwargs["data"])
+                    self.assertEqual(request["max_tokens"], 500)
+                    self.assertEqual(request["model"], "vision-model")
+                    if setting == "none":
+                        self.assertEqual(request["reasoning_effort"], "none")
+                    else:
+                        self.assertNotIn("reasoning_effort", request)
+                    self.assertNotIn("chat_template_kwargs", request)
+
+    async def test_reasoning_only_response_is_not_a_description(self) -> None:
+        provider = ANALYSIS.OpenAICompatibleProvider(
+            FakeHass(),
+            {
+                "endpoint": "https://model.example.test/v1",
+                "model": "vision-model",
+                "reasoning_effort": "none",
+            },
+        )
+        body = json.dumps(
+            {
+                "choices": [
+                    {
+                        "finish_reason": "length",
+                        "message": {"content": "", "reasoning_content": "Thinking."},
+                    }
+                ]
+            }
+        ).encode()
+        provider._session = FakeSession(FakeResponse(200, body))
+
+        with self.assertRaisesRegex(ANALYSIS.ProviderError, "leere Antwort"):
+            await provider.analyze(jpeg(), "Describe.")
+
     async def test_provider_uses_separate_default_image_and_video_timeouts(
         self,
     ) -> None:

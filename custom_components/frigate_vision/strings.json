@@ -9,7 +9,8 @@
       "frigate_required": "Select an existing Frigate config entry.",
       "invalid_endpoint": "Enter an absolute HTTP or HTTPS URL.",
       "invalid_image_source": "Select a supported Frigate image source.",
-      "model_required": "Enter a model name."
+      "model_required": "Enter a model name.",
+      "invalid_reasoning_effort": "Select a supported reasoning setting."
     },
     "step": {
       "user": {
@@ -34,7 +35,8 @@
           "max_tokens": "Maximum response tokens",
           "go2rtc_url": "Direct local go2rtc URL (advanced)",
           "go2rtc_url_external": "Direct remote go2rtc URL (advanced)",
-          "go2rtc_modes": "Live transport fallback order"
+          "go2rtc_modes": "Live transport fallback order",
+          "reasoning_effort": "Reasoning"
         },
         "data_description": {
           "endpoint": "Base URL ending in /v1, or a complete /chat/completions URL.",
@@ -45,7 +47,9 @@
           "recording_wait_timeout": "How long to wait for recording frames before trying the event-snapshot fallbacks.",
           "go2rtc_url": "Optional local/internal override. Leave empty for the Home Assistant proxy. External clients never reuse this URL.",
           "go2rtc_url_external": "Leave empty to use the Home Assistant proxy externally. External clients never fall back to the local go2rtc URL.",
-          "go2rtc_modes": "Comma-separated: webrtc,mse,mp4,hls,mjpeg. WebRTC is tried first and MSE is the first fallback."
+          "go2rtc_modes": "Comma-separated: webrtc,mse,mp4,hls,mjpeg. WebRTC is tried first and MSE is the first fallback.",
+          "reasoning_effort": "Server default keeps the model server setting. Off disables reasoning for analyses; the provider and model must support it.",
+          "max_tokens": "Maximum generated tokens. Reasoning models may also count internal thinking toward this budget."
         }
       }
     }
@@ -54,7 +58,8 @@
     "error": {
       "invalid_endpoint": "Enter an absolute HTTP or HTTPS URL.",
       "invalid_image_source": "Select a supported Frigate image source.",
-      "model_required": "Enter a model name."
+      "model_required": "Enter a model name.",
+      "invalid_reasoning_effort": "Select a supported reasoning setting."
     },
     "step": {
       "init": {
@@ -71,7 +76,8 @@
           "max_tokens": "Maximum response tokens",
           "go2rtc_url": "Direct local go2rtc URL (advanced)",
           "go2rtc_url_external": "Direct remote go2rtc URL (advanced)",
-          "go2rtc_modes": "Live transport fallback order"
+          "go2rtc_modes": "Live transport fallback order",
+          "reasoning_effort": "Reasoning"
         },
         "data_description": {
           "timeout": "Maximum provider request duration for still-image analysis.",
@@ -81,7 +87,9 @@
           "recording_wait_timeout": "How long to wait for recording frames before trying the event-snapshot fallbacks.",
           "go2rtc_url": "Optional local/internal override. Leave empty for the Home Assistant proxy. External clients never reuse this URL.",
           "go2rtc_url_external": "Leave empty to use the Home Assistant proxy externally. External clients never fall back to the local go2rtc URL.",
-          "go2rtc_modes": "Comma-separated: webrtc,mse,mp4,hls,mjpeg. WebRTC is tried first and MSE is the first fallback."
+          "go2rtc_modes": "Comma-separated: webrtc,mse,mp4,hls,mjpeg. WebRTC is tried first and MSE is the first fallback.",
+          "reasoning_effort": "Server default keeps the model server setting. Off disables reasoning for analyses; the provider and model must support it.",
+          "max_tokens": "Maximum generated tokens. Reasoning models may also count internal thinking toward this budget."
         }
       }
     }
@@ -91,6 +99,12 @@
       "options": {
         "recording_preferred": "Recording/main stream with detect fallback",
         "event_snapshot": "Clean event snapshot with annotated fallback"
+      }
+    },
+    "reasoning_effort": {
+      "options": {
+        "server_default": "Server default",
+        "none": "Off"
       }
     }
   }

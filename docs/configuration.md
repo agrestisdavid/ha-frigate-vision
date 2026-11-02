@@ -21,7 +21,8 @@ Only one Frigate Vision entry can be created for a given Frigate entry.
 | Target width | Maximum image width sent to the provider |
 | Event image source | Prefer recording/main stream or start with the event-snapshot fallbacks |
 | Recording readiness timeout | Wait before trying clean and annotated event snapshots |
-| Token limit | Maximum response token count |
+| Token limit | Maximum generated tokens; reasoning models may count internal thinking toward this limit |
+| Reasoning | Server default (omit the parameter) or Off (request no reasoning from a compatible provider) |
 | Home Assistant Frigate proxy | Default authenticated live path; no URL required |
 | Direct local go2rtc URL | Optional advanced/standalone override |
 | Direct remote go2rtc URL | Optional advanced/standalone override; not required for normal remote HA access |
@@ -69,6 +70,23 @@ defaults are 60 and 180 seconds respectively. Recording readiness waiting is
 separate and occurs before the provider request.
 
 ## Options
+
+Version 0.3.9 adds **Reasoning: Server default / Off** to setup and options.
+Server default preserves existing requests and works with providers that do
+not accept a reasoning parameter. Off sends `"reasoning_effort": "none"` for
+both image and video-frame analysis. Use it only with a provider/model that
+supports that value, such as the verified Strata Chat Completions endpoint.
+It affects only Frigate Vision requests, not the server's global settings.
+An unsupported parameter is reported as a provider error; the integration does
+not silently retry with reasoning enabled.
+
+A small token budget can be exhausted by thinking before any answer is produced.
+Increasing the token limit leaves more room for thinking and the description,
+but does not guarantee a complete response. For short camera descriptions,
+500 tokens with reasoning Off is a starting point for a compatible endpoint.
+Keep the desired description length in the prompt; the token limit is a ceiling,
+not a required answer length. Separately returned reasoning is never used as an
+event description.
 
 Open the integration's options to change provider settings and optional direct
 go2rtc overrides. Leave both go2rtc URL fields empty to use the authenticated

@@ -24,11 +24,14 @@ Version `0.3.4` is deliberately independent of LLM Vision:
 - No provider credentials, fixed hosts, or private addresses are embedded in
   the Card or Blueprint.
 
-`0.3.8` is the current stable release and adds a per-camera **Ultra-Wide**
-option to the Card editor. Enabled cameras occupy the full multiview grid
-width, independently of the desktop or mobile column count. The option is off
-by default and preserves existing camera settings; see the
-[Card documentation](docs/card.md#ultra-wide-cameras-in-multiview).
+`0.3.9` adds **Reasoning: Server default / Off** to the integration settings.
+Compatible providers can disable internal thinking for image and video analyses,
+preventing it from consuming the budget intended for short camera descriptions.
+Existing installations keep the server default; the default token limit remains
+500. See [Configuration and providers](docs/configuration.md#options).
+
+The per-camera **Ultra-Wide** Card option introduced in `0.3.8` remains available;
+see the [Card documentation](docs/card.md#ultra-wide-cameras-in-multiview).
 
 Home Assistant 2026.3 or newer displays the bundled violet winged-eye brand
 images directly. The German beta-test checklist for
