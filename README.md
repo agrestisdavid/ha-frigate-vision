@@ -24,7 +24,12 @@ Version `0.3.4` is deliberately independent of LLM Vision:
 - No provider credentials, fixed hosts, or private addresses are embedded in
   the Card or Blueprint.
 
-`0.3.9` adds **Reasoning: Server default / Off** to the integration settings.
+`0.3.10` preserves completed analyses when saving to Frigate times out. It checks
+whether the exact description was already saved and reports unconfirmed storage
+separately. The updated Blueprint also replaces a pending notification with an
+error update when analysis fails. Re-import the Blueprint after updating HACS.
+
+`0.3.9` added **Reasoning: Server default / Off** to the integration settings.
 Compatible providers can disable internal thinking for image and video analyses,
 preventing it from consuming the budget intended for short camera descriptions.
 Existing installations keep the server default; the default token limit remains

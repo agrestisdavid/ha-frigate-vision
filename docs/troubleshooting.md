@@ -1,5 +1,19 @@
 # Troubleshooting
 
+## Notification remains at “being analyzed” after a storage timeout
+
+An error posting `/api/events/<id>/description` can happen after Frigate has
+already saved a completed model response. Version 0.3.10 checks the exact event
+once after a failed write. A matching description confirms success; otherwise
+the service still returns the analysis with `stored: false` and `store_error`.
+It does not repeat inference or silently overwrite a different description.
+
+Re-import the notification Blueprint as well as updating the integration. Its
+error path now updates an already-started notification with the same tag before
+running optional error actions. It does not send new error pushes for muted,
+cooldown-suppressed or shadow events. Existing notifications from older runs
+are not replayed by the update.
+
 ## Event is not available yet
 
 Symptom: an automation fires immediately, while the Frigate REST event or

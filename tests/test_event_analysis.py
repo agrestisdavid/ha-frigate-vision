@@ -308,6 +308,36 @@ class BlockingWriteFrigate(FakeFrigate):
             await self.release_first_write.wait()
 
 
+class FailedWriteFrigate(FakeFrigate):
+    """Simulate a lost HTTP response, including commit-before-timeout."""
+
+    def __init__(self, event, module, outcome):
+        super().__init__([event], [jpeg()], [jpeg()])
+        self.module = module
+        self.outcome = outcome
+
+    async def set_description(self, event_id: str, description: str) -> None:
+        await super().set_description(event_id, description)
+        if self.outcome == "cancelled":
+            raise asyncio.CancelledError
+        if self.outcome == "unreachable":
+            self.event_outcomes = [self.module.FrigateEventError("Read timed out")]
+        else:
+            self.event_outcomes = [
+                {
+                    "id": "different-event"
+                    if self.outcome == "wrong_event"
+                    else event_id,
+                    "data": {
+                        "description": description
+                        if self.outcome in ("committed", "wrong_event")
+                        else "A different description"
+                    },
+                }
+            ]
+        raise self.module.FrigateEventError("Write timed out")
+
+
 class EarlyVideoAuthFrigate(FakeFrigate):
     def __init__(self, event, module) -> None:
         super().__init__([event], [jpeg()])
@@ -1297,6 +1327,91 @@ class EventAnalysisTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(provider.calls, 1)
         self.assertEqual(frigate.write_calls, 1)
         self.assertTrue(all(result["stored"] for result in results))
+
+    async def test_write_timeout_keeps_image_and_video_results(self) -> None:
+        for video in (False, True):
+            for outcome in ("committed", "unreachable", "conflict", "wrong_event"):
+                with self.subTest(video=video, outcome=outcome):
+                    event = {
+                        "id": self.event_id,
+                        "camera": "driveway",
+                        "start_time": 100.0,
+                        "data": {"snapshot_frame_time": 105.0},
+                    }
+                    frigate = FailedWriteFrigate(event, self.analysis, outcome)
+                    provider = FakeProvider(self.analysis)
+                    runtime = self.recording_runtime(frigate, provider)
+                    args = {
+                        "event_id": self.event_id,
+                        "camera_entity": None,
+                        "prompt": "Describe.",
+                        "store": True,
+                    }
+                    if video:
+                        result = await self.analysis.analyze_event_video(
+                            runtime, **args, duration_seconds=5, pre_seconds=0
+                        )
+                    else:
+                        result = await self.analysis.analyze_event(
+                            runtime, **args, force=False
+                        )
+                    self.assertTrue(result["response_text"])
+                    self.assertEqual(result["stored"], outcome == "committed")
+                    self.assertEqual(
+                        result["store_error"] is None, outcome == "committed"
+                    )
+                    self.assertEqual(provider.calls, 1)
+                    self.assertEqual(frigate.write_calls, 1)
+                    self.assertEqual(frigate.event_timeouts[-1], 5.0)
+                    self.assertEqual(runtime.event_write_flights, {})
+
+    async def test_cancelled_write_is_not_reported_as_a_completed_analysis(
+        self,
+    ) -> None:
+        frigate = FailedWriteFrigate(
+            {"id": self.event_id, "data": {}}, self.analysis, "cancelled"
+        )
+        runtime = self.runtime(frigate, FakeProvider(self.analysis))
+        with self.assertRaises(asyncio.CancelledError):
+            await self.analysis.analyze_event(
+                runtime,
+                event_id=self.event_id,
+                camera_entity=None,
+                prompt="Describe.",
+                store=True,
+                force=False,
+            )
+        self.assertEqual(runtime.event_write_flights, {})
+
+    async def test_concurrent_timeout_callers_share_write_and_confirmation(
+        self,
+    ) -> None:
+        frigate = FailedWriteFrigate(
+            {"id": self.event_id, "data": {}}, self.analysis, "committed"
+        )
+        provider = FakeProvider(self.analysis, wait=True)
+        runtime = self.runtime(frigate, provider)
+        calls = [
+            asyncio.create_task(
+                self.analysis.analyze_event(
+                    runtime,
+                    event_id=self.event_id,
+                    camera_entity=None,
+                    prompt="Describe.",
+                    store=True,
+                    force=False,
+                )
+            )
+            for _ in range(2)
+        ]
+        await provider.started.wait()
+        provider.release.set()
+        results = await asyncio.gather(*calls)
+        self.assertTrue(all(result["stored"] for result in results))
+        self.assertEqual(provider.calls, 1)
+        self.assertEqual(frigate.write_calls, 1)
+        # Initial event, post-analysis metadata, and one write confirmation.
+        self.assertEqual(frigate.event_calls, 3)
 
     async def test_forced_results_do_not_share_a_different_description_write(
         self,
