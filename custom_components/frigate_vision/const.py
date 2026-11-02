@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 DOMAIN = "frigate_vision"
-VERSION = "0.3.8"
+VERSION = "0.3.9"
 
 FRONTEND_URL_BASE = "/frigate_vision/frontend"
 FRONTEND_MODULE = "frigate-vision-card.js"
@@ -16,6 +16,7 @@ CONF_TIMEOUT = "timeout"
 CONF_VIDEO_TIMEOUT = "video_timeout"
 CONF_TARGET_WIDTH = "target_width"
 CONF_MAX_TOKENS = "max_tokens"
+CONF_REASONING_EFFORT = "reasoning_effort"
 CONF_EVENT_IMAGE_SOURCE = "event_image_source"
 CONF_RECORDING_WAIT_TIMEOUT = "recording_wait_timeout"
 CONF_GO2RTC_URL = "go2rtc_url"
@@ -27,6 +28,12 @@ DEFAULT_VIDEO_TIMEOUT = 180
 DEFAULT_TARGET_WIDTH = 1280
 DEFAULT_VIDEO_TARGET_HEIGHT = 1080
 DEFAULT_MAX_TOKENS = 500
+REASONING_EFFORT_SERVER_DEFAULT = "server_default"
+REASONING_EFFORT_NONE = "none"
+DEFAULT_REASONING_EFFORT = REASONING_EFFORT_SERVER_DEFAULT
+VALID_REASONING_EFFORTS = frozenset(
+    {REASONING_EFFORT_SERVER_DEFAULT, REASONING_EFFORT_NONE}
+)
 DEFAULT_EVENT_IMAGE_SOURCE = "recording_preferred"
 DEFAULT_RECORDING_WAIT_TIMEOUT = 20
 DEFAULT_GO2RTC_MODES = "webrtc,mse,mp4,hls,mjpeg"

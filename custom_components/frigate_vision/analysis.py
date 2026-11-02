@@ -37,12 +37,14 @@ from .const import (
     CONF_FRIGATE_ENTRY_ID,
     CONF_MAX_TOKENS,
     CONF_MODEL,
+    CONF_REASONING_EFFORT,
     CONF_RECORDING_WAIT_TIMEOUT,
     CONF_TARGET_WIDTH,
     CONF_TIMEOUT,
     CONF_VIDEO_TIMEOUT,
     DEFAULT_EVENT_IMAGE_SOURCE,
     DEFAULT_MAX_TOKENS,
+    DEFAULT_REASONING_EFFORT,
     DEFAULT_RECORDING_WAIT_TIMEOUT,
     DEFAULT_TARGET_WIDTH,
     DEFAULT_TIMEOUT,
@@ -58,6 +60,7 @@ from .const import (
     MAX_VIDEO_DURATION,
     MAX_VIDEO_PAYLOAD_BYTES,
     MIN_VIDEO_DURATION,
+    REASONING_EFFORT_NONE,
 )
 from .utils import (
     event_description,
@@ -251,6 +254,9 @@ class OpenAICompatibleProvider:
         self.target_width = int(config.get(CONF_TARGET_WIDTH, DEFAULT_TARGET_WIDTH))
         self.video_target_height = DEFAULT_VIDEO_TARGET_HEIGHT
         self._max_tokens = int(config.get(CONF_MAX_TOKENS, DEFAULT_MAX_TOKENS))
+        self._reasoning_effort = config.get(
+            CONF_REASONING_EFFORT, DEFAULT_REASONING_EFFORT
+        )
 
     async def analyze(self, image_bytes: bytes, prompt: str) -> str:
         """Analyze one image and return non-empty response text."""
@@ -321,6 +327,8 @@ class OpenAICompatibleProvider:
             ],
             "max_tokens": self._max_tokens,
         }
+        if self._reasoning_effort == REASONING_EFFORT_NONE:
+            request["reasoning_effort"] = REASONING_EFFORT_NONE
         request_body = json.dumps(
             request,
             ensure_ascii=False,

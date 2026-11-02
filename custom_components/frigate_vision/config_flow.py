@@ -19,6 +19,7 @@ from .const import (
     CONF_GO2RTC_URL_EXTERNAL,
     CONF_MAX_TOKENS,
     CONF_MODEL,
+    CONF_REASONING_EFFORT,
     CONF_RECORDING_WAIT_TIMEOUT,
     CONF_TARGET_WIDTH,
     CONF_TIMEOUT,
@@ -26,6 +27,7 @@ from .const import (
     DEFAULT_EVENT_IMAGE_SOURCE,
     DEFAULT_GO2RTC_MODES,
     DEFAULT_MAX_TOKENS,
+    DEFAULT_REASONING_EFFORT,
     DEFAULT_RECORDING_WAIT_TIMEOUT,
     DEFAULT_TARGET_WIDTH,
     DEFAULT_TIMEOUT,
@@ -34,7 +36,10 @@ from .const import (
     EVENT_IMAGE_SOURCE_RECORDING,
     EVENT_IMAGE_SOURCE_SNAPSHOT,
     FRIGATE_DOMAIN,
+    REASONING_EFFORT_NONE,
+    REASONING_EFFORT_SERVER_DEFAULT,
     VALID_EVENT_IMAGE_SOURCES,
+    VALID_REASONING_EFFORTS,
 )
 from .utils import (
     normalize_chat_completions_url,
@@ -144,6 +149,16 @@ def _provider_schema(defaults: dict[str, Any]) -> vol.Schema:
                 CONF_MAX_TOKENS,
                 default=defaults.get(CONF_MAX_TOKENS, DEFAULT_MAX_TOKENS),
             ): _number(32, 8192, 1),
+            vol.Required(
+                CONF_REASONING_EFFORT,
+                default=defaults.get(CONF_REASONING_EFFORT, DEFAULT_REASONING_EFFORT),
+            ): selector.SelectSelector(
+                selector.SelectSelectorConfig(
+                    options=[REASONING_EFFORT_SERVER_DEFAULT, REASONING_EFFORT_NONE],
+                    mode=selector.SelectSelectorMode.DROPDOWN,
+                    translation_key="reasoning_effort",
+                )
+            ),
             vol.Optional(
                 CONF_GO2RTC_URL,
                 default=defaults.get(CONF_GO2RTC_URL, ""),
@@ -170,6 +185,11 @@ def _validate_input(data: dict[str, Any]) -> dict[str, str]:
         errors[CONF_MODEL] = "model_required"
     if str(data.get(CONF_EVENT_IMAGE_SOURCE, "")) not in VALID_EVENT_IMAGE_SOURCES:
         errors[CONF_EVENT_IMAGE_SOURCE] = "invalid_image_source"
+    if (
+        str(data.get(CONF_REASONING_EFFORT, DEFAULT_REASONING_EFFORT))
+        not in VALID_REASONING_EFFORTS
+    ):
+        errors[CONF_REASONING_EFFORT] = "invalid_reasoning_effort"
     for key in (CONF_GO2RTC_URL, CONF_GO2RTC_URL_EXTERNAL):
         value = str(data.get(key, "")).strip()
         if value:
@@ -204,6 +224,9 @@ def _normalize_input(data: dict[str, Any]) -> dict[str, Any]:
         normalized[CONF_RECORDING_WAIT_TIMEOUT]
     )
     normalized[CONF_MAX_TOKENS] = int(normalized[CONF_MAX_TOKENS])
+    normalized[CONF_REASONING_EFFORT] = str(
+        normalized.get(CONF_REASONING_EFFORT, DEFAULT_REASONING_EFFORT)
+    )
     return normalized
 
 
