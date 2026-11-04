@@ -83,7 +83,7 @@ outputs that no longer match the source; it does not rewrite them.
 `requirements-docs.in` contains the direct Material for MkDocs requirement:
 
 ```text
-mkdocs-material==9.7.7
+mkdocs-material==9.8.0
 ```
 
 `requirements-docs.txt` records the complete tested environment. Regenerate it
@@ -91,7 +91,10 @@ in a clean Python 3.12 virtual environment, review every version change, and
 confirm `mkdocs build --strict`.
 
 Material for MkDocs is in maintenance mode, so upgrades should be deliberate.
-Version 9.7.7 is pinned for the current security-fixed release line.
+Version 9.8.0 is pinned for the security-fixed release line. Its Python 3.11
+minimum is satisfied by the project's Python 3.12 CI. The contract test verifies
+that the direct requirement, lock file, and installation example agree rather
+than hard-coding a second version inside the test.
 
 ## Release process
 
