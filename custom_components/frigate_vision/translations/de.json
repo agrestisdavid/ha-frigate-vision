@@ -9,7 +9,8 @@
       "frigate_required": "Wähle eine vorhandene Frigate-Config-Entry.",
       "invalid_endpoint": "Gib eine absolute HTTP- oder HTTPS-URL ein.",
       "invalid_image_source": "Wähle eine unterstützte Frigate-Bildquelle.",
-      "model_required": "Gib einen Modellnamen ein."
+      "model_required": "Gib einen Modellnamen ein.",
+      "invalid_reasoning_effort": "Wähle eine unterstützte Einstellung für das Nachdenken."
     },
     "step": {
       "user": {
@@ -34,7 +35,8 @@
           "max_tokens": "Maximale Antwort-Tokens",
           "go2rtc_url": "Direkte lokale go2rtc-URL (erweitert)",
           "go2rtc_url_external": "Direkte externe go2rtc-URL (erweitert)",
-          "go2rtc_modes": "Fallback-Reihenfolge der Live-Transporte"
+          "go2rtc_modes": "Fallback-Reihenfolge der Live-Transporte",
+          "reasoning_effort": "Nachdenken"
         },
         "data_description": {
           "endpoint": "Basis-URL mit /v1 oder vollständige /chat/completions-URL.",
@@ -45,7 +47,9 @@
           "recording_wait_timeout": "So lange wird auf Recording-Frames gewartet, bevor die Ereignisbild-Fallbacks versucht werden.",
           "go2rtc_url": "Optionaler lokaler/interner Override. Leer lassen für den Home-Assistant-Proxy. Externe Clients verwenden diese URL niemals.",
           "go2rtc_url_external": "Leer lassen, um extern den Home-Assistant-Proxy zu verwenden. Externe Clients fallen niemals auf die lokale go2rtc-URL zurück.",
-          "go2rtc_modes": "Kommagetrennt: webrtc,mse,mp4,hls,mjpeg. WebRTC wird zuerst versucht, MSE ist der erste Fallback."
+          "go2rtc_modes": "Kommagetrennt: webrtc,mse,mp4,hls,mjpeg. WebRTC wird zuerst versucht, MSE ist der erste Fallback.",
+          "reasoning_effort": "Servervorgabe behält die Einstellung des Modellservers bei. Aus deaktiviert das Nachdenken für Analysen; der Anbieter und das Modell müssen dies unterstützen.",
+          "max_tokens": "Obergrenze für erzeugte Tokens. Bei Reasoning-Modellen kann auch internes Nachdenken dieses Budget verbrauchen."
         }
       }
     }
@@ -54,7 +58,8 @@
     "error": {
       "invalid_endpoint": "Gib eine absolute HTTP- oder HTTPS-URL ein.",
       "invalid_image_source": "Wähle eine unterstützte Frigate-Bildquelle.",
-      "model_required": "Gib einen Modellnamen ein."
+      "model_required": "Gib einen Modellnamen ein.",
+      "invalid_reasoning_effort": "Wähle eine unterstützte Einstellung für das Nachdenken."
     },
     "step": {
       "init": {
@@ -71,7 +76,8 @@
           "max_tokens": "Maximale Antwort-Tokens",
           "go2rtc_url": "Direkte lokale go2rtc-URL (erweitert)",
           "go2rtc_url_external": "Direkte externe go2rtc-URL (erweitert)",
-          "go2rtc_modes": "Fallback-Reihenfolge der Live-Transporte"
+          "go2rtc_modes": "Fallback-Reihenfolge der Live-Transporte",
+          "reasoning_effort": "Nachdenken"
         },
         "data_description": {
           "timeout": "Maximale Dauer einer Provider-Anfrage für eine Einzelbildanalyse.",
@@ -81,7 +87,9 @@
           "recording_wait_timeout": "So lange wird auf Recording-Frames gewartet, bevor die Ereignisbild-Fallbacks versucht werden.",
           "go2rtc_url": "Optionaler lokaler/interner Override. Leer lassen für den Home-Assistant-Proxy. Externe Clients verwenden diese URL niemals.",
           "go2rtc_url_external": "Leer lassen, um extern den Home-Assistant-Proxy zu verwenden. Externe Clients fallen niemals auf die lokale go2rtc-URL zurück.",
-          "go2rtc_modes": "Kommagetrennt: webrtc,mse,mp4,hls,mjpeg. WebRTC wird zuerst versucht, MSE ist der erste Fallback."
+          "go2rtc_modes": "Kommagetrennt: webrtc,mse,mp4,hls,mjpeg. WebRTC wird zuerst versucht, MSE ist der erste Fallback.",
+          "reasoning_effort": "Servervorgabe behält die Einstellung des Modellservers bei. Aus deaktiviert das Nachdenken für Analysen; der Anbieter und das Modell müssen dies unterstützen.",
+          "max_tokens": "Obergrenze für erzeugte Tokens. Bei Reasoning-Modellen kann auch internes Nachdenken dieses Budget verbrauchen."
         }
       }
     }
@@ -91,6 +99,12 @@
       "options": {
         "recording_preferred": "Recording/Mainstream mit Detect-Fallback",
         "event_snapshot": "Sauberes Ereignisbild mit annotiertem Fallback"
+      }
+    },
+    "reasoning_effort": {
+      "options": {
+        "server_default": "Servervorgabe",
+        "none": "Aus"
       }
     }
   }

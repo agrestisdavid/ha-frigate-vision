@@ -47,7 +47,18 @@ When an event obtains a notification slot:
 1. the cooldown timer is started;
 2. the initial notification action runs;
 3. the event is analyzed;
-4. the analysis notification action runs with the same tag.
+4. the final notification action runs with the same tag, using `fv_phase="analysis"`
+   for a description or `fv_phase="error"` when analysis fails.
+
+Since 0.3.10, an analysis failure finishes an already-started notification even
+when optional `error_actions` are empty. Those custom error actions run afterward.
+Muted events, events without a notification slot, and shadow mode do not gain
+an error push. Re-import the Blueprint to apply this change; updating the HACS
+integration alone does not update an installed Blueprint.
+
+A completed analysis survives a Frigate storage failure. `fv_analysis.store_error`
+reports an unconfirmed write and `fv_stored` stays false, while the description
+is still available for the final notification.
 
 The action selector receives stable variables including:
 

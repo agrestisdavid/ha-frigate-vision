@@ -37,12 +37,14 @@ from .const import (
     CONF_FRIGATE_ENTRY_ID,
     CONF_MAX_TOKENS,
     CONF_MODEL,
+    CONF_REASONING_EFFORT,
     CONF_RECORDING_WAIT_TIMEOUT,
     CONF_TARGET_WIDTH,
     CONF_TIMEOUT,
     CONF_VIDEO_TIMEOUT,
     DEFAULT_EVENT_IMAGE_SOURCE,
     DEFAULT_MAX_TOKENS,
+    DEFAULT_REASONING_EFFORT,
     DEFAULT_RECORDING_WAIT_TIMEOUT,
     DEFAULT_TARGET_WIDTH,
     DEFAULT_TIMEOUT,
@@ -58,6 +60,7 @@ from .const import (
     MAX_VIDEO_DURATION,
     MAX_VIDEO_PAYLOAD_BYTES,
     MIN_VIDEO_DURATION,
+    REASONING_EFFORT_NONE,
 )
 from .utils import (
     event_description,
@@ -251,6 +254,9 @@ class OpenAICompatibleProvider:
         self.target_width = int(config.get(CONF_TARGET_WIDTH, DEFAULT_TARGET_WIDTH))
         self.video_target_height = DEFAULT_VIDEO_TARGET_HEIGHT
         self._max_tokens = int(config.get(CONF_MAX_TOKENS, DEFAULT_MAX_TOKENS))
+        self._reasoning_effort = config.get(
+            CONF_REASONING_EFFORT, DEFAULT_REASONING_EFFORT
+        )
 
     async def analyze(self, image_bytes: bytes, prompt: str) -> str:
         """Analyze one image and return non-empty response text."""
@@ -321,6 +327,8 @@ class OpenAICompatibleProvider:
             ],
             "max_tokens": self._max_tokens,
         }
+        if self._reasoning_effort == REASONING_EFFORT_NONE:
+            request["reasoning_effort"] = REASONING_EFFORT_NONE
         request_body = json.dumps(
             request,
             ensure_ascii=False,
@@ -1441,6 +1449,29 @@ def _finish_flight(
         pass
 
 
+async def _write_description_confirmed(
+    runtime: RuntimeData,
+    event_id: str,
+    description: str,
+) -> None:
+    """Reconcile an ambiguous write failure without repeating the write."""
+    try:
+        await runtime.frigate.set_description(event_id, description)
+    except FrigateEventError:
+        # Frigate can commit before its HTTP response times out. Only an exact
+        # readback of this event and description confirms that the write landed.
+        try:
+            event = await runtime.frigate.get_event(
+                event_id, timeout=EVENT_METADATA_REFRESH_TIMEOUT
+            )
+        except FrigateVisionError:
+            pass
+        else:
+            if event.get("id") == event_id and event_description(event) == description:
+                return
+        raise
+
+
 async def _store_description_once(
     runtime: RuntimeData,
     event_id: str,
@@ -1452,7 +1483,7 @@ async def _store_description_once(
     if task is None:
         task = _create_entry_task(
             runtime,
-            runtime.frigate.set_description(event_id, description),
+            _write_description_confirmed(runtime, event_id, description),
             f"Frigate Vision store event {event_id}",
         )
         runtime.event_write_flights[write_key] = task
@@ -1464,6 +1495,21 @@ async def _store_description_once(
             )
         )
     await asyncio.shield(task)
+
+
+async def _store_analysis_result(
+    runtime: RuntimeData, event_id: str, description: str
+) -> tuple[bool, str | None]:
+    """Keep a completed analysis usable when persistence cannot be confirmed."""
+    try:
+        await _store_description_once(runtime, event_id, description)
+    except FrigateEventError:
+        error = "Die Beschreibung konnte nicht in Frigate gespeichert werden."
+        _LOGGER.warning(
+            "Frigate event %s: description storage was not confirmed", event_id
+        )
+        return False, error
+    return True, None
 
 
 async def analyze_event(
@@ -1517,17 +1563,18 @@ async def analyze_event(
         result = await asyncio.shield(task)
 
     stored = False
+    store_error = None
     if store and not result["cached"]:
-        await _store_description_once(
+        stored, store_error = await _store_analysis_result(
             runtime,
             event_id,
             result["response_text"],
         )
-        stored = True
 
     return {
         **result,
         "stored": stored,
+        "store_error": store_error,
         "duration_ms": round((monotonic() - started) * 1000),
     }
 
@@ -1591,13 +1638,16 @@ async def analyze_event_video(
     result = await asyncio.shield(task)
 
     stored = False
+    store_error = None
     if store:
-        await _store_description_once(runtime, event_id, result["response_text"])
-        stored = True
+        stored, store_error = await _store_analysis_result(
+            runtime, event_id, result["response_text"]
+        )
 
     return {
         **result,
         "stored": stored,
+        "store_error": store_error,
         "duration_ms": round((monotonic() - started) * 1000),
     }
 
