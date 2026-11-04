@@ -24,11 +24,20 @@ class DocumentationContractTests(unittest.TestCase):
     def test_material_and_all_documentation_dependencies_are_pinned(self) -> None:
         direct = (ROOT / "requirements-docs.in").read_text(encoding="utf-8")
         locked = (ROOT / "requirements-docs.txt").read_text(encoding="utf-8")
-        self.assertEqual(direct.strip(), "mkdocs-material==9.7.7")
-        for line in locked.splitlines():
-            if line and not line.startswith("#"):
-                self.assertRegex(line, r"^[A-Za-z0-9_.-]+==[^=\s]+$")
-        self.assertIn("mkdocs-material==9.7.7", locked)
+        # Verify the lock contract, not a second hard-coded release number
+        # that breaks every legitimate Dependabot update.
+        self.assertRegex(direct.strip(), r"\Amkdocs-material==\d+\.\d+\.\d+\Z")
+        pins = [
+            line for line in locked.splitlines() if line and not line.startswith("#")
+        ]
+        for line in pins:
+            self.assertRegex(line, r"^[A-Za-z0-9_.-]+==[^=\s]+$")
+        self.assertEqual(
+            [line for line in pins if line.startswith("mkdocs-material==")],
+            [direct.strip()],
+        )
+        development = (DOCS / "development.md").read_text(encoding="utf-8")
+        self.assertIn(f"\n{direct.strip()}\n", development)
 
     def test_site_uses_system_fonts_search_and_privacy_only(self) -> None:
         config = (ROOT / "mkdocs.yml").read_text(encoding="utf-8")
