@@ -35,6 +35,14 @@ also need installing. Run `npm run test:browser` for the browser test alone.
 For an isolated fresh-browser check, set `PLAYWRIGHT_BROWSERS_PATH` to a new
 empty directory for both the install and verification commands.
 
+The Python suite includes `tests/test_blueprint_runtime.py`, which parses the
+actual Blueprint YAML, substitutes its inputs, and executes its Jinja and action
+branches with deterministic, simulated state/services. It covers all alarm
+states, interval changes, restored timestamp state, queue timing, failed helpers,
+and legacy notification behavior. These are local simulations, not production
+Home Assistant or mobile-push tests. Jinja2 and PyYAML are explicit development
+dependencies so this coverage also runs in the isolated Python CI job.
+
 Pull requests run Python, JavaScript, HACS, hassfest, and strict documentation
 validation. Actions are referenced by immutable commit SHA. Dependabot watches
 GitHub Actions and Python documentation dependencies.

@@ -44,7 +44,8 @@ Blueprint delay.
 
 When an event obtains a notification slot:
 
-1. the cooldown timer is started;
+1. the notification slot is reserved: the fixed-mode timer is started, or
+   the alarm-mode timestamp is saved and its readback confirmed;
 2. the initial notification action runs;
 3. the event is analyzed;
 4. the final notification action runs with the same tag, using `fv_phase="analysis"`
@@ -101,7 +102,9 @@ message queue.
 Mute and cooldown suppress only notification actions. They never suppress an
 allowed event analysis.
 
-For any cooldown greater than zero, create a dedicated Timer helper:
+By default, the Blueprint uses the existing fixed cooldown. With alarm-based
+intervals **disabled**, any cooldown greater than zero needs a dedicated Timer
+helper:
 
 1. open **Settings → Devices & services → Helpers**;
 2. create a **Timer**;
@@ -115,6 +118,90 @@ push. A timer failure closes the notification slot but does not stop analysis.
 
 Error actions are an unthrottled diagnostic path and still run when analysis
 fails. Do not place a push action there if it must obey mute and cooldown.
+
+## Alarm-based notification intervals
+
+The optional **Alarmabhängige Benachrichtigungsintervalle** section selects the
+minimum interval from an `alarm_control_panel` entity's current state. It is
+**off by default**: re-importing does not change existing automations' behavior.
+This only limits new event notifications, not analyses. It does **not** send
+periodic reminders, replay suppressed events, or send a push just because the
+alarm state changes. Initial and final/error updates of one event still share
+one slot and tag.
+
+### Setup
+
+1. Re-import the Blueprint from the canonical URL above. An integration/HACS
+   update alone does not update an already imported Blueprint. Existing input
+   keys and settings are preserved; each new input has a default.
+2. Under **Settings → Devices & services → Helpers**, create a **Date and/or
+   time** (`input_datetime`) helper with **both date and time** enabled. Use a
+   separate helper for each Blueprint automation/camera; never share it with
+   another automation or edit it while the automation is running.
+3. Before enabling the option, set the helper once to a past date/time, for
+   example yesterday, at least as old as your longest interval. Do not give a
+   YAML-created helper an `initial:` value: that overrides restoration after
+   every restart. A UI-created date/time helper restores its last value without
+   a separate restore switch.
+4. Select the alarm entity and this helper under **Alarmanlage** and **Letzter
+   Benachrichtigungsbeginn**, then enable **Alarmsteuerung aktivieren**.
+5. Set the desired intervals. Values are **seconds**, up to 86400 (24 hours).
+   **-1** inherits the existing **Cooldown** setting (90 seconds by default).
+   **0** removes time-based throttling; it does not disable notifications.
+
+| Alarm state | Blueprint field | Default |
+| --- | --- | --- |
+| `disarmed` | Unscharf | -1: standard cooldown |
+| `armed_home` | Zuhause scharf | 1800 seconds = 30 minutes |
+| `armed_away` | Abwesend scharf | 300 seconds = 5 minutes |
+| `armed_night` | Nacht scharf | -1: standard cooldown |
+| `armed_vacation` | Urlaub scharf | -1: standard cooldown |
+| `armed_custom_bypass` | Benutzerdefiniert scharf | -1: standard cooldown |
+| `arming` | Wird scharfgeschaltet | -1: standard cooldown |
+| `disarming` | Wird unscharfgeschaltet | -1: standard cooldown |
+| `pending` | Eingangsverzögerung | -1: standard cooldown |
+| `triggered` | Alarm ausgelöst | -1: standard cooldown |
+
+All ten intervals are independently configurable; `triggered` has no automatic
+bypass. If "home" for your alarm means **disarmed**, configure `disarmed`
+explicitly; the 30-minute default applies to `armed_home`, not presence tracking.
+Missing alarm entities, `unknown`, `unavailable`, and unrecognized states use the
+standard **Cooldown** value, still measured against the saved timestamp.
+
+### State changes, persistence, and failures
+
+The alarm state, saved timestamp, mute state, and event age are read when a
+queued event **actually starts**, not when its MQTT message arrived. The current
+interval is measured from the last **notification start**, not the last
+analysis, final update, or alarm-state change:
+
+- Last push 10 minutes ago, change from home/30 minutes to away/5 minutes:
+  the next fresh event can notify immediately.
+- Last push 10 minutes ago, change from away/5 minutes to home/30 minutes:
+  notifications wait until 30 minutes have elapsed since that push.
+
+Alarm mode ignores the old cooldown timer entirely, including active, expired,
+or unavailable timers. The date/time helper is required **even for interval 0**
+and fallback states, so a later change to a positive interval can still use the
+last start time. The timestamp is written before notification actions and read
+back before allowing a push. It has one-second precision; rounding upward may
+add less than one second, but never shortens a positive interval. Final/error
+updates do not rewrite it, even when the alarm or mute state changes during
+analysis. Failed notification actions still consume their reserved slot.
+
+A missing, unavailable, malformed, date-only, or time-only helper, or a failed
+or unconfirmed timestamp write, suppresses **only notifications**. Analyses
+continue. A future timestamp blocks positive intervals until the clock catches
+up; check the helper and system clock rather than resetting it on every event.
+An event older than its selected positive interval is not pushed late. As in
+fixed mode, interval 0 disables that age limit as well as time-based throttling.
+Mute, shadow mode, and filtered or suppressed events never advance the timestamp.
+
+To return to the previous behavior, disable **Alarmsteuerung aktivieren** and
+ensure the restoring **Cooldown-Timer** is configured when the fixed cooldown
+is positive. The timestamp helper may remain; fixed mode neither reads it for
+throttling nor writes it. Switching this option is a configuration change, not
+an alarm-state transition: timer and timestamp histories are not migrated.
 
 ## Notification title and face recognition
 

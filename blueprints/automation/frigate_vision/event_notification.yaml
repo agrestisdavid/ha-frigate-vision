@@ -208,8 +208,10 @@ blueprint:
           name: Cooldown
           description: >-
             Sperrzeit nur für Benachrichtigungen. Alle erlaubten Ereignisse
-            werden weiterhin analysiert. Bei einem Wert größer als null muss
-            ein eigener Cooldown-Timer ausgewählt werden.
+            werden weiterhin analysiert. Ohne Alarmsteuerung muss bei einem
+            Wert größer als null ein eigener Cooldown-Timer ausgewählt werden.
+            Bei Alarmsteuerung ist dies der Standard für nicht überschriebene
+            oder unbekannte Alarmzustände.
           default: 90
           selector:
             number:
@@ -222,13 +224,156 @@ blueprint:
           name: Cooldown-Timer
           description: >-
             Eigener timer-Helper für den Benachrichtigungs-Cooldown. Bei einem
-            Cooldown größer als null ist er verpflichtend und muss mit
-            Wiederherstellung konfiguriert sein. Ein fehlender oder nicht
-            verfügbarer Timer unterdrückt Pushs, aber niemals die Analyse.
+            Cooldown größer als null ist er ohne Alarmsteuerung verpflichtend
+            und muss mit Wiederherstellung konfiguriert sein. Ein fehlender
+            oder nicht verfügbarer Timer unterdrückt Pushs, aber niemals die
+            Analyse. Bei aktivierter Alarmsteuerung wird dieser Timer ignoriert.
           default: ""
           selector:
             entity:
               domain: timer
+
+    alarm_cooldown:
+      name: Alarmabhängige Benachrichtigungsintervalle
+      icon: mdi:shield-home-outline
+      collapsed: true
+      description: >-
+        Optionaler Mindestabstand zwischen neuen Ereignis-Benachrichtigungen,
+        abhängig vom aktuellen Alarmzustand. Alle Intervalle in Sekunden:
+        -1 übernimmt den Standard-Cooldown, 0 bedeutet keine Drosselung.
+        Ein Statuswechsel sendet selbst nichts. Beim nächsten Ereignis gilt
+        das neue Intervall seit dem letzten Benachrichtigungsbeginn.
+      input:
+        alarm_cooldown_enabled:
+          name: Alarmsteuerung aktivieren
+          default: false
+          selector:
+            boolean:
+        alarm_entity:
+          name: Alarmanlage
+          description: >-
+            Bei aktivierter Alarmsteuerung auswählen. Fehlende, unbekannte und
+            nicht verfügbare Alarmzustände verwenden den Standard-Cooldown.
+          default: ""
+          selector:
+            entity:
+              domain: alarm_control_panel
+        last_notification_datetime:
+          name: Letzter Benachrichtigungsbeginn
+          description: >-
+            Eigener input_datetime-Helper mit Datum UND Uhrzeit pro
+            Blueprint-Instanz. Bei Alarmsteuerung immer erforderlich, auch
+            für Intervall 0. Er speichert den letzten Benachrichtigungsbeginn
+            über Neustarts hinweg; keinen festen initial-Wert konfigurieren.
+            Vor der ersten Aktivierung einmal auf einen vergangenen Zeitpunkt
+            setzen. Fehlender/ungültiger Helper oder fehlgeschlagene Speicherung
+            unterdrückt nur Pushs; die Analyse läuft weiter.
+          default: ""
+          selector:
+            entity:
+              domain: input_datetime
+        cooldown_disarmed:
+          name: Unscharf (disarmed)
+          default: -1
+          selector:
+            number:
+              min: -1
+              max: 86400
+              step: 1
+              unit_of_measurement: s
+              mode: box
+        cooldown_armed_home:
+          name: Zuhause scharf (armed_home)
+          description: Vorgabe 1800 Sekunden = 30 Minuten.
+          default: 1800
+          selector:
+            number:
+              min: -1
+              max: 86400
+              step: 1
+              unit_of_measurement: s
+              mode: box
+        cooldown_armed_away:
+          name: Abwesend scharf (armed_away)
+          description: Vorgabe 300 Sekunden = 5 Minuten.
+          default: 300
+          selector:
+            number:
+              min: -1
+              max: 86400
+              step: 1
+              unit_of_measurement: s
+              mode: box
+        cooldown_armed_night:
+          name: Nacht scharf (armed_night)
+          default: -1
+          selector:
+            number:
+              min: -1
+              max: 86400
+              step: 1
+              unit_of_measurement: s
+              mode: box
+        cooldown_armed_vacation:
+          name: Urlaub scharf (armed_vacation)
+          default: -1
+          selector:
+            number:
+              min: -1
+              max: 86400
+              step: 1
+              unit_of_measurement: s
+              mode: box
+        cooldown_armed_custom_bypass:
+          name: Benutzerdefiniert scharf (armed_custom_bypass)
+          default: -1
+          selector:
+            number:
+              min: -1
+              max: 86400
+              step: 1
+              unit_of_measurement: s
+              mode: box
+        cooldown_arming:
+          name: Wird scharfgeschaltet (arming)
+          default: -1
+          selector:
+            number:
+              min: -1
+              max: 86400
+              step: 1
+              unit_of_measurement: s
+              mode: box
+        cooldown_disarming:
+          name: Wird unscharfgeschaltet (disarming)
+          default: -1
+          selector:
+            number:
+              min: -1
+              max: 86400
+              step: 1
+              unit_of_measurement: s
+              mode: box
+        cooldown_pending:
+          name: Eingangsverzögerung (pending)
+          default: -1
+          selector:
+            number:
+              min: -1
+              max: 86400
+              step: 1
+              unit_of_measurement: s
+              mode: box
+        cooldown_triggered:
+          name: Alarm ausgelöst (triggered)
+          default: -1
+          selector:
+            number:
+              min: -1
+              max: 86400
+              step: 1
+              unit_of_measurement: s
+              mode: box
 
 mode: queued
 max: 50
@@ -259,7 +404,25 @@ variables:
     {{ fv_mute_boolean_input if fv_mute_boolean_input is string else '' }}
   fv_cooldown_timer: >-
     {{ fv_cooldown_timer_input if fv_cooldown_timer_input is string else '' }}
-  fv_cooldown_seconds: "{{ fv_cooldown_seconds_input | int(90) }}"
+  fv_default_cooldown_seconds: "{{ fv_cooldown_seconds_input | int(90) }}"
+  fv_alarm_cooldown_enabled: !input alarm_cooldown_enabled
+  fv_alarm_entity_input: !input alarm_entity
+  fv_last_notification_input: !input last_notification_datetime
+  fv_alarm_entity: >-
+    {{ fv_alarm_entity_input if fv_alarm_entity_input is string else '' }}
+  fv_last_notification: >-
+    {{ fv_last_notification_input if fv_last_notification_input is string else '' }}
+  fv_alarm_intervals:
+    disarmed: !input cooldown_disarmed
+    armed_home: !input cooldown_armed_home
+    armed_away: !input cooldown_armed_away
+    armed_night: !input cooldown_armed_night
+    armed_vacation: !input cooldown_armed_vacation
+    armed_custom_bypass: !input cooldown_armed_custom_bypass
+    arming: !input cooldown_arming
+    disarming: !input cooldown_disarming
+    pending: !input cooldown_pending
+    triggered: !input cooldown_triggered
   fv_payload: >-
     {{ trigger.payload_json | default({}, true) }}
   fv_after: >-
@@ -400,17 +563,42 @@ actions:
       {{ not fv_ignore_false_positives or not fv_false_positive }}
 
   # These values must be rendered only after this queued run starts. Rendering
-  # them in the top-level variables block would preserve stale timer, mute, and
-  # event-age state from the original MQTT trigger.
+  # them in the top-level variables block would preserve stale alarm, timer,
+  # last-notification, mute, and event-age state from the original MQTT trigger.
   - variables:
+      fv_alarm_state: >-
+        {{ states(fv_alarm_entity)
+           if fv_alarm_cooldown_enabled and fv_alarm_entity | length > 0 else '' }}
+      fv_cooldown_seconds: >-
+        {% set override = fv_alarm_intervals.get(fv_alarm_state, -1) | int(-1) %}
+        {{ override if fv_alarm_cooldown_enabled and override >= 0
+           else fv_default_cooldown_seconds }}
+      fv_last_notification_ts: >-
+        {{ state_attr(fv_last_notification, 'timestamp') | float(none)
+           if fv_alarm_cooldown_enabled and fv_last_notification | length > 0
+           else none }}
+      fv_last_notification_valid: >-
+        {{ fv_last_notification | length > 0
+           and has_value(fv_last_notification)
+           and state_attr(fv_last_notification, 'has_date') == true
+           and state_attr(fv_last_notification, 'has_time') == true
+           and fv_last_notification_ts is not none
+           and fv_last_notification_ts >= 0 }}
+      fv_cooldown_ready: >-
+        {% if fv_alarm_cooldown_enabled %}
+          {{ fv_last_notification_valid
+             and (fv_cooldown_seconds == 0
+                  or as_timestamp(now()) - fv_last_notification_ts >= fv_cooldown_seconds) }}
+        {% else %}
+          {{ fv_cooldown_seconds == 0
+             or (fv_cooldown_timer | length > 0
+                 and is_state(fv_cooldown_timer, 'idle')) }}
+        {% endif %}
       fv_event_age_seconds: >-
         {{ [as_timestamp(now()) - fv_event_started_at, 0] | max | int }}
       fv_is_muted: >-
         {{ fv_mute_boolean | length > 0
            and is_state(fv_mute_boolean, 'on') }}
-      fv_timer_is_idle: >-
-        {{ fv_cooldown_timer | length > 0
-           and is_state(fv_cooldown_timer, 'idle') }}
       fv_notification_is_stale: >-
         {{ fv_cooldown_seconds > 0
            and fv_event_age_seconds > fv_cooldown_seconds }}
@@ -418,15 +606,13 @@ actions:
         {{ fv_mode == 'active'
            and not fv_is_muted
            and not fv_notification_is_stale
-           and (
-             fv_cooldown_seconds == 0
-             or fv_timer_is_idle
-           ) }}
+           and fv_cooldown_ready }}
 
   - if:
       - condition: template
         value_template: >-
-          {{ fv_notification_candidate and fv_cooldown_seconds > 0 }}
+          {{ fv_notification_candidate and fv_cooldown_seconds > 0
+             and not fv_alarm_cooldown_enabled }}
     then:
       - action: timer.start
         continue_on_error: true
@@ -436,16 +622,37 @@ actions:
           duration:
             seconds: "{{ fv_cooldown_seconds }}"
 
-  # For a positive cooldown the timer changing to active confirms ownership of
-  # the notification slot. A failed timer action therefore suppresses only the
-  # push while the analysis below still runs.
+  # A persistent timestamp, not a running timer, supports both shorter AND
+  # longer intervals after a state change (even after the old timer expired).
+  # Stamp zero-interval notifications too, before running user actions. Round
+  # up to the helper's second resolution so a positive interval is never early.
+  - variables:
+      fv_notification_started_ts: "{{ as_timestamp(now()) | round(0, 'ceil') | int }}"
+  - if:
+      - condition: template
+        value_template: "{{ fv_notification_candidate and fv_alarm_cooldown_enabled }}"
+    then:
+      - action: input_datetime.set_datetime
+        continue_on_error: true
+        target:
+          entity_id: "{{ fv_last_notification }}"
+        data:
+          timestamp: "{{ fv_notification_started_ts }}"
+
+  # Confirm storage before sending. A helper/service failure closes only the
+  # notification slot, never the analysis. Legacy mode still confirms its timer.
   - variables:
       fv_notification_slot: >-
-        {{ fv_notification_candidate
-           and (
-             fv_cooldown_seconds == 0
-             or is_state(fv_cooldown_timer, 'active')
-           ) }}
+        {% if fv_alarm_cooldown_enabled %}
+          {{ fv_notification_candidate
+             and has_value(fv_last_notification)
+             and state_attr(fv_last_notification, 'timestamp') | float(none)
+                 == fv_notification_started_ts }}
+        {% else %}
+          {{ fv_notification_candidate
+             and (fv_cooldown_seconds == 0
+                  or is_state(fv_cooldown_timer, 'active')) }}
+        {% endif %}
 
   - variables:
       fv_phase: initial
