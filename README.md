@@ -135,9 +135,18 @@ Importing it does not create an automation. Its default `shadow` mode analyzes
 without notifications or Frigate writes.
 
 In `active` mode, allowed events are analyzed sequentially. Mute and cooldown
-settings suppress only notifications; analysis continues. A dedicated
-restoring timer helper is required when the notification cooldown is greater
-than zero.
+settings suppress only notifications; analysis continues. By default, a
+dedicated restoring timer helper is required when the fixed notification
+cooldown is greater than zero.
+
+Optional **alarm-based intervals** provide a separate cooldown for every alarm
+state: `armed_home` defaults to 30 minutes, `armed_away` to 5 minutes, and all
+other states inherit the fixed cooldown unless overridden. Changes apply to
+the next event, measured from the last notification start. This mode needs a
+dedicated restoring date-and-time helper instead of the timer, even for
+interval 0. It never sends a push on an alarm-state change alone. Re-import the
+Blueprint and explicitly enable the option; see the
+[setup and state table](docs/blueprint.md#alarm-based-notification-intervals).
 
 The initial and completed notification use the same tag. The initial push uses
 Frigate's lightweight thumbnail, while the completed push uses the stored
