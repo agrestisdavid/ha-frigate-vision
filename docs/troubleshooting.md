@@ -1,5 +1,19 @@
 # Troubleshooting
 
+## Notification remains at “being analyzed” after a storage timeout
+
+An error posting `/api/events/<id>/description` can happen after Frigate has
+already saved a completed model response. Version 0.3.10 checks the exact event
+once after a failed write. A matching description confirms success; otherwise
+the service still returns the analysis with `stored: false` and `store_error`.
+It does not repeat inference or silently overwrite a different description.
+
+Re-import the notification Blueprint as well as updating the integration. Its
+error path now updates an already-started notification with the same tag before
+running optional error actions. It does not send new error pushes for muted,
+cooldown-suppressed or shadow events. Existing notifications from older runs
+are not replayed by the update.
+
 ## Event is not available yet
 
 Symptom: an automation fires immediately, while the Frigate REST event or
@@ -30,6 +44,17 @@ Keep video mode disabled until the OpenAI-compatible endpoint can repeatedly
 process the configured frame count without restarting. A llama.cpp error such
 as `Output buffer size mismatch` is a model-runtime failure, not a Frigate
 camera-resolution problem. Still-image analysis remains usable independently.
+
+## The model returns an empty or incomplete description
+
+A reasoning model can spend the entire token limit on internal thinking and
+return no final answer, even with HTTP 200. Check the model server for a token
+limit stop before increasing camera timeouts. In Frigate Vision options, increase
+**Maximum response tokens**, or select **Reasoning: Off** if the provider/model
+supports `reasoning_effort: none`. Version 0.3.9 adds this per-integration option;
+Server default leaves existing requests unchanged. More tokens alone do not
+guarantee that thinking finishes. Separately returned reasoning is intentionally
+not stored or sent as a camera description.
 
 ## The model claims it cannot see the image
 

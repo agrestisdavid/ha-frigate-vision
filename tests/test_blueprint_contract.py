@@ -143,6 +143,17 @@ class BlueprintContractTests(unittest.TestCase):
             self.source,
         )
 
+    def test_failed_analysis_finishes_only_an_owned_active_notification(self) -> None:
+        fallback = self.source[self.source.rindex("    default:") :]
+        self.assertIn("fv_mode == 'active' and fv_notification_slot", fallback)
+        self.assertIn("sequence: !input notification_actions", fallback)
+        self.assertIn("continue_on_error: true", fallback)
+        self.assertIn("sequence: !input error_actions", fallback)
+        self.assertLess(
+            fallback.index("!input notification_actions"),
+            fallback.index("!input error_actions"),
+        )
+
 
 if __name__ == "__main__":
     unittest.main()

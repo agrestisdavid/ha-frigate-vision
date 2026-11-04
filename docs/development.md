@@ -112,6 +112,26 @@ stable-only; never describe manual checks as already completed.
 Never publish a release from manually copied Home Assistant files. Subsequent
 fixes should use a new GitHub tag and HACS version.
 
+## Version 0.3.10
+
+- confirm ambiguous description writes with one bounded readback of the exact
+  event and description, without repeating inference or the write;
+- preserve image/video analysis results when storage cannot be confirmed,
+  returning `stored: false` and `store_error` and logging a warning;
+- finish an active pending notification with an error update under the same
+  tag, followed by optional custom error actions; mute and shadow semantics stay;
+- regression coverage for commit-before-timeout, readback failure, conflicting
+  descriptions, wrong-event readback, cancellation and shared concurrent writes.
+
+## Version 0.3.9
+
+- optional reasoning control for all image and video analysis requests;
+- backward-compatible server default, with Off sending `reasoning_effort: none`
+  only when selected for a compatible provider/model;
+- German and English setup/options labels and token-budget guidance;
+- regression coverage for legacy/default requests, reasoning disabled in image
+  and video requests, and rejection of reasoning-only responses.
+
 ## Version 0.3.8
 
 - per-camera **Ultra-Wide** editor switch (`ultra_wide: true`), off by default;

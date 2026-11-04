@@ -184,11 +184,19 @@ class PackageContractTests(unittest.TestCase):
                 "recording_wait_timeout",
                 "target_width",
                 "video_timeout",
+                "reasoning_effort",
             ):
                 self.assertIn(key, steps["provider"]["data"])
             self.assertEqual(
                 set(translation["selector"]["event_image_source"]["options"]),
                 {"recording_preferred", "event_snapshot"},
+            )
+            self.assertEqual(
+                set(translation["selector"]["reasoning_effort"]["options"]),
+                {"server_default", "none"},
+            )
+            self.assertIn(
+                "reasoning_effort", translation["options"]["step"]["init"]["data"]
             )
 
     def test_manifest_and_runtime_versions_match(self):
