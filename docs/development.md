@@ -159,6 +159,23 @@ stable-only; never describe manual checks as already completed.
 Never publish a release from manually copied Home Assistant files. Subsequent
 fixes should use a new GitHub tag and HACS version.
 
+## Version 0.3.13
+
+- Select Frigate cameras in the [visual editor](card.md#visual-editor). Stream
+  suggestions use the selected entity's read permission and its instance's
+  cached aliases. Ambiguous Main/Sub assignments stay manual; opening a saved
+  camera changes nothing.
+- Show labelled filter and advanced controls on current HA frontends. Use the
+  Card background for the event list and a subtle theme tint for each row.
+- Display the first clips before optional metadata arrives, retain rows during
+  refresh, and ignore stale loads and malformed reviews. Group distinct events
+  by camera and label within the configured time window; `0` disables time grouping.
+- Stop outstanding video-frame work early once the encoded request would exceed
+  the size budget. The final payload check and provider limits are unchanged.
+- Add behavioral Chromium coverage and an optional offline HA Core container
+  test, including permission checks for stream suggestions. No Blueprint
+  re-import or configuration migration is required from 0.3.12.
+
 ## Version 0.3.12
 
 - Match the Card's Clips media root and its event/review metadata to the same
