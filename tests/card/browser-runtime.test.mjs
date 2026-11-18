@@ -123,6 +123,47 @@ async function openRuntimePage(t) {
   return page;
 }
 
+test("first clip renders before a delayed review; a detached load cannot overwrite the reconnected card", async (t) => {
+  const page = await openRuntimePage(t);
+  await page.evaluate(() => {
+    const card = document.createElement("frigate-vision-card");
+    const clips = "media-source://frigate/demo/event-search/clips//////";
+    const event = {id: "first", camera: "gate", label: "person", start_time: 1700000000, data: {description: "Embedded description"}};
+    const review = title => [{data: {metadata: {shortSummary: title}, detections: [event.id]}}];
+    let reviewCalls = 0;
+    card.setConfig({cameras: {gate: {}}, live_autostart: false});
+    card.hass = {states: {}, callWS: async message => {
+      if (message.type === "frigate_vision/profile") return {profile: {frigate_client_id: "demo"}};
+      if (message.type === "frigate/events/get") return [event];
+      if (message.type === "frigate/reviews/get") {
+        if (++reviewCalls === 1) return new Promise(resolve => { window.releaseOld = () => resolve(review("Old review")); });
+        return review("Fresh review");
+      }
+      if (message.media_content_id === "media-source://frigate") return {children: [{media_content_id: clips}]};
+      if (message.media_content_id === clips) return {children: [{title: "Clip", can_expand: false,
+        media_content_id: "media-source://frigate/demo/event/clips/gate/first", frigate: {event}}]};
+      throw Error("Unexpected browse");
+    }};
+    const fetch = card._fetchAll.bind(card);
+    card._fetchAll = () => {
+      const run = fetch();
+      window.firstLoad ??= run;
+      return run;
+    };
+    document.body.append(card);
+  });
+  const desc = page.locator("frigate-vision-card .list .row .desc");
+  await desc.filter({hasText: "Embedded description"}).waitFor(); // Old review still pending.
+  await page.evaluate(() => {
+    const card = document.querySelector("frigate-vision-card");
+    card.remove();
+    document.body.append(card);
+  });
+  await desc.filter({hasText: "Fresh review"}).waitFor();
+  await page.evaluate(async () => { window.releaseOld(); await window.firstLoad; });
+  assert.equal(await desc.textContent(), "Fresh review");
+});
+
 test("timeline wheel zoom still works and pending clip links are resolved after events arrive", async (t) => {
   const page = await openRuntimePage(t);
   const result = await page.evaluate(async () => {

@@ -2130,6 +2130,7 @@ class FrigateVisionCard extends LitElement {
     this._onOutsideClick = (e) => this._handleOutsideClick(e);
     document.addEventListener("pointerdown", this._onOutsideClick, true);
     this._setupAutoRefresh();
+    if (this.hass && !this._hasFetchedOnce) this.requestUpdate();
   }
 
   _handleOutsideClick(e) {
@@ -2197,6 +2198,11 @@ class FrigateVisionCard extends LitElement {
   disconnectedCallback() {
     super.disconnectedCallback();
     this._profileLifecycleGeneration++;
+    if (this._loading) {
+      ++this._fetchToken;
+      this._loading = false;
+      this._hasFetchedOnce = false;
+    }
     if (this._resizeObserver) {
       this._resizeObserver.disconnect();
       this._resizeObserver = null;
@@ -2697,7 +2703,7 @@ class FrigateVisionCard extends LitElement {
   }
 
   updated(changed) {
-    if (changed.has("hass") && this.hass && !this._hasFetchedOnce && !this._loading) {
+    if (this.isConnected && this.hass && this._config && !this._hasFetchedOnce && !this._loading) {
       this._hasFetchedOnce = true;
       const profilePromise = this._startProfileLifecycle();
       this._fetchAll();
@@ -2753,7 +2759,15 @@ class FrigateVisionCard extends LitElement {
         this._config = { ...this._config, frigate_client_id: clientId };
       }
       const [{ events, cameras }, frigateApiEvents] = await Promise.all([
-        this._fetchFrigateEvents(folder),
+        this._fetchFrigateEvents(folder).then(media => {
+          // On first load the list is useful as soon as the media source
+          // responds. On refresh retain the enriched rows until replacement.
+          if (token === this._fetchToken && !this._events.length && media.events.length) {
+            this._availableCameras = media.cameras;
+            this._events = media.events;
+          }
+          return media;
+        }),
         this._fetchFrigateApiEvents(clientId),
       ]);
       if (token !== this._fetchToken) return;
@@ -2761,7 +2775,7 @@ class FrigateVisionCard extends LitElement {
         (frigateApiEvents || []).map((e) => [e.id, e])
       );
       this._availableCameras = cameras;
-      this._events = this._enrichEvents(events);
+      this._events = this._enrichEvents([...events]);
       this._checkHashForClip();
     } catch (e) {
       if (token === this._fetchToken) this._error = e.message || String(e);
