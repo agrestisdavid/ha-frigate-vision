@@ -102,9 +102,11 @@ than hard-coding a second version inside the test.
    package metadata.
 2. Run all local checks and scan for credentials, private hosts, event IDs, and
    personal configuration.
-3. Merge to `main`.
-4. Create a matching GitHub release and tag such as `v0.3.4`.
-5. Verify the Pages deployment.
+3. Open a pull request. Merge to `main` after review and successful validation.
+4. Verify the merge commit and its CI results. Tag that exact commit as `vX.Y.Z`
+   and publish the matching GitHub release with upgrade instructions; never move
+   a tag to fix a release.
+5. Verify the published tag, release status, and Pages deployment.
 6. Install the release through HACS in a clean Home Assistant test path.
 7. Complete the config flow with newly entered provider credentials.
 8. Confirm the Card loads without a manual Lovelace resource.
@@ -122,6 +124,17 @@ stable-only; never describe manual checks as already completed.
 
 Never publish a release from manually copied Home Assistant files. Subsequent
 fixes should use a new GitHub tag and HACS version.
+
+## Version 0.3.11
+
+- Release the opt-in [alarm-based notification intervals](blueprint.md#alarm-based-notification-intervals)
+  from PR #27. Fixed cooldowns remain the default. To opt in, re-import the
+  Blueprint and configure a dedicated restoring date-and-time helper.
+- Separate provider request encoding from transport; the JSON payload and byte
+  limit are unchanged. Share exception-chain traversal for Frigate authentication
+  without changing which failures are retried.
+- Add regression tests for request bytes, size boundaries, nested HTTP/network
+  errors and cyclic exceptions. Update the HACS installation and contributor guides.
 
 ## Version 0.3.10
 

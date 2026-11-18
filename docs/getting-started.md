@@ -24,7 +24,9 @@ Assistant instance:
 2. add `agrestisdavid/ha-frigate-vision` as a custom repository;
 3. select the **Integration** category.
 
-Download release `0.3.4`, then restart Home Assistant.
+Download the latest **stable** release shown in HACS, then restart Home
+Assistant. See the [release notes](https://github.com/agrestisdavid/ha-frigate-vision/releases/latest)
+for any separate Blueprint re-import instructions.
 
 Do not add a separate Lovelace resource for the bundled Card.
 
