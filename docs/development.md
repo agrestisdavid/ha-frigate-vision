@@ -17,8 +17,8 @@ Run:
 
 ```powershell
 .\.venv\Scripts\python.exe -m compileall custom_components
-.\.venv\Scripts\python.exe -m ruff check custom_components tests
-.\.venv\Scripts\python.exe -m ruff format --check custom_components tests
+.\.venv\Scripts\python.exe -m ruff check custom_components scripts tests
+.\.venv\Scripts\python.exe -m ruff format --check custom_components scripts tests
 .\.venv\Scripts\python.exe -m unittest discover -s tests -p "test_*.py" -v
 npm ci
 npx playwright install chromium
@@ -46,6 +46,38 @@ dependencies so this coverage also runs in the isolated Python CI job.
 Pull requests run Python, JavaScript, HACS, hassfest, and strict documentation
 validation. Actions are referenced by immutable commit SHA. Dependabot watches
 GitHub Actions, Python dependencies and npm build dependencies.
+
+### Optional: test against real Home Assistant Core
+
+After changing setup, services or Card registration, and before a release, start
+a **local Linux Docker engine** (Docker Desktop on Windows) and run from the checkout:
+
+```sh
+python scripts/test_ha_container.py
+```
+
+The first run pulls the official Home Assistant **2026.11.2** image from GHCR;
+its digest is pinned in the script. Subsequent runs can use the cache offline.
+No Compose project, HA credentials or host port is needed. The runner refuses
+remote Docker endpoints. Each run gets a new container with networking disabled,
+a disposable `/config` in RAM and read-only mounts for the integration and test
+fixtures. HA's real mDNS resolver is bound to loopback because there is no
+multicast route; the synthetic Frigate and model endpoints also live on loopback.
+
+The test uses HA's config flow, fetches the registered versioned Card over
+HTTP and compares the served bytes to the bundled file. It then calls
+`frigate_vision.analyze_event` on a generated image; the model fixture checks
+the actual JPEG and prompt before replying. Unloading the last entry must remove
+all three services. After setting up that entry again, the same checks must
+pass without duplicate registrations. This tests **one Core version**, not
+HACS installation, real Frigate, model quality, hardware or browser rendering.
+Use the Chromium suite separately for the Card UI.
+
+Success, test failure, interruption or the run deadline (120 seconds by default;
+`--timeout SECONDS` to adjust) cleans up this run's container and configuration.
+The image stays cached. The runner does not start or stop Docker Desktop or
+other containers. The fast unit/browser suites and PR checks do not require this
+container run.
 
 ## Bundled browser and brand assets
 
@@ -100,8 +132,8 @@ than hard-coding a second version inside the test.
 
 1. Update the version in the integration manifest, Python constant, Card, and
    package metadata.
-2. Run all local checks and scan for credentials, private hosts, event IDs, and
-   personal configuration.
+2. Run all local checks, including the disposable HA container test above, and
+   scan for credentials, private hosts, event IDs, and personal configuration.
 3. Open a pull request. Merge to `main` after review and successful validation.
 4. Verify the merge commit and its CI results. Tag that exact commit as `vX.Y.Z`
    and publish the matching GitHub release with upgrade instructions; never move

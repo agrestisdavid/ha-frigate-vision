@@ -70,7 +70,7 @@ for (const [label, config, expected] of [
 }
 
 test("the default 30 s window is inclusive and lets a slightly later event through", async () => {
-  for (const [gap, expected] of [[30, ["second"]], [30.5, ["second", "first"]]]) {
+  for (const [gap, expected] of [[30, ["second"]], [30.001, ["second", "first"]]]) {
     const {card} = fixture({}, [gate], new Map([[gate.media_content_id, [clip("first", 0), clip("second", gap)]]]));
     const {events} = await card._fetchFrigateEvents(root);
     assert.deepEqual(events.map(e => e._eventId), expected, `gap of ${gap} seconds`);

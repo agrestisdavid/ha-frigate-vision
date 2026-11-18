@@ -1,0 +1,15 @@
+# Disposable config only. No discovery, default_config, or real integrations.
+homeassistant:
+  name: Frigate Vision smoke test
+  latitude: 0
+  longitude: 0
+  elevation: 0
+  time_zone: UTC
+  unit_system: metric
+  country: US
+http:
+  server_host: 127.0.0.1
+  server_port: 8123
+frontend:
+logger:
+  default: warning

@@ -1,109 +1,60 @@
-"""Contract tests for the bundled frontend module."""
+"""Contract and registration tests for the bundled frontend module."""
 
 from __future__ import annotations
 
-import asyncio
-import contextlib
-import importlib.util
 import json
 import sys
-import types
 import unittest
-from collections.abc import Iterator
+from importlib import import_module
 from pathlib import Path
-from typing import Any
+from types import ModuleType, SimpleNamespace
+from typing import NamedTuple
+from unittest.mock import AsyncMock, Mock, patch
 
 ROOT = Path(__file__).resolve().parents[1]
 COMPONENT = ROOT / "custom_components" / "frigate_vision"
 FRONTEND = COMPONENT / "frontend"
-TEST_PACKAGE = "frigate_vision_frontend_contract_test"
 
 
-class StaticPathConfig:
-    """Mirror the homeassistant.components.http.StaticPathConfig fields used here."""
-
-    def __init__(
-        self, url_path: str, local_path: str, cache_headers: bool = False
-    ) -> None:
-        self.url_path = url_path
-        self.local_path = local_path
-        self.cache_headers = cache_headers
+class StaticPath(NamedTuple):
+    url_path: str
+    path: str
+    cache_headers: bool = False
 
 
-class FakeHTTP:
-    """Record the static paths the integration asks Home Assistant to serve."""
-
-    def __init__(self) -> None:
-        self.static_paths: list[StaticPathConfig] = []
-
-    async def async_register_static_paths(self, configs: list[Any]) -> None:
-        self.static_paths.extend(configs)
-
-
-class FakeHass:
-    """Minimal Home Assistant double for frontend registration."""
-
-    def __init__(self, domain: str) -> None:
-        self.data: dict[str, Any] = {domain: {}}
-        self.http = FakeHTTP()
-
-
-@contextlib.contextmanager
-def isolated_frontend() -> Iterator[tuple[types.ModuleType, list[str]]]:
-    """Yield the frontend module and the URLs add_extra_js_url was called with.
-
-    Home Assistant is not installed for these tests, so its modules are stubbed
-    for the load and removed again on exit. The add_extra_js_url double records
-    every call instead of deduplicating like the real helper, so a missing
-    registration guard stays visible.
-    """
-    extra_js_urls: list[str] = []
-    saved: dict[str, types.ModuleType | None] = {}
-
-    def record_extra_js_url(_hass: Any, module_url: str) -> None:
-        extra_js_urls.append(module_url)
-
-    def stub(name: str, **attributes: Any) -> types.ModuleType:
-        module = types.ModuleType(name)
-        module.__dict__.update(attributes)
-        saved.setdefault(name, sys.modules.get(name))
-        sys.modules[name] = module
-        return module
-
-    try:
-        package = stub(TEST_PACKAGE)
+class FrontendRegistrationTests(unittest.IsolatedAsyncioTestCase):
+    async def test_versioned_module_is_registered_once(self) -> None:
+        package = ModuleType("_fv_frontend_test")
         package.__path__ = [str(COMPONENT)]
+        add_url = Mock()  # Record every call, unlike HA's deduplicating URL set.
+        stubs = {
+            package.__name__: package,
+            "homeassistant.components.frontend": SimpleNamespace(
+                add_extra_js_url=add_url
+            ),
+            "homeassistant.components.http": SimpleNamespace(
+                StaticPathConfig=StaticPath
+            ),
+            "homeassistant.core": SimpleNamespace(HomeAssistant=object),
+        }
+        # Include transitive imports under the temporary name in the rollback.
+        with patch.dict(sys.modules, stubs):
+            frontend = import_module(f"{package.__name__}.frontend")
 
-        homeassistant = stub("homeassistant")
-        homeassistant.__path__ = []
-        components = stub("homeassistant.components")
-        components.__path__ = []
-        components.frontend = stub(
-            "homeassistant.components.frontend",
-            add_extra_js_url=record_extra_js_url,
+        register_paths = AsyncMock()
+        hass = SimpleNamespace(
+            data={"frigate_vision": {}},
+            http=SimpleNamespace(async_register_static_paths=register_paths),
         )
-        components.http = stub(
-            "homeassistant.components.http", StaticPathConfig=StaticPathConfig
-        )
-        stub("homeassistant.core", HomeAssistant=object)
+        await frontend.async_register_frontend(hass)
+        await frontend.async_register_frontend(hass)
 
-        spec = importlib.util.spec_from_file_location(
-            f"{TEST_PACKAGE}.frontend",
-            FRONTEND / "__init__.py",
-            submodule_search_locations=[str(FRONTEND)],
+        base = "/frigate_vision/frontend"
+        version = json.loads((COMPONENT / "manifest.json").read_bytes())["version"]
+        register_paths.assert_awaited_once_with([StaticPath(base, str(FRONTEND), True)])
+        add_url.assert_called_once_with(
+            hass, f"{base}/frigate-vision-card.js?v={version}"
         )
-        module = importlib.util.module_from_spec(spec)
-        sys.modules[spec.name] = module
-        spec.loader.exec_module(module)
-        yield module, extra_js_urls
-    finally:
-        for name in [key for key in sys.modules if key.startswith(TEST_PACKAGE)]:
-            del sys.modules[name]
-        for name, original in saved.items():
-            if original is None:
-                sys.modules.pop(name, None)
-            else:
-                sys.modules[name] = original
 
 
 class FrontendContractTests(unittest.TestCase):
@@ -113,27 +64,6 @@ class FrontendContractTests(unittest.TestCase):
         source = card.read_text(encoding="utf-8")
         self.assertIn('customElements.get("frigate-vision-card")', source)
         self.assertNotIn("/api/llmvision", source.lower())
-
-    def test_async_register_frontend_registers_the_card_once(self) -> None:
-        modules_before = set(sys.modules)
-        with isolated_frontend() as (frontend, extra_js_urls):
-            hass = FakeHass(frontend.DOMAIN)
-            asyncio.run(frontend.async_register_frontend(hass))
-            asyncio.run(frontend.async_register_frontend(hass))
-        self.assertEqual(set(sys.modules) - modules_before, set())
-
-        manifest = json.loads((COMPONENT / "manifest.json").read_text(encoding="utf-8"))
-        self.assertTrue(hass.data[frontend.DOMAIN][frontend.ATTR_FRONTEND_REGISTERED])
-        self.assertEqual(len(hass.http.static_paths), 1)
-        static_path = hass.http.static_paths[0]
-        self.assertEqual(static_path.url_path, frontend.FRONTEND_URL_BASE)
-        self.assertEqual(Path(static_path.local_path), FRONTEND)
-        self.assertTrue(static_path.cache_headers)
-        expected_url = (
-            f"{frontend.FRONTEND_URL_BASE}/{frontend.FRONTEND_MODULE}"
-            f"?v={manifest['version']}"
-        )
-        self.assertEqual(extra_js_urls, [expected_url])
 
     def test_manifest_declares_frontend_dependency_and_shared_version(self) -> None:
         manifest = json.loads((COMPONENT / "manifest.json").read_text(encoding="utf-8"))
