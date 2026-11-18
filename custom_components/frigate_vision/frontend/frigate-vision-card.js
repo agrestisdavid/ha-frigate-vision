@@ -696,6 +696,37 @@ function selectClipsRoot(children, requestedId) {
   return matches[0];
 }
 
+// event-search/clips/<name>/<after>/<before>/<camera>/<label>/<zone>.
+// Empty camera slots identify date/label/zone filters, not camera folders.
+function cameraForClipFolder(folder, searchPrefix, instancePrefix, knownCameras) {
+  const id = folder.media_content_id;
+  if (typeof id !== "string" || folder.can_expand === false) return null;
+  if (id.startsWith(searchPrefix)) {
+    const [, after, before, camera, label, zone] = id.slice(searchPrefix.length).split("/");
+    return camera && !after && !before && !label && !zone ? camera.toLowerCase() : null;
+  }
+  if (id.startsWith("media-source://") && !id.startsWith(instancePrefix)) return null;
+  if (/\/(?:event-search|event|recordings?)\//.test(id)) return null;
+
+  // Older media browsers can supply opaque folder IDs. Only use the title
+  // for those folders, never to override a structured Frigate identifier.
+  const title = (folder.title || "").toLowerCase().replace(/\s*\(\d+\)$/, "").trim();
+  if (!title || NON_CAMERA_FOLDERS.has(title)) return null;
+  const name = title.replace(/\s+/g, "_");
+  return !knownCameras.length || knownCameras.some(cam => cam.includes(name) || name.includes(cam)) ? name : null;
+}
+
+const NON_CAMERA_FOLDERS = new Set([
+  "today", "yesterday", "last 24 hours", "last 7 days", "last 30 days", "all",
+  "person", "people", "car", "dog", "cat", "bicycle", "motorcycle", "package", "bird",
+]);
+
+function normalizeDedupeWindow(value) {
+  const seconds = typeof value === "number" || (typeof value === "string" && value.trim())
+    ? Number(value) : NaN;
+  return Number.isFinite(seconds) && seconds >= 0 ? seconds : 30;
+}
+
 function parseFrigateEventId(mediaContentId) {
   if (!mediaContentId) return null;
   const m = mediaContentId.match(EVENT_ID_RE);
@@ -2242,6 +2273,7 @@ class FrigateVisionCard extends LitElement {
         ? config.frigate_vision_entry_id.trim()
         : null;
     const previousClientId = this._config?.frigate_client_id;
+    const previousDedupeWindow = this._config?.dedupe_window_seconds;
     const previousProfileEntryId =
       this._config?.frigate_vision_entry_id || null;
     const profileEntryChanged =
@@ -2334,6 +2366,7 @@ class FrigateVisionCard extends LitElement {
       live_camera: config.live_camera
         ? String(config.live_camera).trim().toLowerCase()
         : null,
+      dedupe_window_seconds: normalizeDedupeWindow(config.dedupe_window_seconds),
       auto_refresh_seconds: Math.max(0, Number(config.auto_refresh_seconds) || 0),
       show_live_button: config.show_live_button !== false,
       live_autostart: config.live_autostart !== false,
@@ -2367,6 +2400,9 @@ class FrigateVisionCard extends LitElement {
       this._frigateApiById = new Map();
       if (this._activeClip) this._disposeActiveClip();
       this._startProfileLifecycle({ restartLive: true });
+      this._fetchAll();
+    } else if (this.isConnected && this.hass?.callWS && this._hasFetchedOnce &&
+               previousDedupeWindow !== this._config.dedupe_window_seconds) {
       this._fetchAll();
     }
   }
@@ -2742,63 +2778,43 @@ class FrigateVisionCard extends LitElement {
       type: "media_source/browse_media",
       media_content_id: clipsRoot.media_content_id,
     });
-    let cameraFolders = content.children || [];
+    const searchPrefix = clipsRoot.media_content_id.replace(/\/+$/, "") + "/";
+    const instancePrefix = searchPrefix.slice(0, -"event-search/clips/".length);
+    const eventPrefix = `${instancePrefix}event/clips/`;
+    const knownCameras = Object.keys(this.hass?.states || {})
+      .filter(key => key.startsWith("camera."))
+      .map(key => key.slice("camera.".length));
+    const matchesCamera = name => name && (targetCams === "all" || targetCams.includes(name));
+    const discovered = new Set();
+    const all = [];
+    const addClip = (c, camName) => {
+      const embedded = this._embeddedFrigateEvent(c);
+      c._camera = embedded?.camera || camName;
+      c._eventId = embedded?.id || parseFrigateEventId(c.media_content_id);
+      const meta = parseClipMeta(c.title, c._eventId);
+      c._ts = embedded?.startTime ? new Date(embedded.startTime * 1000) : meta.ts;
+      c._label = embedded?.label || meta.label;
+      c._hasClip = embedded?.hasClip ?? null;
+      if (embedded) c._frigate = embedded;
+      all.push(c);
+    };
 
-    const knownCameras = new Set(
-      Object.keys(this.hass?.states || {})
-        .filter((k) => k.startsWith("camera."))
-        .map((k) => k.substring("camera.".length))
-    );
-
-    const NON_CAMERA = new Set([
-      "today", "yesterday", "last 24 hours", "last 7 days", "last 30 days",
-      "all", "person", "people", "car", "dog", "cat", "bicycle", "motorcycle",
-      "package", "bird",
-    ]);
-
-    cameraFolders = cameraFolders.filter((f) => {
-      const name = (f.title || "").toLowerCase().replace(/\s*\(\d+\)$/, "");
-      if (!name) return false;
-      if (NON_CAMERA.has(name)) return false;
-      if (targetCams !== "all" && !targetCams.includes(name)) return false;
-      if (knownCameras.size > 0) {
-        for (const cam of knownCameras) {
-          if (cam === name || cam.includes(name) || name.includes(cam)) {
-            return true;
-          }
+    for (const item of content.children || []) {
+      // A small library may return playable clips directly, with no drilldown.
+      if (item.media_content_id?.startsWith(eventPrefix) && !item.can_expand) {
+        const [camera, eventId] = item.media_content_id.slice(eventPrefix.length).split("/");
+        if (eventId && matchesCamera(camera.toLowerCase())) {
+          discovered.add(camera.toLowerCase());
+          addClip(item, camera);
         }
-        return false;
+        continue;
       }
-      return true;
-    });
-
-    const discovered = cameraFolders
-      .map((f) => (f.title || "").toLowerCase().replace(/\s*\(\d+\)$/, ""))
-      .filter(Boolean);
-    const cameras = Array.from(new Set(discovered)).sort();
-
-    let all = [];
-    for (const folder of cameraFolders) {
-      const camName = (folder.title || "").toLowerCase().replace(/\s*\(\d+\)$/, "");
-      if (targetCams !== "all" && !targetCams.includes(camName)) continue;
-
-      const perCamLimit = Math.max(this._totalCap * 3, 24);
+      const camera = cameraForClipFolder(item, searchPrefix, instancePrefix, knownCameras);
+      if (!matchesCamera(camera)) continue;
+      discovered.add(camera);
       const clips = [];
-      await this._walkCamera(folder, clips, perCamLimit);
-      clips.forEach((c) => {
-        const embedded = this._embeddedFrigateEvent(c);
-        c._camera = embedded?.camera || camName;
-        c._eventId =
-          embedded?.id || parseFrigateEventId(c.media_content_id);
-        const meta = parseClipMeta(c.title, c._eventId);
-        c._ts = embedded?.startTime
-          ? new Date(embedded.startTime * 1000)
-          : meta.ts;
-        c._label = embedded?.label || meta.label;
-        c._hasClip = embedded?.hasClip ?? null;
-        if (embedded) c._frigate = embedded;
-      });
-      all = all.concat(clips);
+      await this._walkCamera(item, clips, Math.max(this._totalCap * 3, 24));
+      for (const clip of clips) addClip(clip, camera);
     }
 
     all.sort((a, b) => {
@@ -2808,8 +2824,7 @@ class FrigateVisionCard extends LitElement {
       return (b.title || "").localeCompare(a.title || "");
     });
 
-    const dedupeWindow =
-      Number(this._config?.dedupe_window_seconds ?? 30) * 1000;
+    const dedupeWindow = this._config.dedupe_window_seconds * 1000;
     const seenIds = new Set();
     const seenBuckets = new Map();
     const deduped = [];
@@ -2825,7 +2840,7 @@ class FrigateVisionCard extends LitElement {
           continue;
         }
         seenBuckets.set(bucketKey, tsMs);
-      } else {
+      } else if (!id || dedupeWindow > 0) {
         const fk = `${bucketKey}|${ev.title}`;
         if (seenBuckets.has(fk)) continue;
         seenBuckets.set(fk, 0);
@@ -2835,7 +2850,7 @@ class FrigateVisionCard extends LitElement {
       deduped.push(ev);
     }
 
-    return { events: deduped.slice(0, this._totalCap), cameras };
+    return { events: deduped.slice(0, this._totalCap), cameras: [...discovered].sort() };
   }
 
   async _walkCamera(folder, collection, limit) {
@@ -2907,14 +2922,19 @@ class FrigateVisionCard extends LitElement {
       const items = this._parseFrigateWsArray(rawEvents);
       const reviews = this._parseFrigateWsArray(rawReviews);
       const eventToReview = new Map();
+      const text = value => typeof value === "string" ? value.trim() : "";
       for (const r of reviews) {
-        const rData =
-          typeof r?.data === "string" ? JSON.parse(r.data || "{}") : r?.data || {};
+        let rData = r?.data;
+        if (typeof rData === "string") {
+          try { rData = JSON.parse(rData); } catch { continue; }
+        }
+        const detections = rData?.detections || rData?.events;
+        if (!Array.isArray(detections)) continue;
         const meta = rData?.metadata || {};
         const reviewMeta = {
-          title: (meta.title || "").trim(),
-          summary: (meta.shortSummary || meta.short_summary || "").trim(),
-          scene: (meta.scene || "").trim(),
+          title: text(meta.title),
+          summary: text(meta.shortSummary) || text(meta.short_summary),
+          scene: text(meta.scene),
           severity: r?.severity || "",
           threatLevel:
             typeof meta.potential_threat_level === "number"
@@ -2927,14 +2947,13 @@ class FrigateVisionCard extends LitElement {
           !reviewMeta.scene
         )
           continue;
-        const detections = rData?.detections || rData?.events || [];
         for (const eid of detections) {
-          if (!eventToReview.has(eid)) eventToReview.set(eid, reviewMeta);
+          if (typeof eid === "string" && !eventToReview.has(eid)) eventToReview.set(eid, reviewMeta);
         }
       }
 
-      const mapped = items.map((e) => {
-        const eventDesc = (e?.data?.description || "").trim();
+      const mapped = items.filter(e => typeof e?.id === "string" && e.id).map((e) => {
+        const eventDesc = text(e.data?.description);
         const review = eventToReview.get(e.id) || null;
         return {
           id: e.id || "",
@@ -7544,10 +7563,11 @@ class FrigateVisionCardEditor extends LitElement {
     const cfg = this._config;
     return html`
       <ha-textfield
-        label="Dedupe Window (Sekunden)"
+        label="Dedupe Window (Sekunden, 0 = aus)"
         type="number"
-        .value=${String(cfg.dedupe_window_seconds ?? 30)}
-        @change=${(e) => this._set("dedupe_window_seconds", Number(e.target.value))}
+        min="0"
+        .value=${String(normalizeDedupeWindow(cfg.dedupe_window_seconds))}
+        @change=${(e) => this._set("dedupe_window_seconds", normalizeDedupeWindow(e.target.value))}
       ></ha-textfield>
       <ha-textfield
         label="Auto-Refresh (Sekunden, 0 = aus)"
