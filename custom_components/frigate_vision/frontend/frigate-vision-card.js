@@ -681,6 +681,21 @@ function frigateProxyWsPath(config, cameraName, legacy = false) {
 /* ───────── Frigate event helpers ───────── */
 
 const EVENT_ID_RE = /(\d{10}\.\d+-[a-z0-9]+)/i;
+// Frigate publishes one event-search/clips root per enabled media source.
+// Display titles are configurable and need not be unique across instances.
+function selectClipsRoot(children, requestedId) {
+  const candidates = [];
+  for (const folder of children || []) {
+    const match = /^media-source:\/\/frigate\/(?:(?<id>[^/]+)\/)?event-search\/clips\/*$/.exec(folder.media_content_id);
+    if (match) candidates.push({ id: match.groups.id, folder });
+  }
+  const matches = requestedId ? candidates.filter(({ id }) => id === requestedId) : candidates;
+  if (matches.length !== 1) {
+    throw new Error("Frigate-Clips nicht eindeutig zugeordnet. Medienbrowser, frigate_vision_entry_id und frigate_client_id prüfen.");
+  }
+  return matches[0];
+}
+
 function parseFrigateEventId(mediaContentId) {
   if (!mediaContentId) return null;
   const m = mediaContentId.match(EVENT_ID_RE);
@@ -1657,7 +1672,7 @@ class LivestreamController {
     const url = this._mp4StreamPath(name);
     this._checkMixedContent(url);
     return new Promise((resolve, reject) => {
-      this._setState({ provider: "mp4", mp4Url: url });
+      this._setState({ provider: "mp4" });
       let done = false;
       let el = null;
       let unregisterCancel = () => {};
@@ -1839,7 +1854,6 @@ class LivestreamController {
         failures.push(`${mode}: ${msg}`);
         if (mode === "webrtc") this._cleanupWebRTC();
         if (mode === "mse") { this._cleanupMSE(); this._cleanupGo2rtcWs(); }
-        if (mode === "mp4") this._cleanupMP4();
       }
     }
 
@@ -1913,7 +1927,6 @@ class LivestreamController {
     this._cleanupMSE();
     this._cleanupGo2rtcWs();
     this._cleanupMJPEG();
-    this._cleanupMP4();
     const v = this._videoEl();
     if (v) {
       try { v.pause(); } catch {}
@@ -1922,7 +1935,6 @@ class LivestreamController {
       try { v.load(); } catch {}
     }
   }
-  _cleanupMP4() { this._setState({ mp4Url: null }); }
   _cleanupWebRTC() {
     if (this._peerConnection) {
       try { this._peerConnection.close(); } catch {}
@@ -1977,7 +1989,6 @@ class FrigateVisionCard extends LitElement {
       _lightbox: { state: true },
       _totalCap: { state: true },
       _availableCameras: { state: true },
-      _thumbCache: { state: true },
       _activeLabels: { state: true },
       _dateFilter: { state: true },
       _activeCameras: { state: true },
@@ -1993,7 +2004,6 @@ class FrigateVisionCard extends LitElement {
       _liveLoading: { state: true },
       _isHD: { state: true },
       _mjpegSignedUrl: { state: true },
-      _mp4SignedUrl: { state: true },
       _timelineCamera: { state: true },
       _timelineLoading: { state: true },
       _timelineError: { state: true },
@@ -2001,8 +2011,7 @@ class FrigateVisionCard extends LitElement {
       _timelineHourStart: { state: true },
       _timelineZoomLevel: { state: true },
       _timelineZoomCenter: { state: true },
-      _timelineCurrentSegment: { state: true },
-      _timelineManifestPath: { state: true },
+
       _timelineSelected: { state: true },
       _timelineSelectedDay: { state: true },
     };
@@ -2028,7 +2037,6 @@ class FrigateVisionCard extends LitElement {
     this._lightbox = null;
     this._totalCap = null;
     this._availableCameras = [];
-    this._thumbCache = {};
     this._activeLabels = null;
     this._dateFilter = "all";
     this._activeCameras = null;
@@ -2045,7 +2053,6 @@ class FrigateVisionCard extends LitElement {
     this._centralProfilePromise = null;
     this._profileLifecycleGeneration = 0;
     this._profileLifecyclePromise = null;
-    this._preferMp4Cams = new Set();
     this._liveMode = false;
     this._liveCamera = null;
     this._liveError = null;
@@ -2053,7 +2060,6 @@ class FrigateVisionCard extends LitElement {
     this._liveLoading = false;
     this._isHD = false;
     this._mjpegSignedUrl = null;
-    this._mp4SignedUrl = null;
     this._lc = null;
     this._timelineCamera = null;
     this._timelineLoading = false;
@@ -2066,8 +2072,6 @@ class FrigateVisionCard extends LitElement {
     this._timelinePendingSeekSec = null;
     this._timelineZoomLevel = 1;
     this._timelineZoomCenter = 0;
-    this._timelineCurrentSegment = null;
-    this._timelineManifestPath = null;
     this._timelineSelected = false;
     this._timelineSelectedDay = null;  // ms at 00:00 of chosen day; null = rolling window
   }
@@ -2171,12 +2175,6 @@ class FrigateVisionCard extends LitElement {
       this._hls = null;
     }
     this._cleanupLivestream();
-    for (const url of Object.values(this._thumbCache || {})) {
-      if (typeof url === "string" && url.startsWith("blob:")) {
-        try { URL.revokeObjectURL(url); } catch {}
-      }
-    }
-    this._thumbCache = {};
     if (this._onHashChange) {
       window.removeEventListener("hashchange", this._onHashChange);
       this._onHashChange = null;
@@ -2205,19 +2203,11 @@ class FrigateVisionCard extends LitElement {
 
   _checkHashForClip() {
     const wantedId = this._parseClipHash();
-    if (!wantedId) {
-      this._pendingClipId = null;
-      return;
-    }
+    if (!wantedId) return;
     if (this._activeClip && this._activeClip._eventId === wantedId) return;
     const events = this._events || [];
     const match = events.find((ev) => ev._eventId === wantedId);
-    if (match) {
-      this._pendingClipId = null;
-      this._openClip(match);
-    } else {
-      this._pendingClipId = wantedId;
-    }
+    if (match) this._openClip(match);
   }
 
   _isSplitLayout() {
@@ -2251,6 +2241,7 @@ class FrigateVisionCard extends LitElement {
       config.frigate_vision_entry_id.trim()
         ? config.frigate_vision_entry_id.trim()
         : null;
+    const previousClientId = this._config?.frigate_client_id;
     const previousProfileEntryId =
       this._config?.frigate_vision_entry_id || null;
     const profileEntryChanged =
@@ -2370,8 +2361,13 @@ class FrigateVisionCard extends LitElement {
     }
     this._totalCap = this._config.initial_events;
     if (this.isConnected) this._setupAutoRefresh();
-    if (profileEntryChanged && this.isConnected && this.hass?.callWS) {
+    if ((profileEntryChanged || (previousClientId && previousClientId !== this._config.frigate_client_id)) && this.isConnected && this.hass?.callWS) {
+      this._events = [];
+      this._availableCameras = [];
+      this._frigateApiById = new Map();
+      if (this._activeClip) this._disposeActiveClip();
       this._startProfileLifecycle({ restartLive: true });
+      this._fetchAll();
     }
   }
 
@@ -2667,8 +2663,8 @@ class FrigateVisionCard extends LitElement {
   updated(changed) {
     if (changed.has("hass") && this.hass && !this._hasFetchedOnce && !this._loading) {
       this._hasFetchedOnce = true;
-      this._fetchAll();
       const profilePromise = this._startProfileLifecycle();
+      this._fetchAll();
       profilePromise.finally(() => {
         if (
           this._profileLifecyclePromise === profilePromise &&
@@ -2706,15 +2702,30 @@ class FrigateVisionCard extends LitElement {
     this._loading = true;
     this._error = null;
     try {
-      const [frigateEvents, frigateApiEvents] = await Promise.all([
-        this._fetchFrigateEvents(),
-        this._fetchFrigateApiEvents(),
+      await this._profileLifecyclePromise;
+      if (token !== this._fetchToken) return;
+      const requestedId = this._go2rtcOverrides?.clientId || this._centralProfile?.frigate_client_id
+        ? this._config.frigate_client_id : null;
+      if (this._config.frigate_vision_entry_id && !requestedId) {
+        throw new Error("Die gewählte Frigate-Vision-Instanz konnte nicht zugeordnet werden.");
+      }
+      const root = await this.hass.callWS({ type: "media_source/browse_media", media_content_id: "media-source://frigate" });
+      if (token !== this._fetchToken) return;
+      const { folder, id } = selectClipsRoot(root.children, requestedId);
+      const clientId = id || "frigate";
+      if (this._config.frigate_client_id !== clientId) {
+        this._config = { ...this._config, frigate_client_id: clientId };
+      }
+      const [{ events, cameras }, frigateApiEvents] = await Promise.all([
+        this._fetchFrigateEvents(folder),
+        this._fetchFrigateApiEvents(clientId),
       ]);
       if (token !== this._fetchToken) return;
       this._frigateApiById = new Map(
         (frigateApiEvents || []).map((e) => [e.id, e])
       );
-      this._events = this._enrichEvents(frigateEvents);
+      this._availableCameras = cameras;
+      this._events = this._enrichEvents(events);
       this._checkHashForClip();
     } catch (e) {
       if (token === this._fetchToken) this._error = e.message || String(e);
@@ -2723,41 +2734,15 @@ class FrigateVisionCard extends LitElement {
     }
   }
 
-  async _fetchFrigateEvents() {
+  async _fetchFrigateEvents(clipsRoot) {
     const ws = (args) => this.hass.callWS(args);
     const targetCams = this._getTargetCameras();
 
-    const root = await ws({
+    const content = await ws({
       type: "media_source/browse_media",
-      media_content_id: "media-source://frigate",
+      media_content_id: clipsRoot.media_content_id,
     });
-    if (!root.children?.length) throw new Error("Frigate Media Source leer.");
-    const instance = root.children[0];
-    const instanceRoot = await ws({
-      type: "media_source/browse_media",
-      media_content_id: instance.media_content_id,
-    });
-
-    const children = instanceRoot.children || [];
-    const findBy = (kw) =>
-      children.find((c) => (c.title || "").toLowerCase().includes(kw));
-    let eventsFolder =
-      findBy("clip") ||
-      findBy("recording") ||
-      findBy("review") ||
-      children.find((c) => {
-        const t = (c.title || "").toLowerCase();
-        return t.includes("event") && !t.includes("search");
-      });
-
-    let cameraFolders = eventsFolder ? [] : children;
-    if (eventsFolder) {
-      const content = await ws({
-        type: "media_source/browse_media",
-        media_content_id: eventsFolder.media_content_id,
-      });
-      cameraFolders = content.children || [];
-    }
+    let cameraFolders = content.children || [];
 
     const knownCameras = new Set(
       Object.keys(this.hass?.states || {})
@@ -2790,7 +2775,7 @@ class FrigateVisionCard extends LitElement {
     const discovered = cameraFolders
       .map((f) => (f.title || "").toLowerCase().replace(/\s*\(\d+\)$/, ""))
       .filter(Boolean);
-    this._availableCameras = Array.from(new Set(discovered)).sort();
+    const cameras = Array.from(new Set(discovered)).sort();
 
     let all = [];
     for (const folder of cameraFolders) {
@@ -2850,7 +2835,7 @@ class FrigateVisionCard extends LitElement {
       deduped.push(ev);
     }
 
-    return deduped.slice(0, this._totalCap);
+    return { events: deduped.slice(0, this._totalCap), cameras };
   }
 
   async _walkCamera(folder, collection, limit) {
@@ -2890,13 +2875,13 @@ class FrigateVisionCard extends LitElement {
     }
   }
 
-  async _fetchFrigateApiEvents() {
+  async _fetchFrigateApiEvents(clientId) {
     if (!this.hass) return [];
     try {
       const after = Math.floor((Date.now() - 7 * 24 * 3600 * 1000) / 1000);
       const msg = {
         type: "frigate/events/get",
-        instance_id: this._config?.frigate_client_id || "frigate",
+        instance_id: clientId,
         limit: 200,
         has_clip: true,
         after,
@@ -3778,7 +3763,6 @@ class FrigateVisionCard extends LitElement {
     if ("provider" in patch) this._liveProvider = patch.provider ?? null;
     if ("error" in patch) this._liveError = patch.error ?? null;
     if ("mjpegUrl" in patch) this._mjpegSignedUrl = patch.mjpegUrl ?? null;
-    if ("mp4Url" in patch) this._mp4SignedUrl = patch.mp4Url ?? null;
   }
 
   _isExternal() { return !isLocalNetwork(); }
@@ -3820,7 +3804,6 @@ class FrigateVisionCard extends LitElement {
     this._liveLoading = false;
     this._liveProvider = null;
     this._mjpegSignedUrl = null;
-    this._mp4SignedUrl = null;
     this._isHD = false;
   }
 
@@ -3958,11 +3941,6 @@ class FrigateVisionCard extends LitElement {
     if (nextIdx === idx) return;
     if (anchorMs != null) this._timelineZoomCenter = anchorMs;
     this._timelineZoomLevel = levels[nextIdx];
-  }
-
-  _resetTimelineZoom() {
-    this._timelineZoomLevel = 1;
-    this._timelineZoomCenter = this._timelineRangeEnd;
   }
 
   _onTimelineWheel(e) {
@@ -4304,8 +4282,7 @@ class FrigateVisionCard extends LitElement {
       this._timelineLoading = false;
       return;
     }
-    this._timelineManifestPath = manifestPath;
-    this._timelineCurrentSegment = null;
+
 
     videoEl.removeEventListener("timeupdate", this._onTimelineTick);
     this._onTimelineTick = () => {
@@ -4411,11 +4388,6 @@ class FrigateVisionCard extends LitElement {
           this._timelineHls = null;
           this._timelineError = `${this._t.timeline_failed}: ${data.details}`;
           this._timelineLoading = false;
-        });
-        this._timelineHls.on(Hls.Events.FRAG_CHANGED, (_e, data) => {
-          const u = data?.frag?.url;
-          if (!u) return;
-          this._timelineCurrentSegment = u.split("?")[0].split("/").pop();
         });
         return;
       }
@@ -4539,8 +4511,6 @@ class FrigateVisionCard extends LitElement {
     this._timelineSeekHandler = null;
     this._timelineSeekEvents = null;
     this._timelinePlayerTime = 0;
-    this._timelineCurrentSegment = null;
-    this._timelineManifestPath = null;
   }
 
   _getTargetCameras() {
@@ -7811,7 +7781,6 @@ class FrigateVisionLiveTile extends LitElement {
       _error: { state: true },
       _isHD: { state: true },
       _mjpegSignedUrl: { state: true },
-      _mp4SignedUrl: { state: true },
     };
   }
 
@@ -7822,7 +7791,6 @@ class FrigateVisionLiveTile extends LitElement {
     this._error = null;
     this._isHD = false;
     this._mjpegSignedUrl = null;
-    this._mp4SignedUrl = null;
     this._lc = null;
     this._started = false;
     this._startToken = 0;
@@ -8098,7 +8066,6 @@ class FrigateVisionLiveTile extends LitElement {
     if ("provider" in patch) this._provider = patch.provider ?? null;
     if ("error" in patch) this._error = patch.error ?? null;
     if ("mjpegUrl" in patch) this._mjpegSignedUrl = patch.mjpegUrl ?? null;
-    if ("mp4Url" in patch) this._mp4SignedUrl = patch.mp4Url ?? null;
   }
 
   _start() {

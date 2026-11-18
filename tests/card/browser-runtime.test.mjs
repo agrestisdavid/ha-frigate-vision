@@ -123,6 +123,30 @@ async function openRuntimePage(t) {
   return page;
 }
 
+test("timeline wheel zoom still works and pending clip links are resolved after events arrive", async (t) => {
+  const page = await openRuntimePage(t);
+  const result = await page.evaluate(async () => {
+    const card = document.createElement("frigate-vision-card");
+    card.setConfig({ view_mode: "timeline", cameras: {}, live_autostart: false });
+    document.body.append(card);
+    card._timelineRangeStart = 1000;
+    card._timelineRangeEnd = 3601000;
+    await card.updateComplete;
+    const track = card.renderRoot.querySelector(".timeline-track");
+    track.dispatchEvent(new WheelEvent("wheel", { deltaY: -1, cancelable: true }));
+    const range = card._timelineVisibleRange();
+    const opened = [];
+    card._openClip = ev => opened.push(ev._eventId);
+    history.replaceState(null, "", "#frigate_vision_clip=synthetic-clip");
+    card._checkHashForClip();
+    card._events = [{ _eventId: "synthetic-clip" }];
+    card._checkHashForClip();
+    card.remove();
+    return { span: range.end - range.start, opened };
+  });
+  assert.deepEqual(result, { span: 1800000, opened: ["synthetic-clip"] });
+});
+
 test("Ultra-Wide editor switch persists across unrelated edits, save/reload and disable", async (t) => {
   const page = await openRuntimePage(t);
   const result = await page.evaluate(async () => {
