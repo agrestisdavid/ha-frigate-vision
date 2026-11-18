@@ -19,6 +19,42 @@ The Card responds only to its own deep link:
 #frigate_vision_clip=example-event-id
 ```
 
+## Visual editor
+
+Under **Kameras → Kamera aus Frigate hinzufügen**, select a Home Assistant camera
+by its display name. The editor saves the Frigate camera ID, not the HA entity
+ID, so renamed entities work too. The choices come from the camera entities
+visible to the current HA user; the picker does not request snapshots, clips,
+stream URLs or the Frigate configuration. It uses the Card's explicit Frigate
+client ID or its central profile. If several instances are visible and no
+profile selects one, choose an instance first. **Kamera-ID manuell eingeben**
+remains available when a camera has no HA entity. Leaving the list empty keeps
+the default of all cameras for the selected instance. The Card's camera list
+is a display setting, not a change to Frigate permissions.
+
+Adding a camera also looks up its go2rtc stream **aliases**. The integration
+uses that camera's `live.streams` mapping from the Frigate configuration already
+loaded in HA. It returns only aliases present in the same instance's
+`go2rtc.streams`, never the stream source URLs. With no live mapping, it can
+offer an existing alias exactly matching the camera ID. It does not scan other
+cameras or start a stream.
+
+For example, `live.streams: {HD: gate_a, SD: gate_b}` suggests `gate_a` for
+**Main-Stream (HD)** and `gate_b` for **Sub-Stream (SD)**. Only one unambiguous
+alias per role can prefill an empty field on a newly added camera. With arbitrary
+labels or conflicting hints, choose the aliases yourself. On a saved camera,
+opening the editor changes nothing: use **Vorschläge für leere Felder übernehmen**
+or select either stream individually. Manual names remain editable even if the
+lookup is unavailable. Main and Sub are editing suggestions, not measurements
+of resolution or changes to Frigate.
+
+Under **Filter & Sprache**, **Ereignisfilter anzeigen** shows or hides the
+camera, object and date filters in the event list. The language selector is
+independent. Under **Erweitert**, **Gruppierungszeitraum** defaults to 30 seconds
+(`0` disables time grouping); **Aktualisierungsintervall** defaults to `0`
+(no automatic refresh). A positive interval refreshes the list only while its
+tab is visible.
+
 ## Event metadata
 
 The Card uses exact Frigate event IDs. It directly consumes embedded Media
@@ -30,7 +66,23 @@ Source metadata when available:
 - camera and label;
 - start and end timestamps.
 
-There is no fuzzy time matcher and no local event database.
+The event list uses the Card's own background. Individual rows, rather than
+the whole list panel, have a subtle theme-relative tint.
+
+On first load the Card shows clips as soon as the selected media source
+responds. Optional event and review details can fill in later. Refreshing a
+populated list keeps the previous rows visible. An unreadable review is
+skipped without discarding descriptions from unrelated events.
+
+Use the Frigate camera ID (for example `front_gate`) in `cameras`, not the
+folder's display title (`Front Gate`). A library that lists clips directly
+does not need a separate camera folder.
+
+`dedupe_window_seconds` controls **display grouping**, not which events are
+analyzed or stored. The default is 30 seconds for events with the same camera
+and label. Set it to `0` to show distinct event IDs even when they occur close
+together. Repeated entries with the same exact ID are still shown only once.
+There is no fuzzy time matcher for metadata and no local event database.
 
 Description priority is:
 

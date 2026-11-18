@@ -1,4 +1,4 @@
-"""Behavior tests for the non-secret Card runtime profile."""
+"""Behavior tests for the Card's read-only WebSocket commands."""
 
 from __future__ import annotations
 
@@ -11,6 +11,7 @@ import unittest
 from pathlib import Path
 from types import SimpleNamespace
 from unittest.mock import AsyncMock, Mock, patch
+from unittest.mock import call as ws_call
 
 ROOT = Path(__file__).resolve().parents[1]
 COMPONENT = ROOT / "custom_components" / "frigate_vision"
@@ -73,6 +74,7 @@ def load_integration():
         websocket_command=lambda _schema: lambda func: func,
     )
     components.websocket_api = websocket_api
+    _module("homeassistant.auth.permissions.const", POLICY_READ="read")
     _module("homeassistant.config_entries", ConfigEntry=object)
 
     class SupportsResponse:
@@ -83,6 +85,7 @@ def load_integration():
         HomeAssistant=object,
         ServiceCall=object,
         SupportsResponse=SupportsResponse,
+        callback=lambda f: f,
     )
 
     class ConfigEntryNotReady(Exception):
@@ -238,7 +241,14 @@ class ProfileTests(unittest.TestCase):
                 self.assertEqual(len(handlers), 3)
                 await handlers[integration.SERVICE_ANALYZE_EVENT](call)
                 self.assertIs(analyze.await_args.args[0], runtimes[2])
-                ws.assert_called_once_with(hass, integration.ws_profile)
+                await integration.async_setup(hass, {})
+                self.assertEqual(
+                    ws.call_args_list,
+                    [
+                        ws_call(hass, integration.ws_profile),
+                        ws_call(hass, integration.ws_camera_streams),
+                    ],
+                )
 
         asyncio.run(exercise())
 
@@ -450,6 +460,140 @@ class ProfileTests(unittest.TestCase):
         self.assertIsNone(connection.result)
         self.assertEqual(connection.error[0:2], (10, "not_found"))
         self.assertIn("Mehrere", connection.error[2])
+
+
+class CameraStreamTests(unittest.TestCase):
+    @classmethod
+    def setUpClass(cls):
+        with patch.dict(sys.modules):
+            cls.module = load_integration().camera_streams
+
+    @staticmethod
+    def config(streams, *aliases):
+        return {
+            "mqtt": {"client_id": "demo"},
+            "cameras": {"front": {"live": {"streams": streams}}, "other": {}},
+            "go2rtc": {
+                "streams": {k: ["rtsp://redacted-source.invalid/path"] for k in aliases}
+            },
+        }
+
+    def test_returns_only_linked_aliases_and_unique_role_hints(self):
+        source = "rtsp://secret.invalid/raw"
+        config = self.config(
+            {
+                "HD": "first",
+                "SD": "front_sub",
+                source: "extra",
+                "invalid": source,
+                "gone": "missing",
+            },
+            "first",
+            "front_sub",
+            "extra",
+            "other_private",
+            source,
+        )
+        self.assertEqual(
+            self.module.camera_stream_options(config, "front"),
+            {
+                "streams": ["first", "front_sub", "extra"],
+                "main": "first",
+                "sub": "front_sub",
+            },
+        )
+
+    def test_ambiguity_duplicate_aliases_and_contradictions_are_not_guessed(self):
+        for mapping, main, sub in [
+            ({"One": "stream1", "Two": "stream2"}, None, None),
+            ({"HD": "a", "Main": "b", "Small": "front_sub"}, None, "front_sub"),
+            ({"Main": "front_sub"}, None, None),
+            ({"Main": "a", "HD": "a"}, "a", None),
+            ({"HD": "a", "SD": "a"}, None, None),
+            ({"Aliased": "front_main"}, "front_main", None),
+        ]:
+            with self.subTest(mapping=mapping):
+                result = self.module.camera_stream_options(
+                    self.config(mapping, *mapping.values()), "front"
+                )
+                self.assertEqual(
+                    result,
+                    {
+                        "streams": list(dict.fromkeys(mapping.values())),
+                        "main": main,
+                        "sub": sub,
+                    },
+                )
+
+    def test_exact_camera_alias_fallback_only_and_malformed_data(self):
+        config = self.config({}, "front", "front_sub", "elsewhere")
+        self.assertEqual(
+            self.module.camera_stream_options(config, "front"),
+            {"streams": ["front"], "main": None, "sub": None},
+        )
+        for broken in [
+            {},
+            {"cameras": [], "go2rtc": True},
+            self.config({"Main": []}, "front"),
+            self.config({"Main": "no-such-key"}, "front"),
+        ]:
+            self.assertEqual(
+                self.module.camera_stream_options(broken, "front"),
+                {"streams": [], "main": None, "sub": None},
+            )
+
+    def test_ws_uses_registry_owner_and_read_permission_not_entity_slug(self):
+        config = self.config({"Main": "chosen"}, "chosen")
+        hass = SimpleNamespace(
+            data={
+                "frigate": {
+                    "A": {"config": config},
+                    "B": {
+                        "config": self.config({"HD": "other_private"}, "other_private")
+                    },
+                }
+            }
+        )
+        entity = SimpleNamespace(
+            platform="frigate",
+            config_entry_id="A",
+            unique_id="A:camera:front",
+            disabled_by=None,
+        )
+        msg = {"id": 9, "entity_id": "camera.renamed_front", "instance_id": "demo"}
+        with patch.object(self.module.er, "async_get") as registry:
+            registry.return_value.async_get.return_value = entity
+            connection = Mock()
+            connection.user.permissions.check_entity.return_value = False
+            self.module.ws_camera_streams(hass, connection, msg)
+            registry.assert_not_called()
+            connection.user.permissions.check_entity.assert_called_once_with(
+                msg["entity_id"], "read"
+            )
+            not_found = connection.send_error.call_args
+            self.assertEqual(not_found.args[1], "not_found")
+            connection.send_result.assert_not_called()
+            connection.user.permissions.check_entity.return_value = True
+            self.module.ws_camera_streams(hass, connection, msg)
+            connection.send_result.assert_called_once_with(
+                9, {"streams": ["chosen"], "main": "chosen", "sub": None}
+            )
+            for entity_patch, msg_patch in [
+                ({"platform": "other"}, {}),
+                ({"disabled_by": "user"}, {}),
+                ({"unique_id": "B:camera:front"}, {}),
+                ({"unique_id": "A:camera:missing"}, {}),
+                ({}, {"instance_id": "wrong"}),
+                ({}, {"entity_id": "sensor.other"}),
+            ]:
+                with self.subTest(entity_patch=entity_patch, msg_patch=msg_patch):
+                    registry.return_value.async_get.return_value = SimpleNamespace(
+                        **(vars(entity) | entity_patch)
+                    )
+                    connection.reset_mock()
+                    self.module.ws_camera_streams(hass, connection, msg | msg_patch)
+                    self.assertEqual(connection.send_error.call_args, not_found)
+                    connection.send_result.assert_not_called()
 
 
 if __name__ == "__main__":

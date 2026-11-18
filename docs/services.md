@@ -77,6 +77,9 @@ Frames are reduced to at most 1080 pixels high without upscaling; width follows
 the recording aspect ratio. Fifteen frames are the tested stable maximum for
 this release. The video provider request has its own configurable timeout,
 180 seconds by default, after the separate recording-readiness window.
+If the Base64 size of the collected frames already exceeds the 25 MB request
+limit, frame collection stops before calling the provider. The final serialized
+request is still checked because the JSON and prompt also take up space.
 
 Identical concurrent calls share frame acquisition and one provider request.
 An existing still-image description does not suppress video analysis. If the
