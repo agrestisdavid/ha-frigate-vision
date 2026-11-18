@@ -10,6 +10,7 @@ import types
 import unittest
 from pathlib import Path
 from types import SimpleNamespace
+from unittest.mock import AsyncMock, Mock, patch
 
 ROOT = Path(__file__).resolve().parents[1]
 COMPONENT = ROOT / "custom_components" / "frigate_vision"
@@ -184,6 +185,62 @@ class ProfileTests(unittest.TestCase):
                 }
             }
         )
+
+    def test_services_survive_partial_unload_and_register_again_after_reload(self):
+        async def exercise():
+            integration = self.integration
+            handlers = {}
+
+            def register(domain, name, handler, **kwargs):
+                self.assertEqual(domain, integration.DOMAIN)
+                self.assertNotIn(name, handlers)
+                handlers[name] = handler
+
+            hass = SimpleNamespace(
+                data={},
+                services=SimpleNamespace(
+                    async_register=register,
+                    async_remove=lambda domain, name: handlers.pop(name),
+                ),
+            )
+            first, second = Mock(entry_id="first"), Mock(entry_id="second")
+            runtimes = [object(), object(), object()]
+            analyze = AsyncMock(return_value={"response_text": "ok"})
+            with (
+                patch.object(integration, "async_register_frontend", AsyncMock()),
+                patch.object(
+                    integration, "build_runtime", AsyncMock(side_effect=runtimes)
+                ),
+                patch.object(integration, "analyze_event", analyze),
+                patch.object(integration.websocket_api, "async_register_command") as ws,
+            ):
+                await integration.async_setup(hass, {})
+                await integration.async_setup_entry(hass, first)
+                await integration.async_setup_entry(hass, second)
+                self.assertEqual(len(handlers), 3)
+                await integration.async_unload_entry(hass, first)
+                call = SimpleNamespace(
+                    data={
+                        "event_id": "test",
+                        "prompt": "describe",
+                        "store": False,
+                        "force": False,
+                    }
+                )
+                self.assertEqual(
+                    await handlers[integration.SERVICE_ANALYZE_EVENT](call),
+                    {"response_text": "ok"},
+                )
+                self.assertIs(analyze.await_args.args[0], runtimes[1])
+                await integration.async_unload_entry(hass, second)
+                self.assertEqual(handlers, {})
+                await integration.async_setup_entry(hass, first)
+                self.assertEqual(len(handlers), 3)
+                await handlers[integration.SERVICE_ANALYZE_EVENT](call)
+                self.assertIs(analyze.await_args.args[0], runtimes[2])
+                ws.assert_called_once_with(hass, integration.ws_profile)
+
+        asyncio.run(exercise())
 
     def test_returns_exact_client_id_without_implicit_direct_url(self):
         runtime = self.runtime(

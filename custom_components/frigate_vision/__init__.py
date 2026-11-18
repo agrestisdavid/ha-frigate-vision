@@ -2,7 +2,6 @@
 
 from __future__ import annotations
 
-import logging
 from collections.abc import Mapping
 from typing import Any
 
@@ -44,8 +43,6 @@ from .const import (
 )
 from .frontend import async_register_frontend
 from .utils import sanitize_go2rtc_modes, validate_go2rtc_url
-
-_LOGGER = logging.getLogger(__name__)
 
 CONFIG_SCHEMA = cv.config_entry_only_config_schema(DOMAIN)
 
@@ -121,9 +118,9 @@ IMAGE_SCHEMA = vol.All(
 )
 
 
-async def async_setup(hass: HomeAssistant, config: dict[str, Any]) -> bool:
-    """Initialize domain-level storage."""
-    hass.data.setdefault(
+def _domain_data(hass: HomeAssistant) -> dict[str, Any]:
+    """Return the shared registry and registration flags across config entries."""
+    return hass.data.setdefault(
         DOMAIN,
         {
             ATTR_RUNTIME_ENTRIES: {},
@@ -132,21 +129,18 @@ async def async_setup(hass: HomeAssistant, config: dict[str, Any]) -> bool:
             ATTR_FRONTEND_REGISTERED: False,
         },
     )
+
+
+async def async_setup(hass: HomeAssistant, config: dict[str, Any]) -> bool:
+    """Initialize domain-level storage."""
+    _domain_data(hass)
     await async_register_frontend(hass)
     return True
 
 
 async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
     """Set up one Frigate Vision config entry."""
-    domain_data = hass.data.setdefault(
-        DOMAIN,
-        {
-            ATTR_RUNTIME_ENTRIES: {},
-            ATTR_SERVICES_REGISTERED: False,
-            ATTR_WS_REGISTERED: False,
-            ATTR_FRONTEND_REGISTERED: False,
-        },
-    )
+    domain_data = _domain_data(hass)
     try:
         runtime = await build_runtime(hass, entry)
     except FrigateVisionError as err:

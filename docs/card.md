@@ -145,4 +145,10 @@ frigate_vision_entry_id: example-frigate-vision-entry
 ```
 
 Use the Frigate Vision config-entry ID, not the Frigate client ID, camera
-entity ID, or event ID.
+entity ID, or event ID. The Card waits for this profile before loading events.
+It matches the media browser's Clips folder by Frigate client ID, not by its
+position or display title. Event and review metadata use that same instance.
+If no profile or explicit `frigate_client_id` identifies an instance, the Card
+can use a single available Clips root; it reports an error rather than picking
+one of several. If the selected root is missing, check that the Frigate media
+browser is enabled for that instance.

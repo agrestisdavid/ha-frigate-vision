@@ -1,6 +1,6 @@
 {
   "name": "ha-frigate-vision",
-  "version": "0.3.11",
+  "version": "0.3.12",
   "private": true,
   "type": "module",
   "scripts": {
@@ -18,7 +18,7 @@
     "hls.js": "1.7.3",
     "lit": "3.3.3",
     "playwright": "1.62.1",
-    "sharp": "0.35.4"
+    "sharp": "0.35.5"
   },
   "engines": {
     "node": ">=20.9.0"
