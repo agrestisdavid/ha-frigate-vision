@@ -8,6 +8,7 @@ import json
 import logging
 import math
 import mimetypes
+from collections.abc import Iterator
 from dataclasses import dataclass, field
 from io import BytesIO
 from pathlib import Path
@@ -305,18 +306,8 @@ class OpenAICompatibleProvider:
             "image_url": {"url": f"data:image/jpeg;base64,{encoded}"},
         }
 
-    async def _analyze_content(
-        self,
-        content: list[dict[str, Any]],
-        *,
-        max_request_bytes: int | None = None,
-        timeout_seconds: int | None = None,
-    ) -> str:
-        """Send one bounded multimodal Chat Completions request."""
-        request_timeout = self._timeout if timeout_seconds is None else timeout_seconds
-        headers = {"Content-Type": "application/json"}
-        if self._api_key:
-            headers["Authorization"] = f"Bearer {self._api_key}"
+    def _serialize_request(self, content: list[dict[str, Any]]) -> bytes:
+        """Encode the Chat Completions payload counted against the byte limit."""
         request = {
             "model": self._model,
             "messages": [
@@ -329,11 +320,23 @@ class OpenAICompatibleProvider:
         }
         if self._reasoning_effort == REASONING_EFFORT_NONE:
             request["reasoning_effort"] = REASONING_EFFORT_NONE
-        request_body = json.dumps(
-            request,
-            ensure_ascii=False,
-            separators=(",", ":"),
-        ).encode("utf-8")
+        return json.dumps(request, ensure_ascii=False, separators=(",", ":")).encode(
+            "utf-8"
+        )
+
+    async def _analyze_content(
+        self,
+        content: list[dict[str, Any]],
+        *,
+        max_request_bytes: int | None = None,
+        timeout_seconds: int | None = None,
+    ) -> str:
+        """Send one bounded multimodal Chat Completions request."""
+        request_timeout = self._timeout if timeout_seconds is None else timeout_seconds
+        headers = {"Content-Type": "application/json"}
+        if self._api_key:
+            headers["Authorization"] = f"Bearer {self._api_key}"
+        request_body = self._serialize_request(content)
         if max_request_bytes is not None and len(request_body) > max_request_bytes:
             raise SourceError(
                 "Der serialisierte Provider-Payload der Videosequenz "
@@ -387,6 +390,16 @@ class OpenAICompatibleProvider:
         return text
 
 
+def _exception_chain(err: BaseException) -> Iterator[BaseException]:
+    """Follow the explicit cause or implicit context, stopping on cycles."""
+    current: BaseException | None = err
+    visited: set[int] = set()
+    while current is not None and id(current) not in visited:
+        visited.add(id(current))
+        yield current
+        current = current.__cause__ or current.__context__
+
+
 class FrigateAdapter:
     """Adapter around the selected Frigate integration runtime."""
 
@@ -425,30 +438,19 @@ class FrigateAdapter:
     @staticmethod
     def _nested_status(err: BaseException) -> int | None:
         """Find an HTTP status preserved by a wrapping client exception."""
-        current: BaseException | None = err
-        visited: set[int] = set()
-        while current is not None and id(current) not in visited:
-            visited.add(id(current))
+        for current in _exception_chain(err):
             status = getattr(current, "status", None)
             if isinstance(status, int):
                 return status
-            current = current.__cause__ or current.__context__
         return None
 
     @staticmethod
     def _is_nested_network_error(err: BaseException) -> bool:
         """Return whether an exception chain contains a retryable network error."""
-        current: BaseException | None = err
-        visited: set[int] = set()
-        while current is not None and id(current) not in visited:
-            visited.add(id(current))
-            if isinstance(
-                current,
-                (asyncio.TimeoutError, TimeoutError, ClientError),
-            ):
-                return True
-            current = current.__cause__ or current.__context__
-        return False
+        return any(
+            isinstance(current, (TimeoutError, ClientError))
+            for current in _exception_chain(err)
+        )
 
     @staticmethod
     def _http_error(
