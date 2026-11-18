@@ -30,7 +30,20 @@ Source metadata when available:
 - camera and label;
 - start and end timestamps.
 
-There is no fuzzy time matcher and no local event database.
+On first load the Card shows clips as soon as the selected media source
+responds. Optional event and review details can fill in later. Refreshing a
+populated list keeps the previous rows visible. An unreadable review is
+skipped without discarding descriptions from unrelated events.
+
+Use the Frigate camera ID (for example `front_gate`) in `cameras`, not the
+folder's display title (`Front Gate`). A library that lists clips directly
+does not need a separate camera folder.
+
+`dedupe_window_seconds` controls **display grouping**, not which events are
+analyzed or stored. The default is 30 seconds for events with the same camera
+and label. Set it to `0` to show distinct event IDs even when they occur close
+together. Repeated entries with the same exact ID are still shown only once.
+There is no fuzzy time matcher for metadata and no local event database.
 
 Description priority is:
 
