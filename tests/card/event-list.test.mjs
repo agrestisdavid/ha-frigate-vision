@@ -9,10 +9,10 @@ const root = { media_content_id: search + "/////" };
 const directory = (id, title) => ({ media_content_id: id, title, can_expand: true });
 const gate = directory(search + ".front_gate///front_gate//", "Front Gate (3)");
 
-function clip(id, seconds, camera = "front_gate") {
+function clip(id, seconds, camera = "front_gate", label = "person") {
   return {
     media_content_id: `${instance}event/clips/${camera}/${id}`, can_expand: false,
-    title: "Same display title", frigate: { event: { id, camera, label: "person", start_time: 1720000000 + seconds } },
+    title: "Same display title", frigate: { event: { id, camera, label, start_time: 1720000000 + seconds } },
   };
 }
 
@@ -68,6 +68,24 @@ for (const [label, config, expected] of [
     assert.deepEqual(events.map(e => e._eventId), expected);
   });
 }
+
+test("the default 30 s window is inclusive and lets a slightly later event through", async () => {
+  for (const [gap, expected] of [[30, ["second"]], [30.5, ["second", "first"]]]) {
+    const {card} = fixture({}, [gate], new Map([[gate.media_content_id, [clip("first", 0), clip("second", gap)]]]));
+    const {events} = await card._fetchFrigateEvents(root);
+    assert.deepEqual(events.map(e => e._eventId), expected, `gap of ${gap} seconds`);
+  }
+});
+
+test("events inside the window are grouped per camera and label, never across them", async () => {
+  const {card} = fixture({cameras: {front_gate: {}, back_door: {}}}, [
+    clip("first", 0), clip("second", 10),
+    clip("car", 20, "front_gate", "car"), clip("other-camera", 15, "back_door"),
+  ]);
+  const {events, cameras} = await card._fetchFrigateEvents(root);
+  assert.deepEqual(events.map(e => e._eventId), ["car", "other-camera", "second"]);
+  assert.deepEqual(cameras, ["back_door", "front_gate"]);
+});
 
 test("editing the dedupe window reloads an existing card only when the value changes", () => {
   const {card} = fixture({}, []);
