@@ -5933,7 +5933,8 @@ class FrigateVisionCard extends LitElement {
         -webkit-overflow-scrolling: touch;
         border-top: 8px solid transparent;
         border-bottom: 8px solid transparent;
-        background: color-mix(in srgb, var(--text-primary) 4%, transparent);
+        /* Let the actual ha-card surface (including themed gradients) show through. */
+        background: transparent;
       }
       .list {
         display: flex;
@@ -5949,7 +5950,7 @@ class FrigateVisionCard extends LitElement {
         margin: 4px 8px;
         min-width: 0;
         border-radius: 10px;
-        background: var(--ha-card-background, var(--card-background-color, #fff));
+        background: color-mix(in srgb, var(--text-primary) 4%, transparent);
         cursor: default;
         transition: background-color 120ms, transform 120ms, box-shadow 120ms;
       }
@@ -6934,6 +6935,48 @@ const EDITOR_LABELS = [
   "face", "license_plate", "amazon", "dhl", "ups",
 ];
 
+function editorString(value) {
+  return typeof value === "string" ? value.trim() : "";
+}
+
+// Frigate exposes camera_name and client_id on its camera entities. Use the
+// states visible to this HA user, not entity-id guesses, recordings or an NVR API.
+function editorCameraGroups(hass) {
+  const groups = new Map();
+  for (const [entityId, state] of Object.entries(hass?.states || {})) {
+    if (!entityId.startsWith("camera.")) continue;
+    const platform = hass.entities?.[entityId]?.platform;
+    if (platform && platform !== "frigate") continue;
+    const { camera_name, client_id, friendly_name } = state?.attributes || {};
+    const clientId = editorString(client_id);
+    const id = editorString(camera_name).toLowerCase();
+    if (!id || !clientId) continue;
+    if (!groups.has(clientId)) groups.set(clientId, new Map());
+    const cameras = groups.get(clientId);
+    if (!cameras.has(id)) cameras.set(id, { name: editorString(friendly_name) || id, entityId });
+  }
+  return groups;
+}
+
+// Native, labelled controls also work when HA hasn't registered its internal
+// form elements (notably ha-textfield and ha-formfield on newer frontends).
+function editorInput(label, value, change, { type = "text", placeholder = "", min = "", max = "", step = "", hint = "", onInput } = {}) {
+  return html`<label class="field editor-input">
+    <span>${label}</span>
+    <input type=${type} .value=${String(value ?? "")} placeholder=${placeholder}
+      min=${min} max=${max} step=${step} aria-describedby=${hint}
+      @input=${onInput} @change=${(e) => change(e.target.value, e.target)} />
+  </label>`;
+}
+
+function editorSwitch(label, checked, change, hint = "") {
+  return html`<label class="editor-switch">
+    <input type="checkbox" role="switch" .checked=${checked} aria-describedby=${hint}
+      @change=${(e) => change(e.target.checked)} />
+    <span>${label}</span>
+  </label>`;
+}
+
 class FrigateVisionCardEditor extends LitElement {
   static get properties() {
     return {
@@ -6968,6 +7011,29 @@ class FrigateVisionCardEditor extends LitElement {
       sub: e.sub || "",
       ultraWide: e.ultra_wide === true,
     }));
+  }
+
+  _addCamera(id = "") {
+    const entries = [...this._cameraEntries];
+    if (id && entries.some((entry) => entry.id === id)) return;
+    let idx = entries.findIndex((entry) => !entry.id);
+    if (idx < 0) {
+      idx = entries.length;
+      entries.push({ id, displayName: "", main: "", sub: "", ultraWide: false });
+    } else if (id) {
+      entries[idx] = { ...entries[idx], id };
+    }
+    this._cameraEntries = entries;
+    this._expandedCam = idx;
+    // Only a deliberate addition may auto-fill; expanding a saved row must
+    // never write configuration. HA may echo setConfig after config-changed.
+    this._prefillEntity = this._cameraGroups?.get(this._editorClientId)?.get(id)?.entityId;
+    if (id) this._applyCameraEntries();
+  }
+
+  _updateCamera(idx, patch) {
+    this._cameraEntries = this._cameraEntries.map((entry, i) => i === idx ? { ...entry, ...patch } : entry);
+    if (this._cameraEntries[idx].id || "id" in patch) this._applyCameraEntries();
   }
 
   _applyCameraEntries() {
@@ -7018,6 +7084,108 @@ class FrigateVisionCardEditor extends LitElement {
     this._expandedSection = this._expandedSection === name ? null : name;
   }
 
+  willUpdate() {
+    this._syncCameraProfile();
+    this._cameraGroups = this._expandedSection === "cameras" ? editorCameraGroups(this.hass) : null;
+    this._editorClientId = editorString(this._config.frigate_client_id) || this._cameraProfile?.clientId;
+    if (!this._editorClientId && !this._cameraProfile?.pending && !editorString(this._config.frigate_vision_entry_id) && this._cameraGroups?.size === 1) {
+      this._editorClientId = this._cameraGroups.keys().next().value;
+    }
+    this._syncStreamLookup();
+  }
+
+  _syncCameraProfile() {
+    const hass = this.hass;
+    if (this._expandedSection !== "cameras" || editorString(this._config.frigate_client_id) || !hass?.callWS) {
+      this._cameraProfile = null;
+      return;
+    }
+    const connection = hass.connection || hass.callWS;
+    const entryId = editorString(this._config.frigate_vision_entry_id);
+    if (this._cameraProfile?.connection === connection && this._cameraProfile.entryId === entryId) return;
+    const lookup = { connection, entryId, pending: true, clientId: "" };
+    this._cameraProfile = lookup;
+    this._resolveCameraProfile(hass, lookup);
+  }
+
+  async _resolveCameraProfile(hass, lookup) {
+    try {
+      const message = { type: "frigate_vision/profile" };
+      if (lookup.entryId) message.entry_id = lookup.entryId;
+      const result = await hass.callWS(message);
+      lookup.clientId = editorString((result?.profile || result)?.frigate_client_id);
+    } catch {
+      // A standalone Card has no profile. Never substitute a different
+      // instance for an explicitly selected but unavailable profile.
+    } finally {
+      lookup.pending = false;
+      if (this._cameraProfile === lookup) this.requestUpdate();
+    }
+  }
+
+  _syncStreamLookup() {
+    const cameraId = this._cameraEntries[this._expandedCam]?.id;
+    const client = this._editorClientId;
+    const entity = this._cameraGroups?.get(client)?.get(cameraId)?.entityId;
+    const connection = this.hass?.connection || this.hass?.callWS;
+    const profile = editorString(this._config.frigate_vision_entry_id);
+    const previous = this._streamLookup;
+    if (!entity || !this.hass?.callWS) {
+      this._streamLookup = null;
+    } else if (!previous || previous.entity !== entity || previous.client !== client || previous.profile !== profile || previous.connection !== connection || previous.cameraId !== cameraId) {
+      const auto = this._prefillEntity === entity ? new Set(["main", "sub"]) : null;
+      const lookup = { entity, client, profile, connection, cameraId, auto, pending: true };
+      this._streamLookup = lookup;
+      this._fetchStreamOptions(lookup);
+    }
+    this._prefillEntity = null;
+  }
+
+  async _fetchStreamOptions(lookup) {
+    try {
+      const result = await this.hass.callWS({ type: "frigate_vision/camera_streams", entity_id: lookup.entity, instance_id: lookup.client });
+      if (Array.isArray(result?.streams)) lookup.options = result;
+    } catch {
+      // Older backend, unloaded entry or no read permission: keep manual input.
+    } finally {
+      lookup.pending = false;
+      if (this._streamLookup === lookup) this.requestUpdate();
+    }
+  }
+
+  updated() {
+    // willUpdate has revalidated the camera, instance and HA connection even
+    // if a config change raced the network reply in the same microtask.
+    const lookup = this._streamLookup;
+    if (this.isConnected && lookup?.auto && !lookup.pending) {
+      const fields = lookup.auto;
+      lookup.auto = null;
+      this._applyStreamSuggestions(fields);
+    }
+  }
+
+  disconnectedCallback() {
+    super.disconnectedCallback();
+    this._streamLookup = null;
+    this._prefillEntity = null;
+  }
+
+  _streamSuggestions(entry) {
+    const options = this._streamLookup?.options;
+    return Object.fromEntries(["main", "sub"].filter(role =>
+      !entry[role] && options?.streams.includes(options[role]) && typeof options[role] === "string"
+    ).map(role => [role, options[role]]));
+  }
+
+  _applyStreamSuggestions(fields) {
+    const idx = this._expandedCam;
+    const entry = this._cameraEntries[idx];
+    if (!entry || entry.id !== this._streamLookup?.cameraId) return;
+    const patch = this._streamSuggestions(entry);
+    for (const role of Object.keys(patch)) if (fields && !fields.has(role)) delete patch[role];
+    if (Object.keys(patch).length) this._updateCamera(idx, patch);
+  }
+
   get _lang() {
     return detectLang(this.hass, this._config?.language);
   }
@@ -7026,27 +7194,27 @@ class FrigateVisionCardEditor extends LitElement {
     if (!this._config) return html``;
     return html`
       <div class="editor">
-        ${this._renderSection("general", "Allgemein", "mdi:cog", this._renderGeneral())}
-        ${this._renderSection("cameras", "Kameras", "mdi:cctv", this._renderCameras())}
-        ${this._renderSection("display", "Anzeige", "mdi:monitor", this._renderDisplay())}
-        ${this._renderSection("filters", "Filter & Sprache", "mdi:filter", this._renderFilters())}
-        ${this._renderSection("labels", "Labels", "mdi:tag-multiple", this._renderLabels())}
-        ${this._renderSection("livestream", "Livestream", "mdi:cctv", this._renderLivestream())}
-        ${this._renderSection("advanced", "Erweitert", "mdi:tune", this._renderAdvanced())}
+        ${this._renderSection("general", "Allgemein", "mdi:cog", this._renderGeneral)}
+        ${this._renderSection("cameras", "Kameras", "mdi:cctv", this._renderCameras)}
+        ${this._renderSection("display", "Anzeige", "mdi:monitor", this._renderDisplay)}
+        ${this._renderSection("filters", "Filter & Sprache", "mdi:filter", this._renderFilters)}
+        ${this._renderSection("labels", "Labels", "mdi:tag-multiple", this._renderLabels)}
+        ${this._renderSection("livestream", "Livestream", "mdi:cctv", this._renderLivestream)}
+        ${this._renderSection("advanced", "Erweitert", "mdi:tune", this._renderAdvanced)}
       </div>
     `;
   }
 
-  _renderSection(id, title, icon, content) {
+  _renderSection(id, title, icon, renderBody) {
     const open = this._expandedSection === id;
     return html`
       <div class="section ${open ? "open" : ""}">
-        <div class="section-header" @click=${() => this._toggleSection(id)}>
+        <button type="button" class="section-header" aria-expanded=${String(open)} @click=${() => this._toggleSection(id)}>
           <ha-icon icon=${icon}></ha-icon>
           <span>${title}</span>
           <ha-icon class="chevron" icon=${open ? "mdi:chevron-up" : "mdi:chevron-down"}></ha-icon>
-        </div>
-        ${open ? html`<div class="section-body">${content}</div>` : ""}
+        </button>
+        ${open ? html`<div class="section-body">${renderBody.call(this)}</div>` : ""}
       </div>
     `;
   }
@@ -7054,19 +7222,8 @@ class FrigateVisionCardEditor extends LitElement {
   _renderGeneral() {
     const cfg = this._config;
     return html`
-      <ha-formfield label="Titel anzeigen">
-        <ha-switch
-          .checked=${cfg.show_title !== false}
-          @change=${(e) => this._set("show_title", e.target.checked)}
-        ></ha-switch>
-      </ha-formfield>
-
-      <ha-textfield
-        label="Titel"
-        .value=${cfg.title ?? "auto"}
-        .placeholder=${"auto"}
-        @change=${(e) => this._set("title", e.target.value || "auto")}
-      ></ha-textfield>
+      ${editorSwitch("Titel anzeigen", cfg.show_title !== false, (v) => this._set("show_title", v))}
+      ${editorInput("Titel", cfg.title ?? "auto", (v) => this._set("title", v || "auto"), { placeholder: "auto" })}
 
       <ha-icon-picker
         label="Titel Icon"
@@ -7075,122 +7232,104 @@ class FrigateVisionCardEditor extends LitElement {
       ></ha-icon-picker>
 
       <div class="row">
-        <ha-textfield
-          label="Initiale Events"
-          type="number"
-          .value=${String(cfg.initial_events ?? 10)}
-          @change=${(e) => this._set("initial_events", Number(e.target.value) || 10)}
-        ></ha-textfield>
-        <ha-textfield
-          label="Events pro Nachladen"
-          type="number"
-          .value=${String(cfg.events_per_load ?? 10)}
-          @change=${(e) => this._set("events_per_load", Number(e.target.value) || 10)}
-        ></ha-textfield>
+        ${editorInput("Initiale Events", cfg.initial_events ?? 10, (v) => this._set("initial_events", Number(v) || 10), { type: "number" })}
+        ${editorInput("Events pro Nachladen", cfg.events_per_load ?? 10, (v) => this._set("events_per_load", Number(v) || 10), { type: "number" })}
       </div>
+      ${editorInput("Frigate Vision Entry-ID (optional)", cfg.frigate_vision_entry_id, (v) => this._set("frigate_vision_entry_id", v.trim()), { placeholder: "Nur bei mehreren Frigate-Vision-Instanzen" })}
+      ${editorInput("Frigate Client-ID", cfg.frigate_client_id, (v) => this._set("frigate_client_id", v.trim()), { placeholder: "Automatisch" })}
+    `;
+  }
 
-      <ha-textfield
-        label="Frigate Vision Entry-ID (optional)"
-        .value=${cfg.frigate_vision_entry_id ?? ""}
-        .placeholder=${"Nur bei mehreren Frigate-Vision-Instanzen"}
-        @change=${(e) => this._set(
-          "frigate_vision_entry_id",
-          e.target.value?.trim() || undefined
-        )}
-      ></ha-textfield>
+  _renderCameraPicker() {
+    if (this._cameraProfile?.pending) return html`<p class="hint">Frigate-Instanz wird ermittelt …</p>`;
+    const groups = this._cameraGroups;
+    const client = this._editorClientId;
+    if (!client && editorString(this._config.frigate_vision_entry_id)) {
+      return html`<p class="hint">Das gewählte Frigate-Vision-Profil ist nicht verfügbar. Prüfe die Entry-ID unter „Allgemein“.</p>`;
+    }
+    if (!client && groups.size > 1) {
+      return html`<label class="field"><span>Frigate-Instanz auswählen</span>
+        <select @change=${(e) => this._set("frigate_client_id", e.target.value)}>
+          <option value="" disabled selected>Instanz auswählen …</option>
+          ${[...groups.keys()].sort().map((id) => html`<option value=${id}>${id}</option>`)}
+        </select></label>`;
+    }
+    const cameras = groups.get(client);
+    if (!cameras?.size) return html`<p class="hint">Keine Frigate-Kameras für diese Instanz in Home Assistant gefunden. Du kannst die Kamera-ID manuell eingeben.</p>`;
+    const selected = new Set(this._cameraEntries.map((entry) => entry.id));
+    return html`<label class="field"><span>Kamera aus Frigate hinzufügen</span>
+      <select @change=${(e) => { const id = e.target.value; e.target.value = ""; this._addCamera(id); }}>
+        <option value="" disabled selected>Kamera auswählen …</option>
+        ${[...cameras].sort((a, b) => a[1].name.localeCompare(b[1].name)).map(([id, { name }]) => html`
+          <option value=${id} ?disabled=${selected.has(id)}>${name === id ? id : `${name} (${id})`}</option>`)}
+      </select></label>`;
+  }
 
-      <ha-textfield
-        label="Frigate Client ID"
-        .value=${cfg.frigate_client_id ?? "frigate"}
-        .placeholder=${"frigate"}
-        @change=${(e) => this._set("frigate_client_id", e.target.value || "frigate")}
-      ></ha-textfield>
+  _renderCameraStreams(entry, idx) {
+    const lookup = this._streamLookup;
+    const streams = lookup?.options?.streams || [];
+    const useSelect = streams.length > 0 && !lookup.manual;
+    return html`
+      <div class="row">${[["main", "Main-Stream (HD)"], ["sub", "Sub-Stream (SD)"]].map(([role, label]) => {
+        const value = entry[role] || "";
+        const change = v => this._updateCamera(idx, { [role]: v.trim() });
+        if (!useSelect) return editorInput(label, value, change, { placeholder: "Streamname", onInput: () => {
+          // Don't replace a still-focused draft while a delayed lookup finishes.
+          if (lookup) { lookup.manual = true; lookup.auto?.delete(role); }
+        } });
+        const choices = value && !streams.includes(value) ? [value, ...streams] : streams;
+        return html`<label class="field"><span>${label}</span><select @change=${(e) => change(e.target.value)}>
+          <option value="" ?selected=${!value}>Nicht festgelegt</option>
+          ${choices.map(name => html`<option value=${name} ?selected=${value === name}>${name}</option>`)}
+        </select></label>`;
+      })}</div>
+      <p class="hint">Main wird für die HD-Ansicht verwendet, Sub für die Kachel. ${lookup?.pending ? "Streamnamen werden geladen …" : !lookup?.options ? "Keine Streamvorschläge verfügbar; Namen können manuell eingetragen werden." : !streams.length ? "Für diese Kamera sind keine passenden Streamnamen hinterlegt." : ""}</p>
+      ${streams.length ? html`<div class="stream-actions">
+        <button type="button" class="add-btn" @click=${() => { lookup.manual = !lookup.manual; this.requestUpdate(); }}>${useSelect ? "Namen manuell eingeben" : "Streamliste anzeigen"}</button>
+        ${Object.keys(this._streamSuggestions(entry)).length ? html`<button type="button" class="add-btn" @click=${() => this._applyStreamSuggestions()}>Vorschläge für leere Felder übernehmen</button>` : ""}
+      </div>` : ""}
     `;
   }
 
   _renderCameras() {
     const entries = this._cameraEntries;
     return html`
-      <p class="hint">Nur hier gelistete Kameras werden geladen. Leer lassen = alle Frigate-Kameras.</p>
+      ${this._renderCameraPicker()}
+      <p class="hint">Ohne Auswahl zeigt die Karte alle Kameras der gewählten Frigate-Instanz.</p>
 
       ${entries.map((entry, idx) => {
         const isOpen = this._expandedCam === idx;
         const label = entry.displayName || entry.id || `Kamera ${idx + 1}`;
         return html`
           <div class="cam-entry ${isOpen ? "open" : ""}">
-            <div class="cam-entry-header" @click=${() => { this._expandedCam = isOpen ? null : idx; }}>
-              <ha-icon icon="mdi:cctv" style="--mdc-icon-size:18px;"></ha-icon>
-              <span class="cam-entry-title">${label}</span>
-              <button class="stream-del" @click=${(e) => {
-                e.stopPropagation();
-                const newEntries = [...this._cameraEntries];
-                newEntries.splice(idx, 1);
-                this._cameraEntries = newEntries;
+            <div class="cam-entry-header">
+              <button type="button" class="cam-toggle" aria-expanded=${String(isOpen)} @click=${() => { this._expandedCam = isOpen ? null : idx; }}>
+                <ha-icon icon="mdi:cctv"></ha-icon><span class="cam-entry-title">${label}</span>
+                <ha-icon icon=${isOpen ? "mdi:chevron-up" : "mdi:chevron-down"}></ha-icon>
+              </button>
+              <button type="button" class="stream-del" aria-label=${`${label} entfernen`} @click=${() => {
+                this._cameraEntries = this._cameraEntries.filter((_, i) => i !== idx);
                 if (this._expandedCam === idx) this._expandedCam = null;
+                else if (this._expandedCam > idx) this._expandedCam--;
                 this._applyCameraEntries();
               }}><ha-icon icon="mdi:close"></ha-icon></button>
-              <ha-icon class="chevron" icon=${isOpen ? "mdi:chevron-up" : "mdi:chevron-down"} style="--mdc-icon-size:18px;"></ha-icon>
             </div>
             ${isOpen ? html`
               <div class="cam-entry-body">
-                <ha-textfield
-                  label="Frigate Kamera-ID"
-                  .value=${entry.id}
-                  placeholder="z.B. einfahrt"
-                  @change=${(e) => {
-                    const newEntries = [...this._cameraEntries];
-                    newEntries[idx] = { ...entry, id: e.target.value.trim() };
-                    this._cameraEntries = newEntries;
-                    this._applyCameraEntries();
-                  }}
-                ></ha-textfield>
-                <ha-textfield
-                  label="Anzeigename"
-                  .value=${entry.displayName}
-                  placeholder="z.B. Einfahrt"
-                  @change=${(e) => {
-                    const newEntries = [...this._cameraEntries];
-                    newEntries[idx] = { ...entry, displayName: e.target.value.trim() };
-                    this._cameraEntries = newEntries;
-                    this._applyCameraEntries();
-                  }}
-                ></ha-textfield>
-                <div class="row">
-                  <ha-textfield
-                    label="Main-Stream (HD)"
-                    .value=${entry.main || ""}
-                    placeholder="z.B. einfahrt_1"
-                    @change=${(e) => {
-                      const newEntries = [...this._cameraEntries];
-                      newEntries[idx] = { ...entry, main: e.target.value.trim() };
-                      this._cameraEntries = newEntries;
-                      this._applyCameraEntries();
-                    }}
-                  ></ha-textfield>
-                  <ha-textfield
-                    label="Sub-Stream (SD)"
-                    .value=${entry.sub || ""}
-                    placeholder="z.B. einfahrt_2"
-                    @change=${(e) => {
-                      const newEntries = [...this._cameraEntries];
-                      newEntries[idx] = { ...entry, sub: e.target.value.trim() };
-                      this._cameraEntries = newEntries;
-                      this._applyCameraEntries();
-                    }}
-                  ></ha-textfield>
-                </div>
-                <p class="hint">go2rtc-Stream-Namen. Main = Fullscreen-HD, Sub = Kachel-Livestream (niedriger Bandbreiten-Verbrauch).</p>
-                <ha-formfield label="Ultra-Wide (Multiview-Kachel über alle Spalten)">
-                  <ha-switch
-                    .checked=${entry.ultraWide === true}
-                    @change=${(e) => {
-                      const newEntries = [...this._cameraEntries];
-                      newEntries[idx] = { ...entry, ultraWide: e.target.checked };
-                      this._cameraEntries = newEntries;
-                      this._applyCameraEntries();
-                    }}
-                  ></ha-switch>
-                </ha-formfield>
+                ${editorInput("Frigate Kamera-ID", entry.id, (value, input) => {
+                  const id = value.trim().toLowerCase();
+                  if (id && entries.some((other, i) => i !== idx && other.id === id)) {
+                    input.value = entry.id;
+                    input.setCustomValidity("Diese Kamera ist bereits ausgewählt.");
+                    input.reportValidity();
+                    input.setCustomValidity("");
+                    return;
+                  }
+                  this._updateCamera(idx, { id });
+                }, { placeholder: "z.B. einfahrt" })}
+                ${editorInput("Anzeigename", entry.displayName, (value) => this._updateCamera(idx, { displayName: value.trim() }), { placeholder: "z.B. Einfahrt" })}
+                ${this._renderCameraStreams(entry, idx)}
+                ${editorSwitch("Ultra-Wide (Multiview-Kachel über alle Spalten)", entry.ultraWide === true, (checked) => this._updateCamera(idx, { ultraWide: checked }))}
                 <p class="hint">Standard: deaktiviert. Eine Ultra-Wide-Kachel belegt in der Multiview-Ansicht alle vorhandenen Grid-Spalten der Card (nicht die gesamte Dashboard-Breite).</p>
               </div>
             ` : ""}
@@ -7198,14 +7337,8 @@ class FrigateVisionCardEditor extends LitElement {
         `;
       })}
 
-      <button
-        class="add-btn"
-        @click=${() => {
-          this._cameraEntries = [...this._cameraEntries, { id: "", displayName: "", main: "", sub: "", ultraWide: false }];
-          this._expandedCam = this._cameraEntries.length - 1;
-        }}
-      >
-        <ha-icon icon="mdi:plus"></ha-icon> Kamera hinzufügen
+      <button type="button" class="add-btn" @click=${() => this._addCamera()}>
+        <ha-icon icon="mdi:plus"></ha-icon> Kamera-ID manuell eingeben
       </button>
     `;
   }
@@ -7232,21 +7365,10 @@ class FrigateVisionCardEditor extends LitElement {
         : ""}
 
       ${viewMode === "timeline" && !multiviewActive ? html`
-        <ha-textfield
-          label="Timeline-Fenster (Stunden, 1-168)"
-          type="number"
-          min="1"
-          max="168"
-          .value=${String(cfg.timeline_window_hours ?? 24)}
-          @change=${(e) => this._set("timeline_window_hours", Math.max(1, Math.min(168, Number(e.target.value) || 24)))}
-        ></ha-textfield>
+        ${editorInput("Timeline-Fenster (Stunden, 1–168)", cfg.timeline_window_hours ?? 24,
+          (v) => this._set("timeline_window_hours", Math.max(1, Math.min(168, Number(v) || 24))), { type: "number", min: "1", max: "168" })}
         <p class="hint">Zeitraum der Frigate-Aufnahme, der in der Timeline angezeigt wird (rückwirkend ab jetzt).</p>
-        <ha-formfield label="Timeline gespiegelt (Liste links, Achse rechts)">
-          <ha-switch
-            .checked=${cfg.timeline_flipped === true}
-            @change=${(e) => this._set("timeline_flipped", e.target.checked)}
-          ></ha-switch>
-        </ha-formfield>
+        ${editorSwitch("Timeline gespiegelt (Liste links, Achse rechts)", cfg.timeline_flipped === true, (v) => this._set("timeline_flipped", v))}
       ` : ""}
 
       <div class="select-row">
@@ -7261,50 +7383,16 @@ class FrigateVisionCardEditor extends LitElement {
         </select>
       </div>
 
-      <ha-textfield
-        label="Desktop Breakpoint (px)"
-        type="number"
-        .value=${String(cfg.desktop_breakpoint ?? 800)}
-        @change=${(e) => this._set("desktop_breakpoint", Number(e.target.value) || 800)}
-      ></ha-textfield>
-
-      <ha-formfield label="Section Mode (füllt Section-Zelle zu 100%)">
-        <ha-switch
-          .checked=${cfg.section_mode === true}
-          @change=${(e) => this._set("section_mode", e.target.checked)}
-        ></ha-switch>
-      </ha-formfield>
+      ${editorInput("Desktop Breakpoint (px)", cfg.desktop_breakpoint ?? 800, (v) => this._set("desktop_breakpoint", Number(v) || 800), { type: "number" })}
+      ${editorSwitch("Section Mode (füllt Section-Zelle zu 100%)", cfg.section_mode === true, (v) => this._set("section_mode", v))}
 
       ${cfg.section_mode
         ? html`<p class="hint">Höhe/Breite werden im Section Mode ignoriert — die Card füllt ihre Grid-Zelle.</p>`
         : html`
-            <ha-textfield
-              label="Höhe (Fallback)"
-              .value=${cfg.height ?? cfg.max_height ?? "auto"}
-              .placeholder=${"auto"}
-              @change=${(e) => this._set("height", e.target.value || "auto")}
-            ></ha-textfield>
-
-            <ha-textfield
-              label="Mobile Höhe (< Desktop Breakpoint)"
-              .value=${cfg.mobile_height ?? ""}
-              .placeholder=${"leer = Fallback"}
-              @change=${(e) => this._set("mobile_height", e.target.value || null)}
-            ></ha-textfield>
-
-            <ha-textfield
-              label="Desktop Höhe (≥ Desktop Breakpoint)"
-              .value=${cfg.desktop_height ?? ""}
-              .placeholder=${"leer = Fallback"}
-              @change=${(e) => this._set("desktop_height", e.target.value || null)}
-            ></ha-textfield>
-
-            <ha-textfield
-              label="Breite"
-              .value=${cfg.width ?? cfg.card_width ?? "auto"}
-              .placeholder=${"auto"}
-              @change=${(e) => this._set("width", e.target.value || "auto")}
-            ></ha-textfield>
+            ${editorInput("Höhe (Fallback)", cfg.height ?? cfg.max_height ?? "auto", (v) => this._set("height", v || "auto"), { placeholder: "auto" })}
+            ${editorInput("Mobile Höhe (< Desktop Breakpoint)", cfg.mobile_height, (v) => this._set("mobile_height", v), { placeholder: "leer = Fallback" })}
+            ${editorInput("Desktop Höhe (≥ Desktop Breakpoint)", cfg.desktop_height, (v) => this._set("desktop_height", v), { placeholder: "leer = Fallback" })}
+            ${editorInput("Breite", cfg.width ?? cfg.card_width ?? "auto", (v) => this._set("width", v || "auto"), { placeholder: "auto" })}
           `}
     `;
   }
@@ -7313,16 +7401,13 @@ class FrigateVisionCardEditor extends LitElement {
     const cfg = this._config;
     const lang = cfg.language ?? "auto";
     return html`
-      <ha-formfield label="Filter anzeigen">
-        <ha-switch
-          .checked=${cfg.show_filters !== false}
-          @change=${(e) => this._set("show_filters", e.target.checked)}
-        ></ha-switch>
-      </ha-formfield>
-
+      <div class="field">
+        ${editorSwitch("Ereignisfilter anzeigen", cfg.show_filters !== false, (v) => this._set("show_filters", v), "filter-help")}
+        <p class="hint" id="filter-help">Blendet die Filterleiste für Kamera, Objekt und Zeitraum ein oder aus. Aufnahmen werden dadurch nicht verändert.</p>
+      </div>
       <div class="select-row">
-        <label>Sprache</label>
-        <select
+        <label for="card-language">Sprache der Karte</label>
+        <select id="card-language"
           .value=${lang}
           @change=${(e) => this._set("language", e.target.value)}
         >
@@ -7371,65 +7456,23 @@ class FrigateVisionCardEditor extends LitElement {
                 this._set("label_colors", newColors);
               }}
             />
-            <ha-textfield
-              class="label-color-field"
-              .value=${colorVal}
-              placeholder="#03a9f4"
-              @change=${(e) => {
-                const val = e.target.value.trim();
-                const newColors = { ...(this._config.label_colors || {}) };
-                if (val) {
-                  newColors[lbl] = val;
-                } else {
-                  delete newColors[lbl];
-                }
-                this._set(
-                  "label_colors",
-                  Object.keys(newColors).length ? newColors : undefined
-                );
-              }}
-            ></ha-textfield>
-            <ha-textfield
-              class="label-icon-field"
-              .value=${icons[lbl] || ""}
-              placeholder="mdi:..."
-              @change=${(e) => {
-                const val = e.target.value.trim();
-                const newIcons = { ...(this._config.label_icons || {}) };
-                if (val) {
-                  newIcons[lbl] = val;
-                } else {
-                  delete newIcons[lbl];
-                }
-                this._set(
-                  "label_icons",
-                  Object.keys(newIcons).length ? newIcons : undefined
-                );
-              }}
-            ></ha-textfield>
+            <input type="text" class="label-color-field" aria-label=${`Farbcode für ${displayName}`}
+              .value=${colorVal} placeholder="#03a9f4" @change=${(e) => this._setLabelValue("label_colors", lbl, e.target.value)} />
+            <input type="text" class="label-icon-field" aria-label=${`Icon für ${displayName}`}
+              .value=${icons[lbl] || ""} placeholder="mdi:..." @change=${(e) => this._setLabelValue("label_icons", lbl, e.target.value)} />
           </div>
         `;
       })}
 
-      <ha-textfield
-        label="Standard-Farbe (default)"
-        .value=${colors.default || ""}
-        .placeholder=${"#03a9f4"}
-        @change=${(e) => {
-          const val = e.target.value.trim();
-          const newColors = { ...(this._config.label_colors || {}) };
-          if (val) {
-            newColors.default = val;
-          } else {
-            delete newColors.default;
-          }
-          this._set(
-            "label_colors",
-            Object.keys(newColors).length ? newColors : undefined
-          );
-        }}
-      ></ha-textfield>
+      ${editorInput("Standard-Farbe (default)", colors.default, (v) => this._setLabelValue("label_colors", "default", v), { placeholder: "#03a9f4" })}
     `;
+  }
+
+  _setLabelValue(key, label, value) {
+    const values = { ...this._config[key] };
+    if (value.trim()) values[label] = value.trim();
+    else delete values[label];
+    this._set(key, Object.keys(values).length ? values : undefined);
   }
 
   _renderLivestream() {
@@ -7445,54 +7488,14 @@ class FrigateVisionCardEditor extends LitElement {
           `)}
         </select>
       </div>
-      <ha-textfield
-        label="Frigate URL (z.B. http://frigate.local:5000 – go2rtc via Frigate)"
-        .value=${cfg.frigate_url || ""}
-        .placeholder=${"(nicht gesetzt)"}
-        @change=${(e) => this._set("frigate_url", e.target.value || null)}
-      ></ha-textfield>
-      <ha-textfield
-        label="go2rtc URL intern (z.B. http://go2rtc.local:1984)"
-        .value=${cfg.go2rtc_url || ""}
-        .placeholder=${"(LAN)"}
-        @change=${(e) => this._set("go2rtc_url", e.target.value || null)}
-      ></ha-textfield>
-      <ha-textfield
-        label="go2rtc URL extern (z.B. https://go2rtc.example.com)"
-        .value=${cfg.go2rtc_url_external || ""}
-        .placeholder=${"(extern via Reverse Proxy)"}
-        @change=${(e) => this._set("go2rtc_url_external", e.target.value || null)}
-      ></ha-textfield>
-      <ha-textfield
-        label="go2rtc Modes (z.B. webrtc,mse,mjpeg)"
-        .value=${modes}
-        @change=${(e) => this._set("go2rtc_modes", e.target.value)}
-      ></ha-textfield>
-      <ha-textfield
-        label="Standard-Live-Kamera (leer = erste verfügbare)"
-        .value=${cfg.live_camera || ""}
-        .placeholder=${"(auto)"}
-        @change=${(e) => this._set("live_camera", e.target.value || null)}
-      ></ha-textfield>
-      <ha-formfield label="Live-Button anzeigen">
-        <ha-switch
-          .checked=${cfg.show_live_button !== false}
-          @change=${(e) => this._set("show_live_button", e.target.checked)}
-        ></ha-switch>
-      </ha-formfield>
-      <ha-formfield label="Auto-Start Livestream beim Öffnen">
-        <ha-switch
-          .checked=${cfg.live_autostart !== false}
-          @change=${(e) => this._set("live_autostart", e.target.checked)}
-        ></ha-switch>
-      </ha-formfield>
-
-      <ha-formfield label="Live-Controls Overlay anzeigen">
-        <ha-switch
-          .checked=${cfg.live_controls !== false}
-          @change=${(e) => this._set("live_controls", e.target.checked)}
-        ></ha-switch>
-      </ha-formfield>
+      ${editorInput("Frigate URL (optional)", cfg.frigate_url, (v) => this._set("frigate_url", v), { placeholder: "Leer = Home-Assistant-Proxy" })}
+      ${editorInput("go2rtc URL intern", cfg.go2rtc_url, (v) => this._set("go2rtc_url", v), { placeholder: "(LAN)" })}
+      ${editorInput("go2rtc URL extern", cfg.go2rtc_url_external, (v) => this._set("go2rtc_url_external", v), { placeholder: "(extern via Reverse Proxy)" })}
+      ${editorInput("go2rtc Modes (z.B. webrtc,mse,mjpeg)", modes, (v) => this._set("go2rtc_modes", v))}
+      ${editorInput("Standard-Live-Kamera (leer = erste verfügbare)", cfg.live_camera, (v) => this._set("live_camera", v), { placeholder: "(auto)" })}
+      ${editorSwitch("Live-Button anzeigen", cfg.show_live_button !== false, (v) => this._set("show_live_button", v))}
+      ${editorSwitch("Auto-Start Livestream beim Öffnen", cfg.live_autostart !== false, (v) => this._set("live_autostart", v))}
+      ${editorSwitch("Live-Controls Overlay anzeigen", cfg.live_controls !== false, (v) => this._set("live_controls", v))}
       <div class="field">
         <label>Live-Controls Position</label>
         <select @change=${(e) => this._set("live_controls_position", e.target.value)}>
@@ -7502,12 +7505,7 @@ class FrigateVisionCardEditor extends LitElement {
         </select>
       </div>
 
-      <ha-formfield label="HD/SD-Button anzeigen">
-        <ha-switch
-          .checked=${cfg.hd_sd_button !== false}
-          @change=${(e) => this._set("hd_sd_button", e.target.checked)}
-        ></ha-switch>
-      </ha-formfield>
+      ${editorSwitch("HD/SD-Button anzeigen", cfg.hd_sd_button !== false, (v) => this._set("hd_sd_button", v))}
       <div class="field">
         <label>HD/SD-Button Position</label>
         <select @change=${(e) => this._set("hd_sd_button_position", e.target.value)}>
@@ -7517,12 +7515,7 @@ class FrigateVisionCardEditor extends LitElement {
         </select>
       </div>
 
-      <ha-formfield label="Multiview (alle Kameras gleichzeitig live)">
-        <ha-switch
-          .checked=${cfg.multiview === true}
-          @change=${(e) => this._set("multiview", e.target.checked)}
-        ></ha-switch>
-      </ha-formfield>
+      ${editorSwitch("Multiview (alle Kameras gleichzeitig live)", cfg.multiview === true, (v) => this._set("multiview", v))}
 
       ${cfg.multiview ? html`
         <div class="field">
@@ -7534,40 +7527,8 @@ class FrigateVisionCardEditor extends LitElement {
           </select>
         </div>
         <div class="row">
-          <ha-textfield
-            label="Mobile Spalten (1-4)"
-            type="number"
-            min="1"
-            max="4"
-            .value=${String(cfg.multiview_columns_mobile ?? 1)}
-            .placeholder=${"1"}
-            @change=${(e) => this._set(
-              "multiview_columns_mobile",
-              e.target.value === ""
-                ? null
-                : FrigateVisionCard._normalizeColumnCount(
-                    e.target.value,
-                    1
-                  )
-            )}
-          ></ha-textfield>
-          <ha-textfield
-            label="Desktop Spalten (1-4)"
-            type="number"
-            min="1"
-            max="4"
-            .value=${String(cfg.multiview_columns_desktop ?? 1)}
-            .placeholder=${"1"}
-            @change=${(e) => this._set(
-              "multiview_columns_desktop",
-              e.target.value === ""
-                ? null
-                : FrigateVisionCard._normalizeColumnCount(
-                    e.target.value,
-                    1
-                  )
-            )}
-          ></ha-textfield>
+          ${[ ["multiview_columns_mobile", "Mobile Spalten (1–4)"], ["multiview_columns_desktop", "Desktop Spalten (1–4)"] ].map(([key, label]) =>
+            editorInput(label, cfg[key] ?? 1, (v) => this._set(key, v === "" ? null : FrigateVisionCard._normalizeColumnCount(v, 1)), { type: "number", min: "1", max: "4" }))}
         </div>
       ` : ""}
     `;
@@ -7576,21 +7537,22 @@ class FrigateVisionCardEditor extends LitElement {
   _renderAdvanced() {
     const cfg = this._config;
     return html`
-      <ha-textfield
-        label="Dedupe Window (Sekunden, 0 = aus)"
-        type="number"
-        min="0"
-        .value=${String(normalizeDedupeWindow(cfg.dedupe_window_seconds))}
-        @change=${(e) => this._set("dedupe_window_seconds", normalizeDedupeWindow(e.target.value))}
-      ></ha-textfield>
-      <ha-textfield
-        label="Auto-Refresh (Sekunden, 0 = aus)"
-        type="number"
-        min="0"
-        .value=${String(cfg.auto_refresh_seconds ?? 0)}
-        @change=${(e) => this._set("auto_refresh_seconds", Math.max(0, Number(e.target.value) || 0))}
-      ></ha-textfield>
-      <p class="hint">Periodischer Refetch der Frigate-Events und -Reviews. Pausiert, wenn der Tab nicht sichtbar ist.</p>
+      <div class="field">
+        ${editorInput("Gruppierungszeitraum (Sekunden)", normalizeDedupeWindow(cfg.dedupe_window_seconds), (v, input) => {
+          const seconds = normalizeDedupeWindow(v);
+          input.value = String(seconds);
+          this._set("dedupe_window_seconds", seconds);
+        }, { type: "number", min: "0", step: "any", hint: "group-help" })}
+        <p class="hint" id="group-help">Fasst Ereignisse derselben Kamera mit demselben Objektlabel zusammen. Standard: 30 Sekunden. 0 schaltet die Zeitgruppierung aus.</p>
+      </div>
+      <div class="field">
+        ${editorInput("Aktualisierungsintervall (Sekunden)", cfg.auto_refresh_seconds ?? 0, (v, input) => {
+          const seconds = Math.max(0, Number(v) || 0);
+          input.value = String(seconds);
+          this._set("auto_refresh_seconds", seconds);
+        }, { type: "number", min: "0", step: "any", hint: "refresh-help" })}
+        <p class="hint" id="refresh-help">Lädt Ereignisse und Reviews nur bei sichtbarem Tab erneut. 0 bedeutet keine automatische Aktualisierung (Standard).</p>
+      </div>
     `;
   }
 
@@ -7606,6 +7568,11 @@ class FrigateVisionCardEditor extends LitElement {
         overflow: hidden;
       }
       .section-header {
+        width: 100%;
+        border: 0;
+        font: inherit;
+        color: var(--primary-text-color);
+        text-align: start;
         display: flex;
         align-items: center;
         gap: 10px;
@@ -7637,11 +7604,35 @@ class FrigateVisionCardEditor extends LitElement {
         flex-direction: column;
         gap: 4px;
       }
-      .field label {
-        font-size: 0.85em;
-        color: var(--secondary-text-color);
+      .field > span, .field > label {
+        font-size: 0.9em;
+        color: var(--primary-text-color);
       }
-      .field select {
+      .editor-switch { display: flex; align-items: center; gap: 10px; min-height: 32px; cursor: pointer; }
+      .editor-switch input {
+        appearance: none;
+        flex: none;
+        width: 36px;
+        height: 22px;
+        margin: 0;
+        border: 1px solid var(--secondary-text-color, #666);
+        border-radius: 12px;
+        background: var(--secondary-background-color, #eee);
+        color: var(--secondary-text-color, #666);
+        cursor: pointer;
+        display: grid;
+        align-items: center;
+        padding-inline: 3px;
+      }
+      .editor-switch input::before { content: ""; width: 14px; height: 14px; border-radius: 50%; background: currentColor; }
+      .editor-switch input:checked { background: var(--primary-color, #0288d1); color: var(--text-primary-color, white); }
+      .editor-switch input:checked::before { justify-self: end; }
+      @media (forced-colors: active) { .editor-switch input { appearance: auto; } .editor-switch input::before { content: none; } }
+      .field select, .editor-input input, .label-row input[type="text"] {
+        box-sizing: border-box;
+        width: 100%;
+        min-width: 0;
+        font-family: inherit;
         padding: 8px;
         border-radius: 4px;
         border: 1px solid var(--divider-color, #ccc);
@@ -7649,16 +7640,13 @@ class FrigateVisionCardEditor extends LitElement {
         color: var(--primary-text-color);
         font-size: 1em;
       }
-      ha-textfield {
-        display: block;
-        width: 100%;
-      }
       .row {
         display: flex;
         gap: 12px;
       }
       .row > * {
         flex: 1;
+        min-width: 0;
       }
       .select-row {
         display: flex;
@@ -7685,12 +7673,6 @@ class FrigateVisionCardEditor extends LitElement {
       }
       .select-row select:focus {
         border-color: var(--primary-color);
-      }
-      ha-formfield {
-        display: flex;
-        align-items: center;
-        padding: 4px 0;
-        --mdc-theme-secondary: var(--primary-color);
       }
       .hint {
         font-size: 0.82em;
@@ -7742,6 +7724,7 @@ class FrigateVisionCardEditor extends LitElement {
       .stream-del:hover {
         background: color-mix(in srgb, var(--error-color, #c62828) 12%, transparent);
       }
+      .stream-actions { display: flex; flex-wrap: wrap; gap: 6px; }
       .add-btn {
         display: inline-flex;
         align-items: center;
@@ -7782,8 +7765,21 @@ class FrigateVisionCardEditor extends LitElement {
         font-size: 0.9em;
         font-weight: 500;
       }
-      .cam-entry-header .chevron {
-        margin-left: 0;
+      .cam-toggle {
+        flex: 1;
+        min-width: 0;
+        display: flex;
+        align-items: center;
+        gap: 8px;
+        padding: 4px 0;
+        border: 0;
+        background: transparent;
+        color: inherit;
+        font: inherit;
+        cursor: pointer;
+        text-align: start;
+        overflow-wrap: anywhere;
+        --mdc-icon-size: 18px;
       }
       .cam-entry-body {
         padding: 8px 12px;

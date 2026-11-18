@@ -65,7 +65,9 @@ fixtures. HA's real mDNS resolver is bound to loopback because there is no
 multicast route; the synthetic Frigate and model endpoints also live on loopback.
 
 The test uses HA's config flow, fetches the registered versioned Card over
-HTTP and compares the served bytes to the bundled file. It then calls
+HTTP and compares the served bytes to the bundled file. It requests camera
+stream suggestions over a real authenticated HA WebSocket, once as a read-only
+user and once as a user without entity access, using only synthetic aliases. It then calls
 `frigate_vision.analyze_event` on a generated image; the model fixture checks
 the actual JPEG and prompt before replying. Unloading the last entry must remove
 all three services. After setting up that entry again, the same checks must

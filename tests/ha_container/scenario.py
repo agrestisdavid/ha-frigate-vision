@@ -9,11 +9,13 @@ from unittest.mock import patch
 
 from aiohttp import ClientSession, web
 from aiohttp.test_utils import TestServer
+from homeassistant.auth.const import GROUP_ID_READ_ONLY
 from homeassistant.bootstrap import async_setup_hass
 from homeassistant.components.frontend import DATA_EXTRA_MODULE_URL
 from homeassistant.config_entries import ConfigEntryState
 from homeassistant.const import EVENT_SERVICE_REGISTERED
 from homeassistant.core import callback
+from homeassistant.helpers import entity_registry as er
 from homeassistant.runner import RuntimeConfig, create_event_loop
 from PIL import Image
 from zeroconf import IPVersion
@@ -131,6 +133,55 @@ async def check_loaded(hass, entry, session, module_url, card_bytes):
     )
 
 
+async def check_camera_streams(hass, session):
+    """Exercise the registered WS command and real HA read permissions over loopback."""
+    [frigate] = hass.config_entries.async_entries("frigate")
+    camera = er.async_get(hass).async_get_or_create(
+        "camera",
+        "frigate",
+        f"{frigate.entry_id}:camera:synthetic_camera",
+        config_entry=frigate,
+        suggested_object_id="different_ha_name",
+    )
+    for groups in ([GROUP_ID_READ_ONLY], []):
+        user = await hass.auth.async_create_system_user(
+            "Synthetic viewer", group_ids=groups
+        )
+        refresh = await hass.auth.async_create_refresh_token(user)
+        async with session.ws_connect("http://127.0.0.1:8123/api/websocket") as ws:
+            assert (await ws.receive_json())["type"] == "auth_required"
+            await ws.send_json(
+                {
+                    "type": "auth",
+                    "access_token": hass.auth.async_create_access_token(refresh),
+                }
+            )
+            assert (await ws.receive_json())["type"] == "auth_ok"
+            await ws.send_json(
+                {
+                    "id": 1,
+                    "type": "frigate_vision/camera_streams",
+                    "entity_id": camera.entity_id,
+                    "instance_id": "smoke",
+                }
+            )
+            reply = await ws.receive_json()
+            if groups:
+                assert reply.get("success") and reply["result"] == {
+                    "streams": ["fixture_a", "fixture_b"],
+                    "main": "fixture_a",
+                    "sub": "fixture_b",
+                }, reply
+            else:
+                assert (
+                    reply.get("success") is False
+                    and reply["error"]["code"] == "not_found"
+                ), reply
+    print(
+        "OK: camera alias suggestions via authenticated HA WebSocket; user without read permission receives none"
+    )
+
+
 async def scenario(module_url, card_bytes):
     hass = await async_setup_hass(
         RuntimeConfig(str(CONFIG), skip_pip=True, log_no_color=True)
@@ -152,6 +203,7 @@ async def scenario(module_url, card_bytes):
         async with fixture_server() as server, ClientSession() as session:
             entry = await configure(hass, str(server.make_url("/")).rstrip("/"))
             assert hass.config_entries.async_entries(DOMAIN) == [entry]
+            await check_camera_streams(hass, session)
             await check_loaded(hass, entry, session, module_url, card_bytes)
             unloaded = await hass.config_entries.async_unload(entry.entry_id)
             assert unloaded, "HA refused to unload the entry"
