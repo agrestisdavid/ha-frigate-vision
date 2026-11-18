@@ -15,7 +15,7 @@
   },
   "devDependencies": {
     "esbuild": "0.28.2",
-    "hls.js": "1.7.3",
+    "hls.js": "1.7.4",
     "lit": "3.3.3",
     "playwright": "1.62.1",
     "sharp": "0.35.5"
