@@ -47,7 +47,10 @@ empty model output. This prevents duplicate model cost. Frigate is written
 once only after a non-empty response.
 
 Concurrent non-forced calls for the same event share one analysis. Concurrent
-callers requesting storage also share one description write.
+callers requesting storage also share one description write. For both event
+services, an unconfirmed write does **not** discard a completed analysis:
+`response_text` remains usable, `stored` is `false`, and `store_error` explains
+the storage failure. An ordinary `store: false` result has no storage error.
 
 ## `frigate_vision.analyze_event_video`
 

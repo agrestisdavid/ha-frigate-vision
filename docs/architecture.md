@@ -55,7 +55,8 @@ Home Assistant owns:
 
 - integration configuration and provider credentials;
 - Card and Blueprint configuration;
-- optional timer and mute helpers.
+- optional notification helpers: the mute switch, the fixed-cooldown timer,
+  or a restoring date-and-time helper for [alarm-based intervals](blueprint.md#alarm-based-notification-intervals).
 
 Frigate Vision owns no timeline database. Generic titles are calculated at
 display or notification time and are never stored.
