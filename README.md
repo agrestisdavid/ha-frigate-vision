@@ -7,7 +7,7 @@ Frigate event recording frames with an OpenAI-compatible multimodal endpoint. Th
 single HACS package also ships the `custom:frigate-vision-card` frontend module
 and a reusable notification Blueprint.
 
-Version `0.3.4` is deliberately independent of LLM Vision:
+Frigate Vision is independent of LLM Vision:
 
 - Frigate remains the canonical source for events, clips, and descriptions.
 - Recording/main-stream frames are preferred. Frigate's clean event snapshot
@@ -24,7 +24,12 @@ Version `0.3.4` is deliberately independent of LLM Vision:
 - No provider credentials, fixed hosts, or private addresses are embedded in
   the Card or Blueprint.
 
-`0.3.10` preserves completed analyses when saving to Frigate times out. It checks
+**Updating to 0.3.11:** Existing automations keep their fixed cooldown. To use
+[alarm-based notification intervals](docs/blueprint.md#alarm-based-notification-intervals),
+re-import the notification Blueprint after updating in HACS, configure a
+restoring date-and-time helper, and enable the option. No migration is required.
+
+Since `0.3.10`, the integration preserves completed analyses when saving to Frigate times out. It checks
 whether the exact description was already saved and reports unconfirmed storage
 separately. The updated Blueprint also replaces a pending notification with an
 error update when analysis fails. Re-import the Blueprint after updating HACS.

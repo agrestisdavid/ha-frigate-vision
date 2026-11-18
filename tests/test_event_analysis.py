@@ -1564,6 +1564,33 @@ class ProviderTests(unittest.IsolatedAsyncioTestCase):
                         self.assertNotIn("reasoning_effort", request)
                     self.assertNotIn("chat_template_kwargs", request)
 
+    async def test_request_limit_uses_exact_utf8_wire_bytes(self) -> None:
+        provider = ANALYSIS.OpenAICompatibleProvider(
+            FakeHass(),
+            {
+                "endpoint": "https://model.example.test/v1",
+                "model": "vision",
+                "max_tokens": 42,
+                "reasoning_effort": "none",
+            },
+        )
+        content = [{"type": "text", "text": 'Tür\n"'}]
+        expected = (
+            '{"model":"vision","messages":[{"role":"user","content":'
+            '[{"type":"text","text":"Tür\\n\\""}]}],"max_tokens":42,'
+            '"reasoning_effort":"none"}'
+        ).encode()
+        provider._session = FakeSession(
+            FakeResponse(200, b'{"choices":[{"message":{"content":"ok"}}]}')
+        )
+        with self.assertRaisesRegex(ANALYSIS.SourceError, "Provider-Payload"):
+            await provider._analyze_content(
+                content, max_request_bytes=len(expected) - 1
+            )
+        self.assertEqual(provider._session.calls, [])
+        await provider._analyze_content(content, max_request_bytes=len(expected))
+        self.assertEqual(provider._session.calls[0][1]["data"], expected)
+
     async def test_reasoning_only_response_is_not_a_description(self) -> None:
         provider = ANALYSIS.OpenAICompatibleProvider(
             FakeHass(),
@@ -1734,6 +1761,47 @@ class AdapterTests(unittest.IsolatedAsyncioTestCase):
                 )
                 self.assertFalse(error.transient)
                 self.assertEqual(error.status, status)
+
+    async def test_wrapped_auth_errors_keep_status_and_retry_policy(self) -> None:
+        # Prefer the outer status, then explicit cause, then implicit context.
+        for outer_status, cause_status, expected in (
+            (401, 503, 401),
+            (None, 503, 503),
+            (None, None, 403),
+        ):
+            with self.subTest(outer_status=outer_status, cause_status=cause_status):
+                outer = RuntimeError()
+                outer.status = outer_status
+                outer.__context__ = ANALYSIS.ClientResponseError(403)
+                if cause_status is not None:
+                    outer.__cause__ = ANALYSIS.ClientResponseError(cause_status)
+                adapter, client = self.adapter()
+                client.get_auth_headers = AsyncMock(side_effect=outer)
+                with self.assertRaises(ANALYSIS.FrigateEventError) as caught:
+                    await adapter.get_event(self.event_id)
+                self.assertEqual(caught.exception.status, expected)
+                self.assertEqual(caught.exception.transient, expected == 503)
+                self.assertEqual(
+                    isinstance(caught.exception, ANALYSIS.FrigateAuthenticationError),
+                    expected != 503,
+                )
+
+    async def test_statusless_auth_chains_handle_cycles_and_network_errors(
+        self,
+    ) -> None:
+        for inner in (RuntimeError(), TimeoutError(), ANALYSIS.ClientError()):
+            with self.subTest(inner=type(inner).__name__):
+                outer = RuntimeError()
+                outer.__cause__ = inner
+                inner.__context__ = outer
+                adapter, client = self.adapter()
+                client.get_auth_headers = AsyncMock(side_effect=outer)
+                with self.assertRaises(ANALYSIS.FrigateEventError) as caught:
+                    await adapter.get_event(self.event_id)
+                self.assertIsNone(caught.exception.status)
+                self.assertEqual(
+                    caught.exception.transient, not isinstance(inner, RuntimeError)
+                )
 
     async def test_empty_snapshot_is_transient(self) -> None:
         adapter, _client = self.adapter(FakeResponse(200, b""))
