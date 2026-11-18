@@ -24,7 +24,12 @@ Frigate Vision is independent of LLM Vision:
 - No provider credentials, fixed hosts, or private addresses are embedded in
   the Card or Blueprint.
 
-**Updating to 0.3.11:** Existing automations keep their fixed cooldown. To use
+**Updating to 0.3.12:** The Card now reads clips and event metadata from the
+same Frigate instance. If multiple instances are available, see
+[selecting a Card profile](docs/card.md#multiple-frigate-vision-entries).
+No Blueprint re-import or configuration migration is required for this fix.
+
+**Alarm-based intervals (introduced in 0.3.11):** Existing automations keep their fixed cooldown. To use
 [alarm-based notification intervals](docs/blueprint.md#alarm-based-notification-intervals),
 re-import the notification Blueprint after updating in HACS, configure a
 restoring date-and-time helper, and enable the option. No migration is required.

@@ -45,7 +45,7 @@ dependencies so this coverage also runs in the isolated Python CI job.
 
 Pull requests run Python, JavaScript, HACS, hassfest, and strict documentation
 validation. Actions are referenced by immutable commit SHA. Dependabot watches
-GitHub Actions and Python documentation dependencies.
+GitHub Actions, Python dependencies and npm build dependencies.
 
 ## Bundled browser and brand assets
 
@@ -124,6 +124,18 @@ stable-only; never describe manual checks as already completed.
 
 Never publish a release from manually copied Home Assistant files. Subsequent
 fixes should use a new GitHub tag and HACS version.
+
+## Version 0.3.12
+
+- Match the Card's Clips media root and its event/review metadata to the same
+  Frigate instance, including when the selected profile loads asynchronously.
+  Ambiguous or unavailable media roots are reported instead of guessed.
+- Remove unused internal Card state and a redundant timeline segment listener.
+  Existing camera configuration formats and the legacy live proxy are unchanged.
+- Share integration initialization and cover service availability across
+  setup, partial unload, last-entry unload, and subsequent setup.
+- Update the build-only `sharp` dependency to 0.35.5 and enable npm update checks.
+  No Blueprint re-import or configuration migration is needed for this patch.
 
 ## Version 0.3.11
 
