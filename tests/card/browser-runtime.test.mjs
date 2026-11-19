@@ -110,12 +110,12 @@ test("actual vendored Lit runtime renders card/editor and completes lifecycle", 
   assert.deepEqual(consoleErrors, []);
 });
 
-async function openRuntimePage(t) {
+async function openRuntimePage(t, options = {}) {
   const { server, url } = await startHarnessServer();
   t.after(() => server.close());
   const browser = await chromium.launch({ headless: true });
   t.after(() => browser.close());
-  const page = await browser.newPage();
+  const page = await browser.newPage(options);
   const errors = [];
   page.on("pageerror", (error) => errors.push(error.message));
   t.after(() => assert.deepEqual(errors, []));
@@ -553,6 +553,147 @@ test("talk button toggles on click, holds across pointer travel, and stops on ca
   await page.locator("frigate-vision-talk-button").evaluate(el => el.remove());
   await page.mouse.up();
   assert.deepEqual(await actions(), Array.from({ length: 5 }, () => ["start", "stop"]).flat());
+});
+
+async function openPtzCard(t, config = {}) {
+  const page = await openRuntimePage(t, { hasTouch: true, viewport: { width: 360, height: 780 } });
+  await page.evaluate(config => {
+    const card = document.createElement("frigate-vision-card");
+    const state = (camera_name, client_id = "demo") => ({ state: "streaming", attributes: { camera_name, client_id } });
+    window.ptzCalls = []; window.ptzLookups = []; window.ptzAliasLookups = []; window.profileLookups = 0;
+    card.hass = {
+      states: { "camera.other_instance": state("Gate", "frigate"), "camera.renamed": state("Gate"),
+        "camera.fixed": state("fixed"), "camera.zoom": state("zoom"), "camera.pending": state("pending"),
+        "camera.alias_a": state("duplicate"), "camera.alias_b": state("duplicate") },
+      services: { frigate: { ptz: {} } },
+      callWS: async msg => {
+        if (msg.type === "frigate_vision/profile") {
+          window.profileLookups++;
+          const profile = { profile: { frigate_client_id: "demo" } };
+          return config.frigate_vision_entry_id ? new Promise(resolve => { window.finishProfile = () => resolve(profile); }) : profile;
+        }
+        if (msg.type === "media_source/browse_media") return { children: msg.media_content_id === "media-source://frigate" ? [{ media_content_id: "media-source://frigate/demo/event-search/clips//////" }] : [] };
+        if (msg.type === "frigate_vision/camera_streams") {
+          window.ptzAliasLookups.push(msg.entity_id);
+          return { streams: msg.entity_id === "camera.renamed" ? ["alias_sd", "alias_hd"] : [] };
+        }
+        if (msg.type !== "frigate/ptz/info") return [];
+        window.ptzLookups.push(msg);
+        if (msg.camera === "pending") return new Promise(resolve => { window.finishInfo = () => resolve({ features: ["pt"] }); });
+        if (msg.camera === "Gate") return JSON.stringify({ features: ["pt", "zoom"] });
+        return { features: msg.camera === "zoom" ? ["zoom"] : [] };
+      },
+      callService: async (...args) => { window.ptzCalls.push(args); if (window.denyPtz) throw Error("Unauthorized"); },
+    };
+    card.setConfig({ language: "de", go2rtc_modes: "webrtc", live_autostart: false, layout: "stacked", multiview_layout: "stacked",
+      cameras: { gate: { name: "Display alias", main: "alias_hd", sub: "alias_sd" }, fixed: {}, zoom: {}, duplicate: {} },
+      frigate_client_id: "demo", ...config });
+    // Keep the real live lifecycle/target selection; only replace media I/O.
+    const proto = Object.getPrototypeOf(card._ensureLivestreamController());
+    proto._startWebRTCviaHTTP = proto._startWebRTCviaWS = async function (name, video, runId) {
+      this._playbackReady(name, video, runId, this._config());
+    };
+    document.body.append(card);
+    if (!card._config.multiview) card._openLive("gate");
+  }, config);
+  return page;
+}
+
+const ptzCall = (entity, action, argument) => ["frigate", "ptz", argument ? { action, argument } : { action }, { entity_id: `camera.${entity}` }];
+
+test("PTZ is a normal disclosure button; only its controls send targeted, bounded moves", async (t) => {
+  const page = await openPtzCard(t);
+  const toggle = page.getByRole("button", { name: "PTZ", exact: true });
+  await toggle.waitFor();
+  const panel = page.getByRole("dialog");
+  assert.equal(await panel.count(), 0);
+  await toggle.tap(); await panel.waitFor();
+  assert.equal(await toggle.getAttribute("aria-expanded"), "true");
+  await toggle.tap(); await panel.waitFor({ state: "hidden" });
+  await toggle.press("Enter"); await panel.waitFor();
+  assert.deepEqual(await page.evaluate(() => window.ptzCalls), []);
+  await panel.getByRole("button", { name: "Nach rechts" }).press("Space");
+  await page.waitForFunction(() => window.ptzCalls.length >= 2);
+  assert.deepEqual(await page.evaluate(() => window.ptzCalls), [ptzCall("renamed", "move", "right"), ptzCall("renamed", "stop")]);
+  await page.evaluate(() => { window.denyPtz = true; });
+  await panel.getByRole("button", { name: "Hineinzoomen" }).click();
+  await panel.getByRole("alert").waitFor();
+  await page.keyboard.press("Escape"); await panel.waitFor({ state: "hidden" });
+  assert.deepEqual(await page.evaluate(() => window.ptzCalls.slice(2)), [ptzCall("renamed", "zoom", "in"), ptzCall("renamed", "stop")]);
+  assert.deepEqual(await page.evaluate(() => window.ptzLookups), [{ type: "frigate/ptz/info", instance_id: "demo", camera: "Gate" }]);
+});
+
+test("multiview PTZ waits for the selected instance and exposes only that tile's capabilities", async (t) => {
+  const page = await openPtzCard(t, { multiview: true, hd_sd_button_position: "bottom", frigate_client_id: null, frigate_vision_entry_id: "selected" });
+  await page.waitForFunction(() => window.finishProfile && document.querySelector("frigate-vision-card").renderRoot.querySelectorAll("frigate-vision-live-tile").length === 4);
+  assert.deepEqual(await page.evaluate(() => window.ptzLookups), []);
+  await page.evaluate(() => window.finishProfile());
+  const tiles = page.locator("frigate-vision-live-tile");
+  const toggle = tiles.nth(2).getByRole("button", { name: "PTZ", exact: true });
+  await toggle.click();
+  const panel = tiles.nth(2).getByRole("dialog");
+  assert.equal(await panel.getByRole("button", { name: "Nach links" }).count(), 0);
+  // Press Stop in the same turn, before the automatic stop timer can fire.
+  await panel.getByRole("button", { name: "Herauszoomen" }).evaluate(button => {
+    button.click(); button.closest("dialog").querySelector('[aria-label="Stopp"]').click();
+  });
+  assert.equal(await tiles.nth(1).getByText("PTZ", { exact: true }).count(), 0);
+  assert.equal(await tiles.nth(3).getByText("PTZ", { exact: true }).count(), 0);
+  assert.deepEqual(await page.evaluate(() => window.ptzLookups.map(m => [m.instance_id, m.camera]).sort()), [["demo", "Gate"], ["demo", "fixed"], ["demo", "zoom"]]);
+  assert.deepEqual(await page.evaluate(() => window.ptzCalls), [ptzCall("zoom", "zoom", "out"), ptzCall("zoom", "stop")]);
+  await page.evaluate(() => { document.querySelector("frigate-vision-card")._clipError = "Synthetic clip";
+    document.querySelector("frigate-vision-card")._activeClip = { _camera: "zoom" }; });
+  await panel.waitFor({ state: "hidden" });
+  assert.equal(await toggle.count(), 0);
+  assert.equal(await tiles.nth(2).locator("frigate-vision-talk-button").count(), 0);
+  const gate = tiles.first();
+  assert.equal(await gate.getByRole("button", { name: "PTZ", exact: true }).count(), 1);
+  assert.equal(await gate.locator(".hd-sd-wrap--top frigate-vision-talk-button").count(), 1);
+  assert.equal(await gate.locator(".hd-sd-wrap--bottom .hd-sd-btn").count(), 1);
+});
+
+test("switching to an unrelated HD alias keeps playback but removes PTZ", async (t) => {
+  const page = await openPtzCard(t, { cameras: { gate: { main: "other_camera", sub: "alias_sd" } } });
+  const ptz = page.getByRole("button", { name: "PTZ", exact: true });
+  await ptz.waitFor();
+  await page.locator(".hd-sd-btn").click();
+  await page.waitForFunction(() => window.ptzAliasLookups.length >= 2);
+  assert.equal(await ptz.count(), 0);
+  assert.equal(await page.locator("frigate-vision-talk-button button").count(), 1);
+  assert.deepEqual(await page.evaluate(() => window.ptzCalls), []);
+});
+
+test("an unverified direct playback endpoint cannot expose PTZ for a same-named camera", async (t) => {
+  const page = await openPtzCard(t, { go2rtc_url: "https://other.example.invalid" });
+  await page.waitForFunction(() => window.profileLookups >= 2);
+  await page.locator("frigate-vision-talk-button button").waitFor();
+  assert.equal(await page.getByRole("button", { name: "PTZ", exact: true }).count(), 0);
+  assert.deepEqual(await page.evaluate(() => [window.ptzLookups, window.ptzCalls]), [[], []]);
+});
+
+test("hiding the live controls hides both camera actions without removing HD/SD", async (t) => {
+  const page = await openPtzCard(t, { live_controls: false });
+  await page.waitForFunction(() => document.querySelector("frigate-vision-card")._liveProvider === "webrtc");
+  assert.equal(await page.locator("frigate-vision-talk-button, frigate-vision-ptz").count(), 0);
+  assert.equal(await page.locator(".hd-sd-btn").count(), 1);
+  assert.deepEqual(await page.evaluate(() => window.ptzLookups), []);
+});
+
+test("switching cameras stops the original entity and stale PTZ info cannot open controls", async (t) => {
+  const page = await openPtzCard(t);
+  const toggle = page.getByRole("button", { name: "PTZ", exact: true });
+  await toggle.click();
+  await page.getByRole("button", { name: "Nach oben" }).evaluate(button => {
+    button.click(); document.querySelector("frigate-vision-card")._switchLiveCamera("pending");
+  });
+  await page.waitForFunction(() => window.finishInfo && window.ptzCalls.length === 2);
+  await page.evaluate(async () => {
+    const card = document.querySelector("frigate-vision-card");
+    card._switchLiveCamera("fixed"); await card.updateComplete; window.finishInfo();
+  });
+  await page.waitForFunction(() => window.ptzLookups.some(m => m.camera === "fixed"));
+  assert.equal(await toggle.count(), 0);
+  assert.deepEqual(await page.evaluate(() => window.ptzCalls), [ptzCall("renamed", "move", "up"), ptzCall("renamed", "stop")]);
 });
 
 test("mixed Ultra-Wide tiles span responsive grid rows without overflow or distorted media", async (t) => {

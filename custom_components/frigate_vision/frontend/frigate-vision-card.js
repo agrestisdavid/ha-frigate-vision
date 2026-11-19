@@ -56,6 +56,7 @@ const STRINGS = {
       disconnected: "Verbindung unterbrochen. Das Mikrofon ist aus.",
       connectionFailed: "Der Audiorückkanal konnte nicht verbunden werden.",
     },
+    ptz: { label: "PTZ-Steuerung", up: "Nach oben", down: "Nach unten", left: "Nach links", right: "Nach rechts", stop: "Stopp", failed: "PTZ-Befehl fehlgeschlagen. Verbindung und Berechtigung prüfen." },
     timeline_loading: "Lade Aufnahme…",
     timeline_no_recording: "Keine Aufnahme für diesen Zeitraum",
     timeline_no_camera: "Keine Kamera für Timeline verfügbar",
@@ -107,6 +108,7 @@ const STRINGS = {
       disconnected: "Connection lost. The microphone is off.",
       connectionFailed: "Could not connect the audio backchannel.",
     },
+    ptz: { label: "PTZ controls", up: "Tilt up", down: "Tilt down", left: "Pan left", right: "Pan right", stop: "Stop", failed: "PTZ command failed. Check the connection and permissions." },
     timeline_loading: "Loading recording…",
     timeline_no_recording: "No recording for this period",
     timeline_no_camera: "No camera available for timeline",
@@ -146,6 +148,7 @@ const STRINGS = {
     live_connecting: "Connexion…",
     live_failed: "Échec du flux en direct",
     live_no_camera: "Aucune caméra disponible pour la vue en direct",
+    ptz: { label: "Commandes PTZ", up: "Monter", down: "Descendre", left: "Tourner à gauche", right: "Tourner à droite", stop: "Arrêter", failed: "Échec de la commande PTZ. Vérifiez la connexion et les autorisations." },
     timeline_loading: "Chargement de l'enregistrement…",
     timeline_no_recording: "Aucun enregistrement pour cette période",
     timeline_no_camera: "Aucune caméra disponible pour la chronologie",
@@ -185,6 +188,7 @@ const STRINGS = {
     live_connecting: "Conectando…",
     live_failed: "Error en la transmisión en vivo",
     live_no_camera: "No hay cámara disponible para la vista en vivo",
+    ptz: { label: "Controles PTZ", up: "Arriba", down: "Abajo", left: "Izquierda", right: "Derecha", stop: "Detener", failed: "Falló el comando PTZ. Comprueba la conexión y los permisos." },
     timeline_loading: "Cargando grabación…",
     timeline_no_recording: "No hay grabación para este período",
     timeline_no_camera: "No hay cámara disponible para la cronología",
@@ -224,6 +228,7 @@ const STRINGS = {
     live_connecting: "Forbinder…",
     live_failed: "Livestream mislykkedes",
     live_no_camera: "Intet kamera tilgængeligt til livevisning",
+    ptz: { label: "PTZ-styring", up: "Op", down: "Ned", left: "Venstre", right: "Højre", stop: "Stop", failed: "PTZ-kommandoen mislykkedes. Kontrollér forbindelse og tilladelser." },
     timeline_loading: "Indlæser optagelse…",
     timeline_no_recording: "Ingen optagelse for denne periode",
     timeline_no_camera: "Intet kamera tilgængeligt til tidslinjen",
@@ -263,6 +268,7 @@ const STRINGS = {
     live_connecting: "Verbinden…",
     live_failed: "Livestream mislukt",
     live_no_camera: "Geen camera beschikbaar voor liveweergave",
+    ptz: { label: "PTZ-bediening", up: "Omhoog", down: "Omlaag", left: "Links", right: "Rechts", stop: "Stoppen", failed: "PTZ-opdracht mislukt. Controleer de verbinding en machtigingen." },
     timeline_loading: "Opname laden…",
     timeline_no_recording: "Geen opname voor deze periode",
     timeline_no_camera: "Geen camera beschikbaar voor tijdlijn",
@@ -302,6 +308,7 @@ const STRINGS = {
     live_connecting: "Ansluter…",
     live_failed: "Liveströmmen misslyckades",
     live_no_camera: "Ingen kamera tillgänglig för livevisning",
+    ptz: { label: "PTZ-styrning", up: "Upp", down: "Ned", left: "Vänster", right: "Höger", stop: "Stopp", failed: "PTZ-kommandot misslyckades. Kontrollera anslutning och behörigheter." },
     timeline_loading: "Läser in inspelning…",
     timeline_no_recording: "Ingen inspelning för denna period",
     timeline_no_camera: "Ingen kamera tillgänglig för tidslinjen",
@@ -341,6 +348,7 @@ const STRINGS = {
     live_connecting: "Kobler til…",
     live_failed: "Direktesending mislyktes",
     live_no_camera: "Ingen kamera tilgjengelig for livevisning",
+    ptz: { label: "PTZ-styring", up: "Opp", down: "Ned", left: "Venstre", right: "Høyre", stop: "Stopp", failed: "PTZ-kommandoen mislyktes. Sjekk tilkoblingen og tillatelsene." },
     timeline_loading: "Laster opptak…",
     timeline_no_recording: "Ingen opptak for denne perioden",
     timeline_no_camera: "Ingen kamera tilgjengelig for tidslinjen",
@@ -380,6 +388,7 @@ const STRINGS = {
     live_connecting: "Yhdistetään…",
     live_failed: "Live-lähetys epäonnistui",
     live_no_camera: "Kameraa ei ole saatavilla live-näkymään",
+    ptz: { label: "PTZ-ohjaus", up: "Ylös", down: "Alas", left: "Vasemmalle", right: "Oikealle", stop: "Pysäytä", failed: "PTZ-komento epäonnistui. Tarkista yhteys ja käyttöoikeudet." },
     timeline_loading: "Ladataan tallennetta…",
     timeline_no_recording: "Ei tallennetta tälle ajanjaksolle",
     timeline_no_camera: "Kameraa ei ole saatavilla aikajanalle",
@@ -419,6 +428,7 @@ const STRINGS = {
     live_connecting: "Łączenie…",
     live_failed: "Transmisja na żywo nie powiodła się",
     live_no_camera: "Brak kamery dostępnej dla widoku na żywo",
+    ptz: { label: "Sterowanie PTZ", up: "W górę", down: "W dół", left: "W lewo", right: "W prawo", stop: "Zatrzymaj", failed: "Polecenie PTZ nie powiodło się. Sprawdź połączenie i uprawnienia." },
     timeline_loading: "Ładowanie nagrania…",
     timeline_no_recording: "Brak nagrania dla tego okresu",
     timeline_no_camera: "Brak kamery dostępnej dla osi czasu",
@@ -458,6 +468,7 @@ const STRINGS = {
     live_connecting: "Povezivanje…",
     live_failed: "Prenos uživo nije uspeo",
     live_no_camera: "Nema kamere dostupne za prikaz uživo",
+    ptz: { label: "PTZ kontrole", up: "Gore", down: "Dole", left: "Levo", right: "Desno", stop: "Zaustavi", failed: "PTZ komanda nije uspela. Proverite vezu i dozvole." },
     timeline_loading: "Učitavanje snimka…",
     timeline_no_recording: "Nema snimka za ovaj period",
     timeline_no_camera: "Nema kamere dostupne za vremensku liniju",
@@ -497,6 +508,7 @@ const STRINGS = {
     live_connecting: "Подключение…",
     live_failed: "Не удалось запустить прямой эфир",
     live_no_camera: "Нет камеры для просмотра в реальном времени",
+    ptz: { label: "Управление PTZ", up: "Вверх", down: "Вниз", left: "Влево", right: "Вправо", stop: "Стоп", failed: "Не удалось выполнить команду PTZ. Проверьте соединение и права доступа." },
     timeline_loading: "Загрузка записи…",
     timeline_no_recording: "Нет записи за этот период",
     timeline_no_camera: "Нет камеры для хронологии",
@@ -536,6 +548,7 @@ const STRINGS = {
     live_connecting: "Bağlanıyor…",
     live_failed: "Canlı yayın başarısız oldu",
     live_no_camera: "Canlı görünüm için kamera yok",
+    ptz: { label: "PTZ denetimleri", up: "Yukarı", down: "Aşağı", left: "Sola", right: "Sağa", stop: "Durdur", failed: "PTZ komutu başarısız. Bağlantıyı ve izinleri kontrol edin." },
     timeline_loading: "Kayıt yükleniyor…",
     timeline_no_recording: "Bu dönem için kayıt yok",
     timeline_no_camera: "Zaman çizelgesi için kamera yok",
@@ -575,6 +588,7 @@ const STRINGS = {
     live_connecting: "Σύνδεση…",
     live_failed: "Η ζωντανή ροή απέτυχε",
     live_no_camera: "Δεν υπάρχει διαθέσιμη κάμερα για ζωντανή προβολή",
+    ptz: { label: "Χειριστήρια PTZ", up: "Πάνω", down: "Κάτω", left: "Αριστερά", right: "Δεξιά", stop: "Διακοπή", failed: "Η εντολή PTZ απέτυχε. Ελέγξτε τη σύνδεση και τα δικαιώματα." },
     timeline_loading: "Φόρτωση εγγραφής…",
     timeline_no_recording: "Δεν υπάρχει εγγραφή για αυτήν την περίοδο",
     timeline_no_camera: "Δεν υπάρχει διαθέσιμη κάμερα για το χρονολόγιο",
@@ -614,6 +628,7 @@ const STRINGS = {
     live_connecting: "Conectando…",
     live_failed: "Falha na transmissão ao vivo",
     live_no_camera: "Nenhuma câmera disponível para visualização ao vivo",
+    ptz: { label: "Controles PTZ", up: "Para cima", down: "Para baixo", left: "Para a esquerda", right: "Para a direita", stop: "Parar", failed: "Falha no comando PTZ. Verifique a conexão e as permissões." },
     timeline_loading: "Carregando gravação…",
     timeline_no_recording: "Nenhuma gravação para este período",
     timeline_no_camera: "Nenhuma câmera disponível para a linha do tempo",
@@ -1562,14 +1577,19 @@ class LivestreamController extends Go2rtcSession {
     this._talk = null;
   }
 
-  _playbackReady(name, videoEl, runId, config, redirected = false) {
-    // Pin the actual signaling target, not the most recent Card config: a
-    // profile refresh may have changed it while ICE was negotiating.
-    this._webRtcStream = {
+  get playbackTarget() { return this._webRtcStream || this._mseStream; }
+
+  _streamTarget(name, config, redirected = false) {
+    // Pin the signaling target, not a profile that may change during startup.
+    return {
       name, camera: this.cameraId, client: config.frigate_client_id,
       entry: config.frigate_vision_entry_id, redirected,
       directBase: this._usesDirectGo2rtc(config) ? go2rtcBase(config) : null,
     };
+  }
+
+  _playbackReady(name, videoEl, runId, config, redirected = false) {
+    this._webRtcStream = this._streamTarget(name, config, redirected);
     this._setState({ loading: false, provider: "webrtc" });
     this._tryAutoplay(videoEl, runId);
   }
@@ -1579,22 +1599,6 @@ class LivestreamController extends Go2rtcSession {
   }
 
   get talkRequested() { return !!this._talk; }
-
-  async _directStreamMatchesHA(hass, live) {
-    if (live.redirected) return false;
-    const camera = frigateCameraGroups(hass).get(live.client)?.get(live.camera?.toLowerCase());
-    if (!camera || camera.ambiguous) return false;
-    // Identically named aliases on different NVRs are not interchangeable.
-    // Check the chosen HA profile's endpoint AND its readable camera's aliases.
-    const message = { type: "frigate_vision/profile" };
-    if (live.entry) message.entry_id = live.entry;
-    const { profile } = await hass.callWS(message);
-    if (!profile || profile.frigate_client_id !== live.client || go2rtcBase(profile) !== live.directBase) return false;
-    const result = await hass.callWS({
-      type: "frigate_vision/camera_streams", entity_id: camera.entityId, instance_id: live.client,
-    });
-    return Array.isArray(result?.streams) && result.streams.includes(live.name);
-  }
 
   async startTalk() {
     if (this._talk) return;
@@ -1625,7 +1629,7 @@ class LivestreamController extends Go2rtcSession {
     this._setState({ talk: "pending" });
     try {
       if (live.directBase) {
-        const mapped = await this._withTimeout(this._directStreamMatchesHA(hass, live), 5000, "Camera mapping").catch(() => false);
+        const mapped = await this._withTimeout(streamMatchesCamera(hass, live), 5000, "Camera mapping").catch(() => false);
         if (this._talk !== attempt) return; // released during HA lookup
         if (!mapped) { this.stopTalk("unmapped"); return; }
       }
@@ -2010,12 +2014,14 @@ class LivestreamController extends Go2rtcSession {
           }
         } else if (mode === "mse" && (window.MediaSource || window.ManagedMediaSource)) {
           if (!videoEl) continue;
+          const config = this._config();
           const ws = await this._withTimeout(
-            this._openGo2rtcWs(streamName, runId),
+            this._openGo2rtcWs(streamName, runId, config),
             12000,
             "MSE WS"
           );
           this._assertRunCurrent(runId);
+          this._mseStream = this._streamTarget(streamName, config);
           await this._withTimeout(
             this._startMSE(ws, videoEl, runId),
             8000,
@@ -2146,6 +2152,7 @@ class LivestreamController extends Go2rtcSession {
     }
   }
   _cleanupMSE() {
+    this._mseStream = null;
     if (this._sourceBuffer) {
       try { this._mediaSource?.removeSourceBuffer(this._sourceBuffer); } catch {}
       this._sourceBuffer = null;
@@ -2261,6 +2268,7 @@ class FrigateVisionCard extends LitElement {
       _lightbox: { state: true },
       _totalCap: { state: true },
       _availableCameras: { state: true },
+      _resolvedInstanceId: { state: true },
       _activeLabels: { state: true },
       _dateFilter: { state: true },
       _activeCameras: { state: true },
@@ -2532,6 +2540,8 @@ class FrigateVisionCard extends LitElement {
       this._centralProfile = null;
       this._centralProfilePromise = null;
     }
+    const previousAutoInstance = !profileEntryChanged && !this._go2rtcOverrides?.clientId
+      ? this._resolvedInstanceId : null;
     this._go2rtcOverrides = {
       internal: Boolean(config.go2rtc_url),
       external: Boolean(config.go2rtc_url_external),
@@ -2567,12 +2577,15 @@ class FrigateVisionCard extends LitElement {
       profileInternalUrl ||
       profileExternalUrl
     );
+    // The legacy live proxy can try "frigate" by default. A PTZ write must
+    // wait for an explicit client, the selected profile, or a unique Clips root.
+    this._resolvedInstanceId = configuredClientId || profileClientId || previousAutoInstance || null;
     this._config = {
       title: config.title ?? "auto",
       title_icon: config.title_icon || null,
       cameras: FrigateVisionCard._normalizeCamerasMap(config),
       frigate_vision_entry_id: configuredProfileEntryId,
-      frigate_client_id: configuredClientId || profileClientId || "frigate",
+      frigate_client_id: this._resolvedInstanceId || "frigate",
       initial_events: initial,
       events_per_load: Number(config.events_per_load) || Number(config.clips_per_load) || 10,
       section_mode: config.section_mode === true,
@@ -2825,11 +2838,10 @@ class FrigateVisionCard extends LitElement {
         const resolvedExternalUrl = overrides.external
           ? current.go2rtc_url_external
           : externalUrl || null;
+        if (!overrides.clientId && profileClientId) this._resolvedInstanceId = profileClientId;
         const next = {
           ...current,
-          frigate_client_id: overrides.clientId
-            ? current.frigate_client_id
-            : profileClientId || "frigate",
+          frigate_client_id: this._resolvedInstanceId || "frigate",
           go2rtc_url: resolvedInternalUrl,
           go2rtc_url_external: resolvedExternalUrl,
           _go2rtc_direct_override: Boolean(
@@ -2918,7 +2930,7 @@ class FrigateVisionCard extends LitElement {
       lifecycleGeneration
     ).then((profile) => {
       if (
-        profile &&
+        (profile || this._go2rtcOverrides?.clientId) &&
         restartLive &&
         lifecycleGeneration === this._profileLifecycleGeneration &&
         this.isConnected
@@ -2998,9 +3010,13 @@ class FrigateVisionCard extends LitElement {
       const root = await this.hass.callWS({ type: "media_source/browse_media", media_content_id: "media-source://frigate" });
       if (token !== this._fetchToken) return;
       const { folder, id } = selectClipsRoot(root.children, requestedId);
+      this._resolvedInstanceId = id || null;
       const clientId = id || "frigate";
       if (this._config.frigate_client_id !== clientId) {
         this._config = { ...this._config, frigate_client_id: clientId };
+        // A standalone live player may already be trying the legacy default.
+        // Multiview tiles restart themselves when cardConfig changes.
+        if (this._liveMode && !this._config.multiview) this._lc?.restart();
       }
       const [{ events, cameras }, frigateApiEvents] = await Promise.all([
         this._fetchFrigateEvents(folder).then(media => {
@@ -5572,6 +5588,7 @@ class FrigateVisionCard extends LitElement {
             class=${this._camEntry(camId)?.ultra_wide === true ? "multiview-tile-wide" : ""}
             .hass=${this.hass}
             .cameraId=${camId}
+            .instanceId=${this._resolvedInstanceId}
             .cameraEntry=${this._camEntry(camId) || { name: camId }}
             .cardConfig=${this._config}
             .t=${t}
@@ -5643,7 +5660,8 @@ class FrigateVisionCard extends LitElement {
             </button>
           ` : ""}
           <div class="player-top-buttons">
-            ${this._liveProvider && !this._liveLoading ? talkButton(this._lc, this._config, this._talkState, t) : ""}
+            ${this._liveProvider && !this._liveLoading && !this._liveError
+              ? renderCameraControls(this.hass, this._config, this._resolvedInstanceId, this._liveCamera, this._lc, this._talkState, t) : ""}
             ${hasHdSd && this._config.hd_sd_button && this._config.hd_sd_button_position === "top" ? html`
               <button class="overlay-btn hd-sd-btn" @click=${() => this._toggleHD()} title="${this._isHD ? "HD Stream aktiv" : "SD Stream aktiv"}">
                 <span class="hd-sd-label">${this._isHD ? "HD" : "SD"}</span>
@@ -7187,7 +7205,10 @@ function editorString(value) {
 
 // Frigate exposes camera_name and client_id on its camera entities. Use the
 // states visible to this HA user, not entity-id guesses, recordings or an NVR API.
+const cameraGroupCache = new WeakMap();
 function frigateCameraGroups(hass) {
+  const cached = cameraGroupCache.get(hass?.states);
+  if (cached && cached.registry === hass.entities) return cached.groups;
   const groups = new Map();
   for (const [entityId, state] of Object.entries(hass?.states || {})) {
     if (!entityId.startsWith("camera.")) continue;
@@ -7200,8 +7221,10 @@ function frigateCameraGroups(hass) {
     if (!groups.has(clientId)) groups.set(clientId, new Map());
     const cameras = groups.get(clientId);
     if (cameras.has(id)) cameras.get(id).ambiguous = true;
-    else cameras.set(id, { name: editorString(friendly_name) || id, entityId });
+    else cameras.set(id, { name: editorString(friendly_name) || id, cameraName: camera_name, entityId });
   }
+  // All multiview tiles share one scan of the current HA state snapshot.
+  if (hass?.states) cameraGroupCache.set(hass.states, { registry: hass.entities, groups });
   return groups;
 }
 
@@ -8045,11 +8068,179 @@ class FrigateVisionCardEditor extends LitElement {
   }
 }
 
+// A manual alias can belong to a different camera, and the same alias can
+// exist on different NVRs. Never infer a physical control target from it.
+async function streamMatchesCamera(hass, stream) {
+  const camera = frigateCameraGroups(hass).get(stream.client)?.get(stream.camera?.toLowerCase());
+  if (!camera || camera.ambiguous || stream.redirected) return false;
+  if (stream.directBase) {
+    const message = { type: "frigate_vision/profile" };
+    if (stream.entry) message.entry_id = stream.entry;
+    const { profile } = await hass.callWS(message);
+    if (!profile || profile.frigate_client_id !== stream.client || go2rtcBase(profile) !== stream.directBase) return false;
+  } else if (stream.name === camera.cameraName) {
+    return true; // Canonical name on the instance-specific HA proxy.
+  }
+  const result = await hass.callWS({
+    type: "frigate_vision/camera_streams", entity_id: camera.entityId, instance_id: stream.client,
+  });
+  return Array.isArray(result?.streams) && result.streams.includes(stream.name);
+}
+
+function renderCameraControls(hass, config, instanceId, cameraId, live, talkState, t) {
+  if (config.live_controls === false || config.live_provider === "off") return "";
+  return html`${talkButton(live, config, talkState, t)}${renderPtzControls(hass, instanceId, cameraId, live?.playbackTarget, t)}`;
+}
+
+function renderPtzControls(hass, instanceId, cameraId, stream, t) {
+  if (!instanceId || !cameraId || stream?.client !== instanceId || stream.camera !== cameraId) return "";
+  if (!hass?.services?.frigate?.ptz || !hass.callService || !hass.callWS || hass.connected === false) return "";
+  const camera = frigateCameraGroups(hass).get(instanceId)?.get(cameraId.toLowerCase());
+  if (!camera || camera.ambiguous || ["unavailable", "unknown", "off"].includes(hass.states[camera.entityId].state)) return "";
+  return html`<frigate-vision-ptz .hass=${hass} .stream=${stream} .cameraName=${camera.cameraName}
+    .entityId=${camera.entityId} .t=${t}></frigate-vision-ptz>`;
+}
+
+class FrigateVisionPtz extends LitElement {
+  static properties = {
+    hass: { attribute: false }, stream: { attribute: false }, cameraName: { attribute: false },
+    entityId: { attribute: false }, t: { attribute: false }, _features: { state: true },
+    _open: { state: true }, _pulse: { state: true }, _failed: { state: true },
+  };
+
+  connectedCallback() {
+    super.connectedCallback();
+    this.requestUpdate();
+  }
+
+  disconnectedCallback() {
+    super.disconnectedCallback();
+    this._reset();
+  }
+
+  _reset() {
+    this._close();
+    this._target = null;
+    this._features = null;
+    this._failed = false;
+  }
+
+  willUpdate(changed) {
+    if (!this.isConnected) return;
+    const connection = this.hass.connection || this.hass.callWS;
+    if (this._target?.connection === connection && !changed.has("stream") && !changed.has("cameraName") && !changed.has("entityId")) return;
+    this._reset();
+    const target = { connection, entityId: this.entityId };
+    this._target = target;
+    this._loadFeatures(target);
+  }
+
+  async _loadFeatures(target) {
+    try {
+      if (!await streamMatchesCamera(this.hass, this.stream) || this._target !== target) return;
+      const result = await this.hass.callWS({ type: "frigate/ptz/info", instance_id: this.stream.client, camera: this.cameraName });
+      const info = typeof result === "string" ? JSON.parse(result) : result;
+      if (this._target === target && Array.isArray(info?.features)) this._features = info.features;
+    } catch {
+      // Fixed cameras and older Frigate integrations may not return PTZ info.
+    }
+  }
+
+  async _send(hass, target, action, argument) {
+    try {
+      await hass.callService("frigate", "ptz", argument ? { action, argument } : { action }, { entity_id: target.entityId });
+    } catch {
+      if (this._target === target) this._failed = true;
+    }
+  }
+
+  _nudge(action, argument) {
+    if (!this._open || this._pulse || !this._target) return;
+    this._failed = false;
+    // Frigate move/zoom are continuous. Schedule STOP independently of the
+    // service acknowledgment and pin it to the original connection and entity.
+    const stop = () => this._endPulse();
+    this._pulse = { target: this._target, hass: this.hass, stop, timer: setTimeout(stop, 300) };
+    window.addEventListener("pagehide", stop);
+    document.addEventListener("visibilitychange", stop);
+    this._send(this.hass, this._target, action, argument);
+  }
+
+  async _endPulse() {
+    const pulse = this._pulse;
+    if (!pulse || pulse.stopping) return;
+    pulse.stopping = true;
+    clearTimeout(pulse.timer);
+    window.removeEventListener("pagehide", pulse.stop);
+    document.removeEventListener("visibilitychange", pulse.stop);
+    await this._send(pulse.hass, pulse.target, "stop");
+    if (this._pulse === pulse) this._pulse = null;
+  }
+
+  _close() {
+    const panel = this.renderRoot?.querySelector("dialog");
+    if (panel?.open) panel.close();
+    else if (panel?.hidePopover && panel.matches(":popover-open")) panel.hidePopover();
+    this._open = false;
+    this._endPulse();
+  }
+
+  render() {
+    const pt = this._features?.includes("pt"), zoom = this._features?.includes("zoom");
+    if (!pt && !zoom) return html``;
+    const t = this.t?.ptz ? this.t : STRINGS.en;
+    const labels = t.ptz;
+    const command = (action, arg, label, icon) => html`<button type="button" class=${arg} title=${label} aria-label=${label}
+      ?disabled=${!!this._pulse} @click=${() => this._nudge(action, arg)}>${icon}</button>`;
+    return html`
+      <button type="button" class="trigger" popovertarget="controls" aria-controls="controls" aria-expanded=${String(!!this._open)}
+        title=${labels.label} @click=${() => {
+          const panel = this.renderRoot.querySelector("dialog");
+          if (!panel.showPopover) { panel.showModal(); this._open = true; }
+        }}>PTZ</button>
+      <dialog id="controls" popover="auto" aria-label=${`${labels.label}: ${this.cameraName}`}
+        @beforetoggle=${e => { this._open = e.newState === "open"; if (!this._open) this._endPulse(); }}
+        @close=${() => { this._open = false; this._endPulse(); }}>
+        <header><strong>${labels.label} · ${this.cameraName}</strong>
+          <button type="button" aria-label=${t.close} title=${t.close} @click=${this._close}>×</button></header>
+        <div class="pad">
+          ${pt ? html`${command("move", "up", labels.up, "↑")}${command("move", "left", labels.left, "←")}
+            ${command("move", "right", labels.right, "→")}${command("move", "down", labels.down, "↓")}` : ""}
+          <button type="button" class="stop" aria-label=${labels.stop} title=${labels.stop} @click=${() => {
+            if (!this._open) return;
+            this._failed = false;
+            if (this._pulse) this._endPulse(); else this._send(this.hass, this._target, "stop");
+          }}>■</button>
+          ${zoom ? html`${command("zoom", "out", t.timeline_zoom_out, "−")}${command("zoom", "in", t.timeline_zoom_in, "+")}` : ""}
+        </div>
+        ${this._failed ? html`<p role="alert">${labels.failed}</p>` : ""}
+      </dialog>`;
+  }
+
+  static styles = css`
+    :host { display: contents; }
+    button { cursor: pointer; touch-action: manipulation; font: inherit; color: inherit; }
+    .trigger { border: 0; border-radius: 6px; padding: 0 7px; height: 32px; color: white; background: rgb(0 0 0 / .65); font: bold 12px sans-serif; }
+    dialog { max-width: min(18rem, 90vw); padding: 10px; border: 1px solid var(--divider-color, #888); border-radius: 10px; color: var(--primary-text-color, #222); background: var(--card-background-color, white); box-shadow: 0 3px 14px #0005; }
+    @supports (position-area: bottom) {
+      dialog:popover-open { inset: auto; position-area: bottom span-left; justify-self: end; margin: 4px 0; position-try-fallbacks: flip-block, flip-inline; }
+    }
+    header { display: flex; align-items: center; justify-content: space-between; gap: 8px; margin-bottom: 6px; font-size: .85rem; overflow-wrap: anywhere; }
+    dialog button { width: 44px; height: 44px; border: 1px solid var(--divider-color, #aaa); border-radius: 6px; background: transparent; font-size: 20px; }
+    dialog button:disabled { opacity: .5; }
+    .pad { display: grid; justify-content: center; grid-template-areas: ". up ." "left stop right" ". down ." "out . in"; gap: 2px; }
+    .up { grid-area: up; } .down { grid-area: down; } .left { grid-area: left; } .right { grid-area: right; }
+    .stop { grid-area: stop; } .in { grid-area: in; } .out { grid-area: out; }
+    p { margin: 8px 0 0; font-size: .85rem; }
+  `;
+}
+
 class FrigateVisionLiveTile extends LitElement {
   static get properties() {
     return {
       hass: { attribute: false },
       cameraId: { type: String },
+      instanceId: { attribute: false },
       cameraEntry: { attribute: false },
       cardConfig: { attribute: false },
       t: { attribute: false },
@@ -8440,7 +8631,8 @@ class FrigateVisionLiveTile extends LitElement {
           </div>
         ` : ""}
         <div class="player-top-buttons hd-sd-wrap--top">
-          ${this._provider && !this._loading ? talkButton(this._lc, cfg, this._talkState, t) : ""}
+          ${this._provider && !this._loading && !this._error
+            ? renderCameraControls(this.hass, cfg, this.instanceId, this.cameraId, this._lc, this._talkState, t) : ""}
           ${hasHdSd && showHdSd && hdSdPos === "top" ? this._hdButton() : ""}
         </div>
         ${hasHdSd && showHdSd && hdSdPos === "bottom" ? html`
@@ -8515,6 +8707,10 @@ class FrigateVisionLiveTile extends LitElement {
 if (!customElements.get("frigate-vision-talk-button")) {
   customElements.define("frigate-vision-talk-button", FrigateVisionTalkButton);
 }
+if (!customElements.get("frigate-vision-ptz")) {
+  customElements.define("frigate-vision-ptz", FrigateVisionPtz);
+}
+
 if (!customElements.get("frigate-vision-live-tile")) {
   customElements.define("frigate-vision-live-tile", FrigateVisionLiveTile);
 }

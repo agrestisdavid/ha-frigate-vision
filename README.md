@@ -84,6 +84,9 @@ remote Home Assistant access.
 
 ## Live streaming
 
+For cameras with PTZ support, tap **PTZ** in the live view or on a multiview
+tile to open the [pan, tilt and zoom controls](docs/card.md#ptz-button).
+
 The bundled Card tries WebRTC first and falls back to MSE before continuing
 through the remaining configured transports. A separate external go2rtc URL is
 not required when the Card is opened through Home Assistant.

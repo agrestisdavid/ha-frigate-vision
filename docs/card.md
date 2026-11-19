@@ -11,6 +11,8 @@ Its custom elements are unique:
 - `frigate-vision-card`
 - `frigate-vision-card-editor`
 - `frigate-vision-live-tile`
+- `frigate-vision-ptz`
+- `frigate-vision-talk-button`
 
 They can coexist with a different Frigate timeline Card on the same dashboard.
 The Card responds only to its own deep link:
@@ -180,7 +182,29 @@ No new public endpoint or HA service is needed.
 
 Stopping, switching camera/quality, leaving or hiding the view, or losing the
 connection releases the microphone. A later connection does not turn it on
-again. Starting another tile stops the previous tile's microphone.
+again. Starting another tile's microphone stops the previous one. Disabling
+**Livestream → Live-Controls Overlay anzeigen** hides both the microphone and
+PTZ controls; the separate HD/SD button setting is unchanged.
+
+### PTZ button
+
+In live view, tap **PTZ** on the camera you want to control. Opening the panel
+never moves the camera. Use the arrows to pan or tilt, or **+ / −** to zoom.
+Each tap sends a short movement followed by a stop request; **■** sends Stop
+immediately. Close the panel with **×** or **Esc**. The same button is available
+on individual multiview tiles. PTZ works with WebRTC or MSE live playback, not
+with clips, recordings or direct MP4/HLS/MJPEG playback.
+
+No Card YAML is needed. Enable ONVIF/PTZ for the camera in Frigate and leave
+**Livestream → Live-Controls Overlay anzeigen** enabled in the Card editor.
+The Card asks the Frigate integration which controls the camera supports. If
+no button appears, check that the camera is available as a Frigate camera
+entity in Home Assistant and that the Card selects the correct Frigate instance.
+A custom HD/SD alias must be listed for that camera in Frigate; a direct
+playback endpoint must also match the selected HA profile. An unverified
+stream can still play but cannot show controls for a different camera.
+Commands use the `frigate.ptz` action with that entity as the target; the HA
+user needs permission to control it. The Card never publishes directly to MQTT.
 
 ## Ultra-Wide cameras in multiview
 
