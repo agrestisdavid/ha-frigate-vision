@@ -32,7 +32,8 @@
 | `go2rtc_url` | Optional direct local go2rtc override |
 | `go2rtc_url_external` | Optional direct remote go2rtc override; not required with the HA proxy |
 | `go2rtc_modes` | Ordered transport list |
-| `talk_mode` | Live microphone control: `toggle` (default; tap to start/stop) or `hold` (push-to-talk) |
+| `live_controls` | Show the live overlay, including the microphone and available PTZ controls (default: `true`). Independent of `hd_sd_button`. |
+| `talk_mode` | [Microphone control](card.md#talk-to-the-camera): `toggle` (default; tap to start/stop) or `hold` (push-to-talk). Neither mode captures audio until you use it. |
 | `cameras` | Camera display names and stream keys |
 | `initial_events` | Initial event count |
 | `events_per_load` | Pagination size |

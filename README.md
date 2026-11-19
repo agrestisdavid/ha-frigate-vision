@@ -24,11 +24,14 @@ Frigate Vision is independent of LLM Vision:
 - No provider credentials, fixed hosts, or private addresses are embedded in
   the Card or Blueprint.
 
-**Updating to 0.3.13:** Update in HACS and restart Home Assistant. The
-[visual Card editor](docs/card.md#visual-editor) can now select Frigate cameras
-and suggest their Main/Sub stream names without replacing manual settings.
-Event rows appear before optional review metadata arrives. Existing Cards and
-automations need no migration; no Blueprint re-import is required for this update.
+**New in 0.4.0:** Use the [PTZ controls](https://agrestisdavid.github.io/ha-frigate-vision/card/#ptz-button)
+or [talk to the camera](https://agrestisdavid.github.io/ha-frigate-vision/card/#talk-to-the-camera)
+from a single live view or a multiview tile. Opening the Card does not move a
+camera or request the microphone.
+
+**Upgrade from 0.3.13:** Update Frigate Vision in HACS, restart Home Assistant,
+then reload the dashboard. No Card migration, new Lovelace resource, or
+Blueprint re-import is needed.
 
 **Multiple Frigate instances (0.3.12):** The Card reads clips and event metadata from the
 same Frigate instance. If multiple instances are available, see
@@ -73,7 +76,7 @@ procedure used during the beta phase.
    Lovelace resource is required.
 
 If a split Frigate Vision 0.1.x test Card was installed previously, remove only
-that separate Lovelace resource before loading 0.3.x. Do not remove an LLM
+that separate Lovelace resource before loading the bundled Card. Do not remove an LLM
 Vision or legacy timeline Card resource.
 
 The config flow first selects an existing Frigate config entry, then asks for
@@ -84,8 +87,12 @@ remote Home Assistant access.
 
 ## Live streaming
 
-For cameras with PTZ support, tap **PTZ** in the live view or on a multiview
-tile to open the [pan, tilt and zoom controls](docs/card.md#ptz-button).
+- **Move a camera:** On a supported Frigate camera, open **PTZ**, then tap an
+  arrow or **+ / −**. Each movement is followed by a Stop request. The panel
+  shows only the controls the camera reports.
+- **Talk to a camera:** On a WebRTC stream with a speaker backchannel, tap the
+  microphone to start and again to stop, or set `talk_mode: hold` for push-to-talk.
+  Listening alone does not need microphone permission. MSE remains listen-only.
 
 The bundled Card tries WebRTC first and falls back to MSE before continuing
 through the remaining configured transports. A separate external go2rtc URL is
@@ -97,10 +104,6 @@ initial negotiation, a signaling answer alone is not considered success: the
 Card waits for a media track and a connected/completed ICE state. An initial
 failure or readiness timeout cleans up that attempt and falls back to MSE,
 whose complete media path runs through Home Assistant.
-
-On a compatible WebRTC stream, tap the microphone in the live player or camera
-tile to talk; tap again to stop. Select push-to-talk in the Card editor if you
-prefer to hold the button. See [Talk to the camera](https://agrestisdavid.github.io/ha-frigate-vision/card/#talk-to-the-camera) for microphone permissions and camera requirements.
 
 Direct internal or external go2rtc URLs remain available only as advanced
 overrides for trusted reverse-proxy or standalone deployments. The direct MP4,

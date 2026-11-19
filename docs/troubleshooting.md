@@ -20,7 +20,7 @@ Symptom: an automation fires immediately, while the Frigate REST event or
 snapshot temporarily returns 404.
 
 Frigate can publish `new`, `update`, and `end` MQTT messages for the same event,
-and REST availability may trail the first message. Frigate Vision 0.3.x waits
+and REST availability may trail the first message. Frigate Vision waits
 up to the configured recording timeout, then gives the detect event snapshot a
 separate five-second fallback window.
 
@@ -113,6 +113,22 @@ For an external browser, `go2rtc_url` is intentionally ignored. Configure
 `go2rtc_url_external` only for a deliberate direct deployment; when it is
 empty, the Card uses the Home Assistant proxy.
 
+## I can watch the camera but cannot talk or move it
+
+First open a **live** player (not a clip or a recording) and check that the
+live controls overlay is enabled in the Card editor.
+
+- **No PTZ button:** Use WebRTC or MSE. Enable ONVIF/PTZ in Frigate and select
+  the correct instance and camera. For a custom stream name, check the camera’s
+  `live.streams` mapping. If the panel opens but a command fails, check the
+  HA user's control permission for that camera. See [PTZ button](card.md#ptz-button).
+- **I can hear the camera but it cannot hear me:** Unmuting the video enables
+  listening, not the microphone. Use HTTPS (or localhost), allow microphone
+  access, and select a WebRTC stream with a speaker backchannel. If only the
+  main stream has one, switch to HD. MSE works for viewing but cannot send
+  microphone audio. If a direct stream cannot be verified, use HA proxy
+  playback; do not expose another public endpoint. See [Talk to the camera](card.md#talk-to-the-camera).
+
 ## The Card cannot load its central profile
 
 With one loaded Frigate Vision entry, the backend resolves the profile
@@ -129,7 +145,7 @@ field.
 ## The Card is registered twice
 
 Remove any old manual or HACS Lovelace resource that points to a separate
-`frigate-vision-card.js`. Version 0.3.x loads the Card from the integration.
+`frigate-vision-card.js`. The integration loads its own versioned Card.
 After removal, restart Home Assistant and hard-refresh the browser.
 
 Do not remove a resource belonging to a different legacy Card.
@@ -142,7 +158,7 @@ analyses with `store: true` appear on the exact Frigate event after success.
 
 ## The config flow is empty
 
-Version 0.3.x uses a two-step flow with a normal dropdown instead of a
+The integration uses a two-step flow with a normal dropdown instead of a
 config-entry selector. Confirm the installed integration version, restart Home
 Assistant, and reload the frontend. The first step aborts clearly when no
 Frigate integration exists.

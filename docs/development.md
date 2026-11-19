@@ -194,6 +194,21 @@ stable-only; never describe manual checks as already completed.
 Never publish a release from manually copied Home Assistant files. Subsequent
 fixes should use a new GitHub tag and HACS version.
 
+## Version 0.4.0
+
+- [PTZ](card.md#ptz-button) in WebRTC and MSE live views: show the supported
+  pan/tilt and zoom commands for the current camera. Each movement and its
+  Stop request target the same HA entity, even when the view changes.
+- [Two-way audio](card.md#talk-to-the-camera) in single and multiview WebRTC
+  players: tap to toggle or hold to talk. Only the active stream gets a
+  microphone session; stopping does not interrupt playback. Direct playback
+  needs a matching HA profile and stream alias before capture.
+- Include the hls.js **1.7.4** browser bundle and the development updates to
+  Playwright **1.65.1** and Ruff **0.17.5** already merged since 0.3.13.
+- No change to service schemas or the notification Blueprint. Upgrade the
+  HACS integration, restart HA and reload the dashboard; no Blueprint re-import
+  or configuration migration is required from 0.3.13.
+
 ## Version 0.3.13
 
 - Select Frigate cameras in the [visual editor](card.md#visual-editor). Stream

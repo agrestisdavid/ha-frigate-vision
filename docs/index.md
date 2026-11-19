@@ -16,7 +16,18 @@ timeline database. A successful event analysis can be written to the exact
 Frigate event as `data.description`, while clips and event metadata continue
 to come from Frigate.
 
-## What version 0.3.x provides
+## What’s new in 0.4.0
+
+- [Pan, tilt or zoom](card.md#ptz-button) a supported camera from its live view
+  or multiview tile. Opening the controls does not move the camera.
+- [Talk to the camera](card.md#talk-to-the-camera) on a compatible WebRTC
+  stream. Tap to start and stop, or hold to talk. Watching alone never requests
+  microphone access.
+
+Upgrading from 0.3.13? [Update the integration package](getting-started.md#updating-from-0313)
+without changing your dashboards or re-importing the notification Blueprint.
+
+## How it works
 
 Event creation and REST availability are not always simultaneous. The
 integration therefore waits for a recording/main-stream frame, then tries a
