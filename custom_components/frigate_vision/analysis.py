@@ -224,6 +224,14 @@ def _base64_size(byte_count: int) -> int:
     return 4 * ((byte_count + 2) // 3)
 
 
+def _check_frame_budget(encoded_total: int) -> None:
+    if encoded_total > MAX_VIDEO_PAYLOAD_BYTES:
+        raise SourceError(
+            "Der Base64-Payload der Videosequenz überschreitet die "
+            "erlaubte Gesamtgröße von 25 MB."
+        )
+
+
 def _bounded_video_frames(
     frames: list[tuple[float, bytes]],
 ) -> list[tuple[float, bytes]]:
@@ -233,11 +241,7 @@ def _bounded_video_frames(
         if not image_bytes:
             raise SourceError("Die Videosequenz enthält einen leeren Frame.")
         encoded_total += _base64_size(len(image_bytes))
-        if encoded_total > MAX_VIDEO_PAYLOAD_BYTES:
-            raise SourceError(
-                "Der Base64-Payload der Videosequenz überschreitet die "
-                "erlaubte Gesamtgröße von 25 MB."
-            )
+        _check_frame_budget(encoded_total)
     return frames
 
 
@@ -1224,6 +1228,7 @@ async def _wait_for_video_frames(
         for index in range(duration_seconds)
     ]
     frames: dict[float, bytes] = {}
+    encoded_total = 0
     attempt = 0
     first_attempt = True
     last_error: FrigateEventError | None = None
@@ -1241,9 +1246,7 @@ async def _wait_for_video_frames(
         ),
     )
 
-    async def fetch_frame(
-        relative_time: float, timestamp: float
-    ) -> tuple[float, bytes]:
+    async def fetch_frame(timestamp: float) -> bytes:
         source = await runtime.frigate.get_recording_snapshot(
             event_id,
             camera,
@@ -1253,37 +1256,42 @@ async def _wait_for_video_frames(
                 allow_expired_attempt=allow_immediate_attempt,
             ),
         )
-        prepared = await runtime.hass.async_add_executor_job(
-            _prepare_jpeg,
-            source,
-            0,
-            target_height,
+        return await runtime.hass.async_add_executor_job(
+            _prepare_jpeg, source, 0, target_height
         )
-        return relative_time, prepared
 
     async def fetch_missing(
         missing: list[tuple[float, float]],
-    ) -> list[tuple[float, bytes] | FrigateEventError]:
-        """Use three workers and stop queued requests on a fatal auth error."""
+    ) -> list[FrigateEventError]:
+        """Store frames as each arrives; cancel siblings on a fatal error."""
         queue: asyncio.Queue[tuple[float, float]] = asyncio.Queue()
         for sample in missing:
             queue.put_nowait(sample)
-        results: list[tuple[float, bytes] | FrigateEventError] = []
+        errors: list[FrigateEventError] = []
 
         async def worker() -> None:
-            while True:
+            nonlocal encoded_total
+            # Other ready workers must not dequeue more work before gather
+            # observes an over-budget frame and cancels the in-flight requests.
+            while encoded_total <= MAX_VIDEO_PAYLOAD_BYTES:
                 try:
                     relative_time, timestamp = queue.get_nowait()
                 except asyncio.QueueEmpty:
                     return
                 try:
-                    results.append(await fetch_frame(relative_time, timestamp))
+                    jpeg = await fetch_frame(timestamp)
                 except FrigateAuthenticationError:
                     raise
                 except FrigateEventError as err:
                     if err.status in {401, 403}:
                         raise
-                    results.append(err)
+                    errors.append(err)
+                else:
+                    # No await between accounting and storing. Retries only
+                    # enqueue missing offsets, so no frame is counted twice.
+                    encoded_total += _base64_size(len(jpeg))
+                    _check_frame_budget(encoded_total)
+                    frames[relative_time] = jpeg
 
         tasks = [
             asyncio.create_task(worker()) for _index in range(min(3, len(missing)))
@@ -1295,28 +1303,15 @@ async def _wait_for_video_frames(
                 task.cancel()
             await asyncio.gather(*tasks, return_exceptions=True)
             raise
-        return results
+        return errors
 
     while first_attempt or monotonic() < deadline:
         first_attempt = False
         missing = [sample for sample in samples if sample[0] not in frames]
-        results = await fetch_missing(missing)
-        permanent_error = False
-        for result in results:
-            if isinstance(result, FrigateEventError):
-                last_error = result
-                permanent_error = permanent_error or not result.transient
-                continue
-            relative_time, jpeg = result
-            frames[relative_time] = jpeg
-
-        if sum(_base64_size(len(frame)) for frame in frames.values()) > (
-            MAX_VIDEO_PAYLOAD_BYTES
-        ):
-            raise SourceError(
-                "Der Base64-Payload der Videosequenz überschreitet die "
-                "erlaubte Gesamtgröße von 25 MB."
-            )
+        errors = await fetch_missing(missing)
+        if errors:
+            last_error = errors[-1]
+        permanent_error = any(not error.transient for error in errors)
         if len(frames) == len(samples):
             return [(relative, frames[relative]) for relative, _timestamp in samples]
         if permanent_error or deadline - monotonic() <= 0:

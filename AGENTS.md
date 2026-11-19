@@ -18,7 +18,10 @@ Run `npm ci` and `npx playwright install chromium` before the Card suite.
 Do not hand-edit generated brand images or vendor bundles. The rebuild commands
 and the complete local check sequence are in [Development](docs/development.md).
 `.github/workflows/validate.yml` defines the five PR checks, including HACS and
-hassfest. Local Python tests use stubs; they are not a live installation test.
+hassfest. The fast Python tests use stubs. For setup, service or frontend
+registration changes and before releasing, also run `python scripts/test_ha_container.py`
+with a local Linux Docker engine. It uses disposable HA Core and synthetic
+Frigate/model endpoints, not a running installation.
 
 ## Preparing a stable release
 

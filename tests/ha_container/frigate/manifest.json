@@ -1,0 +1,7 @@
+{
+  "domain": "frigate",
+  "name": "Synthetic Frigate (smoke test only)",
+  "config_flow": true,
+  "version": "0.0.1",
+  "requirements": []
+}

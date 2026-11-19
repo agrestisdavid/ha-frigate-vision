@@ -22,6 +22,7 @@ from .analysis import (
     build_runtime,
     merged_config,
 )
+from .camera_streams import ws_camera_streams
 from .const import (
     ATTR_FRONTEND_REGISTERED,
     ATTR_RUNTIME_ENTRIES,
@@ -133,8 +134,12 @@ def _domain_data(hass: HomeAssistant) -> dict[str, Any]:
 
 async def async_setup(hass: HomeAssistant, config: dict[str, Any]) -> bool:
     """Initialize domain-level storage."""
-    _domain_data(hass)
+    domain_data = _domain_data(hass)
     await async_register_frontend(hass)
+    if not domain_data[ATTR_WS_REGISTERED]:
+        websocket_api.async_register_command(hass, ws_profile)
+        websocket_api.async_register_command(hass, ws_camera_streams)
+        domain_data[ATTR_WS_REGISTERED] = True
     return True
 
 
@@ -152,9 +157,6 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
     if not domain_data[ATTR_SERVICES_REGISTERED]:
         _register_services(hass)
         domain_data[ATTR_SERVICES_REGISTERED] = True
-    if not domain_data[ATTR_WS_REGISTERED]:
-        websocket_api.async_register_command(hass, ws_profile)
-        domain_data[ATTR_WS_REGISTERED] = True
     return True
 
 

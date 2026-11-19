@@ -24,7 +24,13 @@ Frigate Vision is independent of LLM Vision:
 - No provider credentials, fixed hosts, or private addresses are embedded in
   the Card or Blueprint.
 
-**Updating to 0.3.12:** The Card now reads clips and event metadata from the
+**Updating to 0.3.13:** Update in HACS and restart Home Assistant. The
+[visual Card editor](docs/card.md#visual-editor) can now select Frigate cameras
+and suggest their Main/Sub stream names without replacing manual settings.
+Event rows appear before optional review metadata arrives. Existing Cards and
+automations need no migration; no Blueprint re-import is required for this update.
+
+**Multiple Frigate instances (0.3.12):** The Card reads clips and event metadata from the
 same Frigate instance. If multiple instances are available, see
 [selecting a Card profile](docs/card.md#multiple-frigate-vision-entries).
 No Blueprint re-import or configuration migration is required for this fix.

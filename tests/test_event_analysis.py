@@ -1035,6 +1035,98 @@ class EventAnalysisTests(unittest.IsolatedAsyncioTestCase):
         for timestamp in [float(value) for value in range(100, 115) if value != 104]:
             self.assertEqual(requested_times.count(timestamp), 1)
 
+    async def test_video_frame_budget_cancels_inflight_requests_without_fallback(
+        self,
+    ) -> None:
+        event = {"id": self.event_id, "camera": "gate", "start_time": 100.0}
+        frigate = FakeFrigate([event], [jpeg()])
+        provider = FakeProvider(self.analysis)
+        three_started = asyncio.Event()
+        never = asyncio.Event()
+        requested, cancelled = [], []
+
+        async def recording(_event_id, _camera, timestamp, *, timeout):
+            requested.append(timestamp)
+            if len(requested) == 3:
+                three_started.set()
+            await three_started.wait()
+            if timestamp == 100.0:
+                return jpeg()
+            try:
+                await never.wait()
+            except asyncio.CancelledError:
+                cancelled.append(timestamp)
+                raise
+
+        with (
+            patch.object(frigate, "get_recording_snapshot", recording),
+            patch.object(self.analysis, "MAX_VIDEO_PAYLOAD_BYTES", 1),
+            self.assertRaisesRegex(self.analysis.SourceError, "Base64-Payload"),
+        ):
+            await asyncio.wait_for(
+                self.analysis.analyze_event_video(
+                    self.recording_runtime(frigate, provider),
+                    event_id=self.event_id,
+                    camera_entity=None,
+                    prompt="Describe.",
+                    store=True,
+                    duration_seconds=15,
+                    pre_seconds=0,
+                ),
+                timeout=2,
+            )
+        self.assertEqual(len(requested), 3)
+        self.assertCountEqual(cancelled, [101.0, 102.0])
+        self.assertEqual(
+            (
+                provider.calls,
+                frigate.write_calls,
+                frigate.clean_snapshot_calls,
+                frigate.snapshot_calls,
+            ),
+            (0, 0, 0, 0),
+        )
+
+    async def test_video_frame_budget_counts_successes_once_across_retries(
+        self,
+    ) -> None:
+        event = {"id": self.event_id, "camera": "gate", "start_time": 100.0}
+        frame = jpeg()
+        exact = self.analysis._base64_size(len(frame)) * 5
+        for limit in (exact, exact - 1):
+            with self.subTest(limit=limit):
+                retry = self.analysis.FrigateEventError("not ready", transient=True)
+                frigate = FakeFrigate(
+                    [event], [frame], [frame, retry, frame, frame, frame, frame]
+                )
+                provider = FakeProvider(self.analysis)
+                with (
+                    patch.object(self.analysis, "MAX_VIDEO_PAYLOAD_BYTES", limit),
+                    patch.object(self.analysis, "EVENT_RETRY_DELAYS", (0,)),
+                ):
+                    result = self.analysis.analyze_event_video(
+                        self.recording_runtime(frigate, provider),
+                        event_id=self.event_id,
+                        camera_entity=None,
+                        prompt="Describe.",
+                        store=False,
+                        duration_seconds=5,
+                        pre_seconds=0,
+                    )
+                    if limit == exact:
+                        self.assertEqual((await result)["frame_count"], 5)
+                        self.assertEqual(
+                            [offset for offset, _ in provider.video_frames],
+                            list(range(5)),
+                        )
+                    else:
+                        with self.assertRaisesRegex(
+                            self.analysis.SourceError, "Base64-Payload"
+                        ):
+                            await result
+                        self.assertEqual(provider.calls, 0)
+                self.assertEqual(frigate.recording_calls, 6)
+
     async def test_video_auth_error_cancels_queued_frame_requests(self) -> None:
         event = {
             "id": self.event_id,
