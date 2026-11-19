@@ -495,6 +495,66 @@ test("Ultra-Wide editor switch persists across unrelated edits, save/reload and 
   }
 });
 
+test("talk mode defaults to toggle; the editor saves hold and reloads it without changing cameras", async (t) => {
+  const page = await openRuntimePage(t);
+  const cameras = { door: { name: "Door", main: "door_hd", sub: "door_sd" } };
+  const mount = async () => page.evaluate(async (cameras) => {
+    const config = JSON.parse(sessionStorage.getItem("card") || "null") || { cameras };
+    const editor = document.createElement("frigate-vision-card-editor");
+    editor.setConfig(config);
+    editor._expandedSection = "livestream";
+    editor.addEventListener("config-changed", e => sessionStorage.setItem("card", JSON.stringify(e.detail.config)));
+    document.body.append(editor);
+    await editor.updateComplete;
+    const card = document.createElement("frigate-vision-card");
+    card.setConfig(config);
+    return card._config.talk_mode;
+  }, cameras);
+  assert.equal(await mount(), "toggle");
+  const select = page.getByLabel("Sprechtaste");
+  assert.equal(await select.inputValue(), "toggle");
+  await select.selectOption("hold");
+  await page.reload();
+  await page.waitForFunction(() => window.__frigateVisionBrowserRuntime);
+  assert.equal(await mount(), "hold");
+  assert.equal(await select.inputValue(), "hold");
+  await select.selectOption("toggle");
+  assert.deepEqual(await page.evaluate(() => JSON.parse(sessionStorage.getItem("card"))), { cameras, talk_mode: "toggle" });
+});
+
+test("talk button toggles on click, holds across pointer travel, and stops on cancel, keyup or removal", async (t) => {
+  const page = await openRuntimePage(t);
+  await page.evaluate(async () => {
+    const button = document.createElement("frigate-vision-talk-button");
+    window.talkActions = [];
+    button.controller = {
+      talkRequested: false,
+      startTalk() { this.talkRequested = true; window.talkActions.push("start"); button.state = "sending"; },
+      stopTalk() { this.talkRequested = false; window.talkActions.push("stop"); button.state = "idle"; },
+    };
+    document.body.append(button);
+    await button.updateComplete;
+  });
+  const button = page.getByRole("button");
+  const actions = () => page.evaluate(() => window.talkActions);
+  assert.deepEqual(await actions(), []);
+  await button.click();
+  assert.equal(await button.getAttribute("aria-pressed"), "true");
+  assert.equal(await page.getByRole("status").textContent(), "Microphone on air");
+  await button.click();
+  await page.locator("frigate-vision-talk-button").evaluate(el => { el.mode = "hold"; });
+  await button.hover(); await page.mouse.down();
+  await page.mouse.move(350, 180); await page.mouse.up();
+  await button.hover(); await page.mouse.down();
+  await button.dispatchEvent("pointercancel", { pointerId: 1, isPrimary: true });
+  await page.mouse.up(); // a trailing native click must not reopen it
+  await button.focus(); await page.keyboard.down("Space"); await page.keyboard.down("Space"); await page.keyboard.up("Space");
+  await button.hover(); await page.mouse.down();
+  await page.locator("frigate-vision-talk-button").evaluate(el => el.remove());
+  await page.mouse.up();
+  assert.deepEqual(await actions(), Array.from({ length: 5 }, () => ["start", "stop"]).flat());
+});
+
 test("mixed Ultra-Wide tiles span responsive grid rows without overflow or distorted media", async (t) => {
   const page = await openRuntimePage(t);
   const scenarios = [

@@ -72,7 +72,9 @@ not met, MSE remains available through Home Assistant.
 ## Advanced and standalone overrides
 
 Direct URL fields are retained for compatibility and specialized deployments.
-They are not required for the integrated HACS installation.
+They are not required for the integrated HACS installation. These overrides
+apply to **playback**, never to microphone signaling. [Talk to the camera](card.md#talk-to-the-camera)
+explains when a direct live stream can be matched to its signed HA return path.
 
 Resolution is intentionally separate for each network context:
 

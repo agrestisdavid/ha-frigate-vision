@@ -44,6 +44,18 @@ const STRINGS = {
     live_connecting: "Verbinde…",
     live_failed: "Livestream fehlgeschlagen",
     live_no_camera: "Keine Kamera für Liveansicht verfügbar",
+    talk: {
+      toggle: "Antippen zum Sprechen", hold: "Zum Sprechen gedrückt halten",
+      pending: "Mikrofon wird verbunden …", sending: "Mikrofon sendet", stop: "Sprechen beenden",
+      denied: "Mikrofonzugriff verweigert. Prüfe die Browserberechtigung.",
+      micUnavailable: "Mikrofon nicht verfügbar. Prüfe Eingabegerät und sicheren Zugriff (HTTPS oder localhost).",
+      noChannel: "Dieser Stream hat keinen kompatiblen Audiorückkanal.",
+      unmapped: "Home Assistant kann den Direktstream dieser Kamera nicht bestätigen. Nutze für die Wiedergabe den HA-Proxy.",
+      haUnavailable: "Gegensprechen benötigt eine authentifizierte Home-Assistant-Verbindung.",
+      requiresWebRTC: "Gegensprechen benötigt eine aktive WebRTC-Wiedergabe.",
+      disconnected: "Verbindung unterbrochen. Das Mikrofon ist aus.",
+      connectionFailed: "Der Audiorückkanal konnte nicht verbunden werden.",
+    },
     timeline_loading: "Lade Aufnahme…",
     timeline_no_recording: "Keine Aufnahme für diesen Zeitraum",
     timeline_no_camera: "Keine Kamera für Timeline verfügbar",
@@ -83,6 +95,18 @@ const STRINGS = {
     live_connecting: "Connecting…",
     live_failed: "Live stream failed",
     live_no_camera: "No camera available for live view",
+    talk: {
+      toggle: "Tap to talk", hold: "Hold to talk", pending: "Connecting microphone…",
+      sending: "Microphone on air", stop: "Stop talking",
+      denied: "Microphone access denied. Check your browser permission.",
+      micUnavailable: "Microphone unavailable. Check the input device and use HTTPS or localhost.",
+      noChannel: "This stream has no compatible audio backchannel.",
+      unmapped: "Home Assistant could not verify this camera’s direct stream. Use HA proxy playback to talk.",
+      haUnavailable: "Talk requires an authenticated Home Assistant connection.",
+      requiresWebRTC: "Talk requires active WebRTC playback.",
+      disconnected: "Connection lost. The microphone is off.",
+      connectionFailed: "Could not connect the audio backchannel.",
+    },
     timeline_loading: "Loading recording…",
     timeline_no_recording: "No recording for this period",
     timeline_no_camera: "No camera available for timeline",
@@ -861,26 +885,13 @@ function detectLang(hass, override) {
   return STRINGS[l] ? l : "en";
 }
 
-/* ───────── Shared Livestream controller ─────────
- * Encapsulates go2rtc protocol negotiation (WebRTC/MSE/HLS/MP4/MJPEG),
- * stream lifecycle and cleanup. Used by both the main card and the
- * multiview tile so the protocol logic exists once.
- */
-class LivestreamController {
+// Each WebRTC session owns its own signed socket, peer and cancellation scope.
+// In particular, closing a send-only talk session must never close playback.
+class Go2rtcSession {
   constructor(opts) {
-    // opts: { getConfig, getVideoEl, getStreamName, onState, onUpdate, logPrefix, failedMessage }
     this._opts = opts;
-    this._isHD = false;
-    this._cameraId = null;
     this._peerConnection = null;
-    this._mediaSource = null;
-    this._sourceBuffer = null;
-    this._mseBuf = null;
-    this._mseBufLen = 0;
     this._go2rtcWs = null;
-    this._mjpegRefreshTimer = null;
-    this._mseReady = null;
-    this._mseFailed = null;
     this._runGeneration = 0;
     this._runCancelers = new Set();
   }
@@ -1024,9 +1035,8 @@ class LivestreamController {
     return `${String(mode || "live").toUpperCase()} setup failed`;
   }
 
-  _go2rtcBase() { return go2rtcBase(this._config()); }
-  _usesDirectGo2rtc() {
-    const config = this._config();
+  _go2rtcBase(config = this._config()) { return go2rtcBase(config); }
+  _usesDirectGo2rtc(config = this._config()) {
     const hasExplicitDirectUrl =
       typeof config?._go2rtc_direct_override === "boolean"
         ? config._go2rtc_direct_override
@@ -1035,10 +1045,8 @@ class LivestreamController {
             config?.go2rtc_url_external ||
             config?.frigate_url
           );
-    return hasExplicitDirectUrl && Boolean(this._go2rtcBase());
+    return hasExplicitDirectUrl && Boolean(this._go2rtcBase(config));
   }
-  _go2rtcWebrtcUrl(name) { return go2rtcHttpUrl(this._config(), "webrtc", name); }
-  _go2rtcWsUrl(name) { return go2rtcWsUrl(this._config(), name); }
   _hlsStreamPath(name) { return `${go2rtcHttpUrl(this._config(), "stream.m3u8", name)}&mp4=flac`; }
   _mp4StreamPath(name) { return go2rtcHttpUrl(this._config(), "stream.mp4", name); }
   _mjpegStreamPath(name) { return go2rtcHttpUrl(this._config(), "stream.mjpeg", name); }
@@ -1046,6 +1054,7 @@ class LivestreamController {
   /* WebRTC via HTTP (WHIP-style) */
   async _startWebRTCviaHTTP(name, videoEl, runId = this._runGeneration) {
     this._assertRunCurrent(runId);
+    const config = this._config();
     const pc = new RTCPeerConnection({
       bundlePolicy: "max-bundle",
     });
@@ -1074,6 +1083,7 @@ class LivestreamController {
           return;
         }
         const iceState = pc.iceConnectionState;
+        if (this._connectionLost(pc)) this._onDisconnect();
         if (iceState === "failed") {
           finishTrack(new Error("WebRTC ICE failed"));
           return;
@@ -1097,6 +1107,7 @@ class LivestreamController {
         this._log("WebRTC-HTTP: iceState", pc.iceConnectionState);
         updateTransportState();
       });
+      pc.addEventListener("connectionstatechange", updateTransportState);
     });
 
     const cancelRun = () => {
@@ -1119,7 +1130,7 @@ class LivestreamController {
       }
       await this._waitForIceGathering(pc, 2500);
       this._assertRunCurrent(runId);
-      const url = this._go2rtcWebrtcUrl(name);
+      const url = go2rtcHttpUrl(config, "webrtc", name);
       this._checkMixedContent(url);
       this._log("WebRTC-HTTP: sending offer");
       ctrl = new AbortController();
@@ -1165,8 +1176,7 @@ class LivestreamController {
       const trackError = await trackPromise;
       if (trackError) throw trackError;
       this._assertRunCurrent(runId);
-      this._setState({ loading: false, provider: "webrtc" });
-      this._tryAutoplay(videoEl, runId);
+      this._playbackReady(name, videoEl, runId, config, resp.redirected);
     } finally {
       if (abortTimer) clearTimeout(abortTimer);
       if (trackTimer) clearTimeout(trackTimer);
@@ -1175,9 +1185,12 @@ class LivestreamController {
   }
 
   /* WebRTC via WebSocket signaling */
-  async _startWebRTCviaWS(name, videoEl, runId = this._runGeneration) {
+  async _startWebRTCviaWS(name, videoEl, runId = this._runGeneration, mic = null) {
     this._assertRunCurrent(runId);
-    const ws = await this._openGo2rtcWs(name, runId);
+    const config = this._config();
+    // An explicit playback URL is never a microphone signaling destination.
+    const ws = mic ? await this._openProxyWs(name, runId, config)
+      : await this._openGo2rtcWs(name, runId, config);
     this._assertRunCurrent(runId);
     this._log("WebRTC-WS: opened");
     const pc = new RTCPeerConnection({
@@ -1185,8 +1198,15 @@ class LivestreamController {
     });
     this._assertRunCurrent(runId);
     this._peerConnection = pc;
-    pc.addTransceiver("video", { direction: "recvonly" });
-    pc.addTransceiver("audio", { direction: "recvonly" });
+    // A microphone-only consumer makes go2rtc reject a stream with no matching
+    // backchannel. A combined A/V offer can succeed for video alone.
+    let outgoing;
+    if (mic) {
+      outgoing = pc.addTransceiver(mic, { direction: "sendonly" });
+    } else {
+      pc.addTransceiver("video", { direction: "recvonly" });
+      pc.addTransceiver("audio", { direction: "recvonly" });
+    }
 
     return new Promise((resolve, reject) => {
       let done = false;
@@ -1206,19 +1226,18 @@ class LivestreamController {
         unregisterCancel();
         ws.onmessage = null;
         ws.onerror = null;
-        ws.onclose = null;
+        ws.onclose = !err && mic ? () => this._onDisconnect() : null;
         if (err) reject(err); else resolve();
       };
       const maybeFinish = () => {
         if (
           !done &&
-          videoTrackReceived &&
+          (mic ? outgoing.currentDirection === "sendonly" : videoTrackReceived) &&
           transportConnected &&
           this._isRunCurrent(runId) &&
           this._peerConnection === pc
         ) {
-          this._setState({ loading: false, provider: "webrtc" });
-          this._tryAutoplay(videoEl, runId);
+          if (!mic) this._playbackReady(name, videoEl, runId, config);
           finish();
         }
       };
@@ -1229,6 +1248,7 @@ class LivestreamController {
         }
         const iceState = pc.iceConnectionState;
         const connectionState = pc.connectionState;
+        if (this._connectionLost(pc)) this._onDisconnect();
         if (iceState === "failed" || connectionState === "failed") {
           finish(new Error("WebRTC candidates were unreachable"));
           return;
@@ -1245,6 +1265,7 @@ class LivestreamController {
       );
       pc.ontrack = (ev) => {
         if (!this._isRunCurrent(runId) || this._peerConnection !== pc) return;
+        if (mic) return;
         this._log("WebRTC-WS: track", ev.track.kind);
         if (!videoEl.srcObject) videoEl.srcObject = new MediaStream();
         try { videoEl.srcObject.addTrack(ev.track); } catch {}
@@ -1288,6 +1309,11 @@ class LivestreamController {
             await pc.setRemoteDescription({ type: "answer", sdp: data.value });
             this._assertRunCurrent(runId);
             this._log("WebRTC-WS: remote desc set");
+            if (mic && outgoing.currentDirection !== "sendonly") {
+              finish(new Error("No compatible audio backchannel"));
+            } else {
+              maybeFinish();
+            }
           } catch (error) {
             finish(
               error?.staleRun
@@ -1302,7 +1328,7 @@ class LivestreamController {
             this._warn("WebRTC-WS: candidate rejected", rejectedCandidates);
           }
         } else if (data.type === "error") {
-          finish(new Error("go2rtc rejected the WebRTC request"));
+          finish(new Error(mic ? "No compatible audio backchannel" : "go2rtc rejected the WebRTC request"));
         }
       };
       ws.onerror = () => finish(new Error("WS error during WebRTC signaling"));
@@ -1312,7 +1338,8 @@ class LivestreamController {
           const offer = await pc.createOffer();
           this._assertRunCurrent(runId);
           await pc.setLocalDescription(offer);
-          await this._waitForIceGathering(pc, 2500);
+          // The signed socket already trickles ICE; don't delay a held talk button.
+          if (!mic) await this._waitForIceGathering(pc, 2500);
           this._assertRunCurrent(runId);
           if (done) return;
           this._log("WebRTC-WS: sending offer (post-gather)");
@@ -1436,10 +1463,10 @@ class LivestreamController {
     });
   }
 
-  async _openGo2rtcWs(name, runId = this._runGeneration) {
+  async _openGo2rtcWs(name, runId = this._runGeneration, config = this._config()) {
     this._assertRunCurrent(runId);
-    if (this._usesDirectGo2rtc()) {
-      const directUrl = this._go2rtcWsUrl(name);
+    if (this._usesDirectGo2rtc(config)) {
+      const directUrl = go2rtcWsUrl(config, name);
       if (!directUrl) {
         throw new Error(
           "Für diesen Zugriff ist kein direkter go2rtc-Endpunkt konfiguriert."
@@ -1452,7 +1479,11 @@ class LivestreamController {
       );
     }
 
-    const config = this._config();
+    return this._openProxyWs(name, runId, config);
+  }
+
+  async _openProxyWs(name, runId, config) {
+    this._assertRunCurrent(runId);
     const routes =
       this._proxyRoute === "legacy"
         ? [{ legacy: true, label: "Frigate-Live-Proxy (Legacy)" }]
@@ -1487,6 +1518,153 @@ class LivestreamController {
         lastError?.message ? `: ${lastError.message}` : "."
       }`
     );
+  }
+
+  _connectionLost(pc) {
+    const lost = ["disconnected", "failed", "closed"];
+    return lost.includes(pc.iceConnectionState) || lost.includes(pc.connectionState);
+  }
+  _onDisconnect() { this._opts.onDisconnect?.(); }
+  _cleanupWebRTC() {
+    const pc = this._peerConnection;
+    this._peerConnection = null;
+    this._webRtcStream = null;
+    try { pc?.close(); } catch {}
+  }
+  _cleanupGo2rtcWs() {
+    if (this._go2rtcWs) {
+      this._go2rtcWs.onmessage = null;
+      this._go2rtcWs.onerror = null;
+      this._go2rtcWs.onclose = null;
+      try { this._go2rtcWs.close(); } catch {}
+      this._go2rtcWs = null;
+    }
+  }
+  close() {
+    this._invalidateRun();
+    this._cleanupWebRTC();
+    this._cleanupGo2rtcWs();
+  }
+}
+
+// Microphone ownership is exclusive across this page's live players.
+let talkOwner = null;
+class LivestreamController extends Go2rtcSession {
+  constructor(opts) {
+    super(opts);
+    this._isHD = false;
+    this._cameraId = null;
+    this._mediaSource = null;
+    this._sourceBuffer = null;
+    this._mseBuf = null;
+    this._mseBufLen = 0;
+    this._mjpegRefreshTimer = null;
+    this._talk = null;
+  }
+
+  _playbackReady(name, videoEl, runId, config, redirected = false) {
+    // Pin the actual signaling target, not the most recent Card config: a
+    // profile refresh may have changed it while ICE was negotiating.
+    this._webRtcStream = {
+      name, camera: this.cameraId, client: config.frigate_client_id,
+      entry: config.frigate_vision_entry_id, redirected,
+      directBase: this._usesDirectGo2rtc(config) ? go2rtcBase(config) : null,
+    };
+    this._setState({ loading: false, provider: "webrtc" });
+    this._tryAutoplay(videoEl, runId);
+  }
+
+  _onDisconnect() {
+    if (this._talk) this.stopTalk("disconnected");
+  }
+
+  get talkRequested() { return !!this._talk; }
+
+  async _directStreamMatchesHA(hass, live) {
+    if (live.redirected) return false;
+    const camera = frigateCameraGroups(hass).get(live.client)?.get(live.camera?.toLowerCase());
+    if (!camera || camera.ambiguous) return false;
+    // Identically named aliases on different NVRs are not interchangeable.
+    // Check the chosen HA profile's endpoint AND its readable camera's aliases.
+    const message = { type: "frigate_vision/profile" };
+    if (live.entry) message.entry_id = live.entry;
+    const { profile } = await hass.callWS(message);
+    if (!profile || profile.frigate_client_id !== live.client || go2rtcBase(profile) !== live.directBase) return false;
+    const result = await hass.callWS({
+      type: "frigate_vision/camera_streams", entity_id: camera.entityId, instance_id: live.client,
+    });
+    return Array.isArray(result?.streams) && result.streams.includes(live.name);
+  }
+
+  async startTalk() {
+    if (this._talk) return;
+    const live = this._webRtcStream;
+    if (!live || !this._peerConnection || this._connectionLost(this._peerConnection)) {
+      this._setState({ talk: live ? "disconnected" : "requiresWebRTC" });
+      return;
+    }
+    const hass = this._hass();
+    if (!hass?.callWS || hass.connected === false) {
+      this._setState({ talk: "haUnavailable" });
+      return;
+    }
+    if (!navigator.mediaDevices?.getUserMedia) {
+      this._setState({ talk: "micUnavailable" });
+      return;
+    }
+    talkOwner?.stopTalk();
+    talkOwner = this;
+    const link = new Go2rtcSession({
+      getConfig: () => ({ frigate_client_id: live.client }),
+      getHass: () => hass,
+      logPrefix: this._opts.logPrefix,
+      onDisconnect: () => { if (this._talk?.link === link) this.stopTalk("disconnected"); },
+    });
+    link._proxyRoute = this._proxyRoute;
+    const attempt = this._talk = { link, stream: null };
+    this._setState({ talk: "pending" });
+    try {
+      if (live.directBase) {
+        const mapped = await this._withTimeout(this._directStreamMatchesHA(hass, live), 5000, "Camera mapping").catch(() => false);
+        if (this._talk !== attempt) return; // released during HA lookup
+        if (!mapped) { this.stopTalk("unmapped"); return; }
+      }
+      const stream = await navigator.mediaDevices.getUserMedia({ audio: true, video: false });
+      // Permission prompts cannot be cancelled. A late grant belongs to the old gesture.
+      if (this._talk !== attempt) {
+        for (const track of stream.getTracks()) track.stop();
+        return;
+      }
+      attempt.stream = stream;
+      const [mic] = stream.getAudioTracks();
+      if (!mic || mic.readyState === "ended") { this.stopTalk("micUnavailable"); return; }
+      mic.enabled = false;
+      mic.onended = () => { if (this._talk === attempt) this.stopTalk("micUnavailable"); };
+      await link._withTimeout(link._startWebRTCviaWS(live.name, null, link.runGeneration, mic), 25000, "Talk");
+      if (this._talk !== attempt) return;
+      mic.enabled = true;
+      this._setState({ talk: "sending" });
+    } catch (error) {
+      if (this._talk !== attempt) return;
+      const reason = error.name === "NotAllowedError" || error.name === "SecurityError" ? "denied"
+        : error.proxySigning ? "haUnavailable"
+        : !attempt.stream ? "micUnavailable"
+        : error.message === "No compatible audio backchannel" ? "noChannel" : "connectionFailed";
+      this.stopTalk(reason);
+    }
+  }
+
+  stopTalk(reason = "idle") {
+    const attempt = this._talk;
+    this._talk = null;
+    if (talkOwner === this) talkOwner = null;
+    for (const track of attempt?.stream?.getTracks() || []) {
+      track.enabled = false;
+      track.onended = null;
+      track.stop();
+    }
+    attempt?.link.close();
+    this._setState({ talk: reason });
   }
 
   /* MSE */
@@ -1954,6 +2132,7 @@ class LivestreamController {
     this._releaseResources();
   }
   _releaseResources() {
+    this.stopTalk();
     this._cleanupWebRTC();
     this._cleanupMSE();
     this._cleanupGo2rtcWs();
@@ -1964,12 +2143,6 @@ class LivestreamController {
       try { v.srcObject = null; } catch {}
       v.removeAttribute("src");
       try { v.load(); } catch {}
-    }
-  }
-  _cleanupWebRTC() {
-    if (this._peerConnection) {
-      try { this._peerConnection.close(); } catch {}
-      this._peerConnection = null;
     }
   }
   _cleanupMSE() {
@@ -1986,15 +2159,6 @@ class LivestreamController {
     this._mseBuf = null;
     this._mseBufLen = 0;
   }
-  _cleanupGo2rtcWs() {
-    if (this._go2rtcWs) {
-      this._go2rtcWs.onmessage = null;
-      this._go2rtcWs.onerror = null;
-      this._go2rtcWs.onclose = null;
-      try { this._go2rtcWs.close(); } catch {}
-      this._go2rtcWs = null;
-    }
-  }
   _cleanupMJPEG(clearUrl = true) {
     if (this._mjpegRefreshTimer) {
       clearInterval(this._mjpegRefreshTimer);
@@ -2002,6 +2166,83 @@ class LivestreamController {
     }
     if (clearUrl) this._setState({ mjpegUrl: null });
   }
+}
+
+// Shared by the single player and multiview. No media is acquired in render or on mount.
+class FrigateVisionTalkButton extends LitElement {
+  static properties = {
+    controller: { attribute: false }, mode: {}, state: {}, messages: { attribute: false },
+  };
+
+  connectedCallback() {
+    super.connectedCallback();
+    this._lifetime = new AbortController();
+    const options = { signal: this._lifetime.signal };
+    window.addEventListener("pagehide", () => this._stop(), options);
+    document.addEventListener("visibilitychange", () => { if (document.hidden) this._stop(); }, options);
+    window.addEventListener("blur", () => { if (this.mode === "hold") this._stop(); }, options);
+  }
+  disconnectedCallback() {
+    this._lifetime?.abort();
+    this._stop();
+    super.disconnectedCallback();
+  }
+  _stop() {
+    this._held = null;
+    if (this.controller?.talkRequested) this.controller.stopTalk();
+  }
+  _down(e) {
+    if (this.mode !== "hold" || this._held != null) return;
+    if (e.type === "pointerdown") {
+      if (!e.isPrimary || e.button !== 0) return;
+      e.currentTarget.setPointerCapture(e.pointerId);
+      this._held = e.pointerId;
+    } else {
+      if (e.repeat || ![" ", "Enter"].includes(e.key)) return;
+      e.preventDefault();
+      this._held = e.key;
+    }
+    this.controller?.startTalk();
+  }
+  _up(e) {
+    if (this._held != null && this._held === (e.pointerId ?? e.key)) {
+      e.preventDefault();
+      this._stop();
+    }
+  }
+  _click() {
+    if (this.mode === "hold") return;
+    if (this.controller?.talkRequested) this._stop();
+    else this.controller?.startTalk();
+  }
+
+  render() {
+    const m = this.messages || STRINGS.en.talk;
+    const sending = this.state === "sending";
+    const busy = sending || this.state === "pending";
+    const label = busy && this.mode !== "hold" ? m.stop : this.mode === "hold" ? m.hold : m.toggle;
+    return html`<button type="button" aria-label=${label} title=${label} aria-pressed=${sending}
+      @click=${this._click} @pointerdown=${this._down} @pointerup=${this._up}
+      @pointercancel=${this._up} @lostpointercapture=${this._up}
+      @keydown=${this._down} @keyup=${this._up} @blur=${() => { if (this.mode === "hold") this._stop(); }}>
+      <ha-icon icon=${sending ? "mdi:microphone" : "mdi:microphone-outline"}></ha-icon>
+    </button><span role="status">${m[this.state] || ""}</span>`;
+  }
+  static styles = css`
+    :host { position: relative; display: inline-flex; }
+    button { width: 36px; height: 36px; border: none; border-radius: 50%; background: #000a;
+      color: white; cursor: pointer; touch-action: none; user-select: none; -webkit-touch-callout: none; }
+    button[aria-pressed=true] { background: #ad1818; }
+    span { position: absolute; top: calc(100% + 4px); right: 0; width: max-content; max-width: min(160px, 40vw);
+      padding: 4px 8px; border-radius: 4px; background: #121212eb; color: white; font: 13px/1.3 sans-serif;
+      pointer-events: none; }
+    span:empty { display: none; }
+  `;
+}
+
+function talkButton(controller, config, state, strings) {
+  return html`<frigate-vision-talk-button .controller=${controller} .mode=${config?.talk_mode}
+    .state=${state} .messages=${strings?.talk}></frigate-vision-talk-button>`;
 }
 
 class FrigateVisionCard extends LitElement {
@@ -2033,6 +2274,7 @@ class FrigateVisionCard extends LitElement {
       _liveError: { state: true },
       _liveProvider: { state: true },
       _liveLoading: { state: true },
+      _talkState: { state: true },
       _isHD: { state: true },
       _mjpegSignedUrl: { state: true },
       _timelineCamera: { state: true },
@@ -2272,6 +2514,7 @@ class FrigateVisionCard extends LitElement {
 
   setConfig(config) {
     if (!config) throw new Error("Invalid config");
+    if (this._lc?.talkRequested) this._lc.stopTalk();
     const initial = Number(config.initial_events) || Number(config.clips_per_load) || 10;
     const configuredProfileEntryId =
       typeof config.frigate_vision_entry_id === "string" &&
@@ -2377,6 +2620,7 @@ class FrigateVisionCard extends LitElement {
       show_live_button: config.show_live_button !== false,
       live_autostart: config.live_autostart !== false,
       live_controls: config.live_controls !== false,
+      talk_mode: config.talk_mode === "hold" ? "hold" : "toggle",
       live_controls_position: ["top", "bottom"].includes(config.live_controls_position) ? config.live_controls_position : "bottom",
       hd_sd_button: config.hd_sd_button !== false,
       hd_sd_button_position: ["top", "bottom"].includes(config.hd_sd_button_position) ? config.hd_sd_button_position : "top",
@@ -3794,6 +4038,7 @@ class FrigateVisionCard extends LitElement {
   _applyLiveState(patch) {
     if ("loading" in patch) this._liveLoading = !!patch.loading;
     if ("provider" in patch) this._liveProvider = patch.provider ?? null;
+    if ("talk" in patch) this._talkState = patch.talk;
     if ("error" in patch) this._liveError = patch.error ?? null;
     if ("mjpegUrl" in patch) this._mjpegSignedUrl = patch.mjpegUrl ?? null;
   }
@@ -5398,6 +5643,7 @@ class FrigateVisionCard extends LitElement {
             </button>
           ` : ""}
           <div class="player-top-buttons">
+            ${this._liveProvider && !this._liveLoading ? talkButton(this._lc, this._config, this._talkState, t) : ""}
             ${hasHdSd && this._config.hd_sd_button && this._config.hd_sd_button_position === "top" ? html`
               <button class="overlay-btn hd-sd-btn" @click=${() => this._toggleHD()} title="${this._isHD ? "HD Stream aktiv" : "SD Stream aktiv"}">
                 <span class="hd-sd-label">${this._isHD ? "HD" : "SD"}</span>
@@ -6941,7 +7187,7 @@ function editorString(value) {
 
 // Frigate exposes camera_name and client_id on its camera entities. Use the
 // states visible to this HA user, not entity-id guesses, recordings or an NVR API.
-function editorCameraGroups(hass) {
+function frigateCameraGroups(hass) {
   const groups = new Map();
   for (const [entityId, state] of Object.entries(hass?.states || {})) {
     if (!entityId.startsWith("camera.")) continue;
@@ -6953,7 +7199,8 @@ function editorCameraGroups(hass) {
     if (!id || !clientId) continue;
     if (!groups.has(clientId)) groups.set(clientId, new Map());
     const cameras = groups.get(clientId);
-    if (!cameras.has(id)) cameras.set(id, { name: editorString(friendly_name) || id, entityId });
+    if (cameras.has(id)) cameras.get(id).ambiguous = true;
+    else cameras.set(id, { name: editorString(friendly_name) || id, entityId });
   }
   return groups;
 }
@@ -7086,7 +7333,7 @@ class FrigateVisionCardEditor extends LitElement {
 
   willUpdate() {
     this._syncCameraProfile();
-    this._cameraGroups = this._expandedSection === "cameras" ? editorCameraGroups(this.hass) : null;
+    this._cameraGroups = this._expandedSection === "cameras" ? frigateCameraGroups(this.hass) : null;
     this._editorClientId = editorString(this._config.frigate_client_id) || this._cameraProfile?.clientId;
     if (!this._editorClientId && !this._cameraProfile?.pending && !editorString(this._config.frigate_vision_entry_id) && this._cameraGroups?.size === 1) {
       this._editorClientId = this._cameraGroups.keys().next().value;
@@ -7495,6 +7742,13 @@ class FrigateVisionCardEditor extends LitElement {
       ${editorInput("Standard-Live-Kamera (leer = erste verfügbare)", cfg.live_camera, (v) => this._set("live_camera", v), { placeholder: "(auto)" })}
       ${editorSwitch("Live-Button anzeigen", cfg.show_live_button !== false, (v) => this._set("show_live_button", v))}
       ${editorSwitch("Auto-Start Livestream beim Öffnen", cfg.live_autostart !== false, (v) => this._set("live_autostart", v))}
+      <div class="field">
+        <label for="talk-mode">Sprechtaste</label>
+        <select id="talk-mode" @change=${(e) => this._set("talk_mode", e.target.value)}>
+          <option value="toggle" ?selected=${cfg.talk_mode !== "hold"}>Antippen zum Starten und Beenden (Standard)</option>
+          <option value="hold" ?selected=${cfg.talk_mode === "hold"}>Zum Sprechen gedrückt halten</option>
+        </select>
+      </div>
       ${editorSwitch("Live-Controls Overlay anzeigen", cfg.live_controls !== false, (v) => this._set("live_controls", v))}
       <div class="field">
         <label>Live-Controls Position</label>
@@ -7806,6 +8060,7 @@ class FrigateVisionLiveTile extends LitElement {
       clipLoadToken: { attribute: false },
       clipAttemptId: { attribute: false },
       _clipMode: { state: true },
+      _talkState: { state: true },
       _provider: { state: true },
       _loading: { state: true },
       _error: { state: true },
@@ -7834,7 +8089,7 @@ class FrigateVisionLiveTile extends LitElement {
       this._start();
     } else if (
       this._started &&
-      changed.has("cardConfig") &&
+      (changed.has("cardConfig") || changed.has("cameraId")) &&
       !this._clipMode &&
       !this.clipUrl
     ) {
@@ -8094,6 +8349,7 @@ class FrigateVisionLiveTile extends LitElement {
   _applyLiveState(patch) {
     if ("loading" in patch) this._loading = !!patch.loading;
     if ("provider" in patch) this._provider = patch.provider ?? null;
+    if ("talk" in patch) this._talkState = patch.talk;
     if ("error" in patch) this._error = patch.error ?? null;
     if ("mjpegUrl" in patch) this._mjpegSignedUrl = patch.mjpegUrl ?? null;
   }
@@ -8129,6 +8385,11 @@ class FrigateVisionLiveTile extends LitElement {
   _toggleHD() {
     this._isHD = !this._isHD;
     this._ensureLivestreamController().setHD(this._isHD);
+  }
+
+  _hdButton() {
+    return html`<button class="overlay-btn hd-sd-btn" @click=${() => this._toggleHD()} title=${this._isHD ? "HD Stream aktiv" : "SD Stream aktiv"}>
+      <span class="hd-sd-label">${this._isHD ? "HD" : "SD"}</span></button>`;
   }
 
   render() {
@@ -8178,13 +8439,12 @@ class FrigateVisionLiveTile extends LitElement {
             </span>
           </div>
         ` : ""}
-        ${hasHdSd && showHdSd ? html`
-          <div class="player-top-buttons hd-sd-wrap--${hdSdPos}">
-            <button class="overlay-btn hd-sd-btn" @click=${() => this._toggleHD()} title=${this._isHD ? "HD Stream aktiv" : "SD Stream aktiv"}>
-              <span class="hd-sd-label">${this._isHD ? "HD" : "SD"}</span>
-            </button>
-          </div>
-        ` : ""}
+        <div class="player-top-buttons hd-sd-wrap--top">
+          ${this._provider && !this._loading ? talkButton(this._lc, cfg, this._talkState, t) : ""}
+          ${hasHdSd && showHdSd && hdSdPos === "top" ? this._hdButton() : ""}
+        </div>
+        ${hasHdSd && showHdSd && hdSdPos === "bottom" ? html`
+          <div class="player-top-buttons hd-sd-wrap--bottom">${this._hdButton()}</div>` : ""}
       </div>
     `;
   }
@@ -8252,6 +8512,9 @@ class FrigateVisionLiveTile extends LitElement {
   }
 }
 
+if (!customElements.get("frigate-vision-talk-button")) {
+  customElements.define("frigate-vision-talk-button", FrigateVisionTalkButton);
+}
 if (!customElements.get("frigate-vision-live-tile")) {
   customElements.define("frigate-vision-live-tile", FrigateVisionLiveTile);
 }

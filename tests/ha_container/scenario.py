@@ -3,6 +3,7 @@
 import asyncio
 import base64
 import json
+import sys
 from io import BytesIO
 from pathlib import Path
 from unittest.mock import patch
@@ -70,7 +71,7 @@ def fixture_server() -> TestServer:
     return TestServer(app, host="127.0.0.1")
 
 
-async def configure(hass, base_url):
+async def configure(hass, base_url, *, go2rtc_url=None):
     """Go through HA's config-entry manager and the integration's actual user flow."""
     flows = hass.config_entries.flow
     source = {"source": "user"}
@@ -91,6 +92,7 @@ async def configure(hass, base_url):
             "endpoint": f"{base_url}/v1",
             "model": MODEL,
             "event_image_source": "event_snapshot",
+            **({"go2rtc_url": go2rtc_url} if go2rtc_url else {}),
         },
     )
     assert result["type"] == "create_entry", result
@@ -133,16 +135,20 @@ async def check_loaded(hass, entry, session, module_url, card_bytes):
     )
 
 
-async def check_camera_streams(hass, session):
-    """Exercise the registered WS command and real HA read permissions over loopback."""
+def register_fixture_camera(hass):
     [frigate] = hass.config_entries.async_entries("frigate")
-    camera = er.async_get(hass).async_get_or_create(
+    return er.async_get(hass).async_get_or_create(
         "camera",
         "frigate",
         f"{frigate.entry_id}:camera:synthetic_camera",
         config_entry=frigate,
         suggested_object_id="different_ha_name",
     )
+
+
+async def check_camera_streams(hass, session):
+    """Exercise the registered WS command and real HA read permissions over loopback."""
+    camera = register_fixture_camera(hass)
     for groups in ([GROUP_ID_READ_ONLY], []):
         user = await hass.auth.async_create_system_user(
             "Synthetic viewer", group_ids=groups
@@ -182,7 +188,7 @@ async def check_camera_streams(hass, session):
     )
 
 
-async def scenario(module_url, card_bytes):
+async def scenario(module_url, card_bytes, audio=False):
     hass = await async_setup_hass(
         RuntimeConfig(str(CONFIG), skip_pip=True, log_no_color=True)
     )
@@ -201,8 +207,25 @@ async def scenario(module_url, card_bytes):
 
         hass.bus.async_listen(EVENT_SERVICE_REGISTERED, track_registration)
         async with fixture_server() as server, ClientSession() as session:
-            entry = await configure(hass, str(server.make_url("/")).rstrip("/"))
+            entry = await configure(
+                hass,
+                str(server.make_url("/")).rstrip("/"),
+                go2rtc_url="http://127.0.0.1:1984" if audio else None,
+            )
             assert hass.config_entries.async_entries(DOMAIN) == [entry]
+            if audio:
+                # -I excludes the script directory; import only the read-only fixture.
+                sys.path.insert(0, str(FIXTURES / "audio"))
+                from fixture import serve
+
+                camera = register_fixture_camera(hass)
+                hass.states.async_set(
+                    camera.entity_id,
+                    "idle",
+                    {"camera_name": "synthetic_camera", "client_id": "smoke"},
+                )
+                await serve(hass, session, module_url)
+                return
             await check_camera_streams(hass, session)
             await check_loaded(hass, entry, session, module_url, card_bytes)
             unloaded = await hass.config_entries.async_unload(entry.entry_id)
@@ -231,6 +254,12 @@ if __name__ == "__main__":
     # /config is a new tmpfs and both mounts are read-only. No host config or tokens.
     (CONFIG / "configuration.yaml").symlink_to(FIXTURES / "configuration.yaml")
     (CONFIG / "custom_components" / "frigate").symlink_to(FIXTURES / "frigate")
+    audio = sys.argv[1:] == ["--audio"]
+    if audio:
+        (CONFIG / "www").mkdir(exist_ok=True)
+        (CONFIG / "www/audio-check.html").write_text(
+            "<!doctype html><title>Synthetic audio test</title>"
+        )
     version = json.loads((COMPONENT / "manifest.json").read_bytes())["version"]
     module = "frigate-vision-card.js"
     # --network=none has no default multicast route. Select loopback for HA's
@@ -243,6 +272,7 @@ if __name__ == "__main__":
             scenario(
                 f"/frigate_vision/frontend/{module}?v={version}",
                 (COMPONENT / "frontend" / module).read_bytes(),
+                audio=audio,
             ),
             loop_factory=create_event_loop,
         )

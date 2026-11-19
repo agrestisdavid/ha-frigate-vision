@@ -95,6 +95,10 @@ Card waits for a media track and a connected/completed ICE state. An initial
 failure or readiness timeout cleans up that attempt and falls back to MSE,
 whose complete media path runs through Home Assistant.
 
+On a compatible WebRTC stream, tap the microphone in the live player or camera
+tile to talk; tap again to stop. Select push-to-talk in the Card editor if you
+prefer to hold the button. See [Talk to the camera](https://agrestisdavid.github.io/ha-frigate-vision/card/#talk-to-the-camera) for microphone permissions and camera requirements.
+
 Direct internal or external go2rtc URLs remain available only as advanced
 overrides for trusted reverse-proxy or standalone deployments. The direct MP4,
 HLS, and MJPEG transports are used only with such an override; proxy mode uses

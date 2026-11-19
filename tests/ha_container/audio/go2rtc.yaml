@@ -1,0 +1,23 @@
+# Disposable synthetic camera. No physical devices, network sources or public ICE servers.
+api:
+  listen: 127.0.0.1:1984
+  # go2rtc 1.9.15 supports only "*" for cross-origin playback. This fixture's
+  # API is reachable solely on the disposable namespace's loopback. Serve just
+  # the two media routes, never configuration, server controls or the Web UI.
+  allow_paths: [/api/webrtc, /api/ws]
+  origin: "*"
+rtsp:
+  listen: 127.0.0.1:8554
+webrtc:
+  listen: ":8555"
+  candidates: []  # host candidates of the disposable internal bridge only
+  ice_servers: []
+exec:
+  allow_paths: [/usr/bin/ffmpeg, /usr/bin/tee]
+streams:
+  fixture_b:
+    - >-
+      exec:/usr/bin/ffmpeg -nostdin -loglevel error -re -f lavfi -i color=c=blue:s=160x120:r=10
+      -re -f lavfi -i sine=frequency=440:sample_rate=8000 -c:v libx264 -threads 1 -preset ultrafast
+      -tune zerolatency -pix_fmt yuv420p -g 10 -c:a pcm_alaw -ar 8000 -ac 1 -rtsp_transport tcp -f rtsp {output}
+    - "exec:/usr/bin/tee -a /config/synthetic-speaker.alaw#backchannel=1#audio=alaw/8000"
