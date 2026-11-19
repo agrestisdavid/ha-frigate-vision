@@ -101,7 +101,7 @@ test("actual vendored Lit runtime renders card/editor and completes lifecycle", 
     };
   });
 
-  assert.equal(result.hlsVersion, "1.7.3");
+  assert.equal(result.hlsVersion, "1.7.4");
   assert.match(result.initialText, /Synthetic Frigate/);
   assert.match(result.updatedText, /Updated synthetic Frigate/);
   assert.equal(result.editorRendered, true);

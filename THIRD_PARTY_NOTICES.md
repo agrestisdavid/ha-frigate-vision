@@ -6,7 +6,7 @@ Assistant does not need a runtime CDN connection:
 - Lit 3.3.3, including LitElement 4.2.2 — BSD 3-Clause License
 - lit-html 3.3.3 — BSD 3-Clause License
 - @lit/reactive-element 2.1.2 — BSD 3-Clause License
-- hls.js 1.7.3 — Apache License 2.0
+- hls.js 1.7.4 — Apache License 2.0
 
 The generated files, SHA-256 manifest, and complete license texts are stored
 under `custom_components/frigate_vision/frontend/vendor/`. They can be
