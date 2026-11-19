@@ -12,6 +12,7 @@ Its custom elements are unique:
 - `frigate-vision-card-editor`
 - `frigate-vision-live-tile`
 - `frigate-vision-ptz`
+- `frigate-vision-talk-button`
 
 They can coexist with a different Frigate timeline Card on the same dashboard.
 The Card responds only to its own deep link:
@@ -151,6 +152,37 @@ direct overrides; normal proxy mode uses WebRTC followed by MSE.
 `go2rtc_url` is local-only. For an external client, the Card uses
 `go2rtc_url_external` when set and otherwise returns to the Home Assistant
 proxy; it never exposes or reuses the local direct URL externally.
+
+### Talk to the camera
+
+In a live player or multiview tile, unmute the **video's speaker control** to
+hear the camera. The separate **microphone** button sends your voice to that
+camera. By default, tap once to talk and tap again to stop. The button shows
+*Connecting microphone…* while waiting and *Microphone on air* only once the
+return connection is ready. Opening the Card never requests the microphone.
+
+For push-to-talk, choose **Livestream → Sprechtaste → Zum Sprechen gedrückt
+halten** in the Card editor and save. Hold the button (or Space/Enter while
+focused) and release to stop. In YAML, `talk_mode: hold` selects push-to-talk;
+`talk_mode: toggle` or omitting the option restores tap-to-talk.
+
+Talk requires a secure browser context (HTTPS or localhost), microphone
+permission, WebRTC playback, and a go2rtc stream with a compatible camera
+speaker backchannel. The button targets the **currently playing HD/SD alias**;
+if only the main stream has a backchannel, switch to HD before speaking. A
+missing permission, incompatible backchannel or playback-only transport (such
+as MSE) produces a message without interrupting listening or live video.
+Microphone signaling **always** uses the authenticated HA proxy, even with a
+direct playback URL. For direct playback the Card first checks that the
+selected HA profile identifies the same Frigate instance and direct endpoint,
+and that HA reports the playing alias for that camera. An unverified direct
+stream (including standalone playback without HA) stays listen-only; no
+microphone is requested. Use HA proxy playback if the mapping is unavailable.
+No new public endpoint or HA service is needed.
+
+Stopping, switching camera/quality, leaving or hiding the view, or losing the
+connection releases the microphone. A later connection does not turn it on
+again. Starting another tile stops the previous tile's microphone.
 
 ### PTZ button
 
