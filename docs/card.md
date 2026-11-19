@@ -11,6 +11,7 @@ Its custom elements are unique:
 - `frigate-vision-card`
 - `frigate-vision-card-editor`
 - `frigate-vision-live-tile`
+- `frigate-vision-ptz`
 
 They can coexist with a different Frigate timeline Card on the same dashboard.
 The Card responds only to its own deep link:
@@ -150,6 +151,22 @@ direct overrides; normal proxy mode uses WebRTC followed by MSE.
 `go2rtc_url` is local-only. For an external client, the Card uses
 `go2rtc_url_external` when set and otherwise returns to the Home Assistant
 proxy; it never exposes or reuses the local direct URL externally.
+
+### PTZ button
+
+In live view, tap **PTZ** on the camera you want to control. Opening the panel
+never moves the camera. Use the arrows to pan or tilt, or **+ / −** to zoom.
+Each tap sends a short movement followed by a stop request; **■** sends Stop
+immediately. Close the panel with **×** or **Esc**. The same button is available
+on individual multiview tiles, but not during clip or recording playback.
+
+No Card YAML is needed. Enable ONVIF/PTZ for the camera in Frigate and leave
+**Livestream → Live-Controls Overlay anzeigen** enabled in the Card editor.
+The Card asks the Frigate integration which controls the camera supports. If
+no button appears, check that the camera is available as a Frigate camera
+entity in Home Assistant and that the Card selects the correct Frigate instance.
+Commands use the `frigate.ptz` action with that entity as the target; the HA
+user needs permission to control it. The Card never publishes directly to MQTT.
 
 ## Ultra-Wide cameras in multiview
 
