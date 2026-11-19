@@ -560,7 +560,7 @@ async function openPtzCard(t, config = {}) {
   await page.evaluate(config => {
     const card = document.createElement("frigate-vision-card");
     const state = (camera_name, client_id = "demo") => ({ state: "streaming", attributes: { camera_name, client_id } });
-    window.ptzCalls = []; window.ptzLookups = [];
+    window.ptzCalls = []; window.ptzLookups = []; window.ptzAliasLookups = []; window.profileLookups = 0;
     card.hass = {
       states: { "camera.other_instance": state("Gate", "frigate"), "camera.renamed": state("Gate"),
         "camera.fixed": state("fixed"), "camera.zoom": state("zoom"), "camera.pending": state("pending"),
@@ -568,10 +568,15 @@ async function openPtzCard(t, config = {}) {
       services: { frigate: { ptz: {} } },
       callWS: async msg => {
         if (msg.type === "frigate_vision/profile") {
+          window.profileLookups++;
           const profile = { profile: { frigate_client_id: "demo" } };
           return config.frigate_vision_entry_id ? new Promise(resolve => { window.finishProfile = () => resolve(profile); }) : profile;
         }
         if (msg.type === "media_source/browse_media") return { children: msg.media_content_id === "media-source://frigate" ? [{ media_content_id: "media-source://frigate/demo/event-search/clips//////" }] : [] };
+        if (msg.type === "frigate_vision/camera_streams") {
+          window.ptzAliasLookups.push(msg.entity_id);
+          return { streams: msg.entity_id === "camera.renamed" ? ["alias_sd", "alias_hd"] : [] };
+        }
         if (msg.type !== "frigate/ptz/info") return [];
         window.ptzLookups.push(msg);
         if (msg.camera === "pending") return new Promise(resolve => { window.finishInfo = () => resolve({ features: ["pt"] }); });
@@ -584,8 +589,9 @@ async function openPtzCard(t, config = {}) {
       cameras: { gate: { name: "Display alias", main: "alias_hd", sub: "alias_sd" }, fixed: {}, zoom: {}, duplicate: {} },
       frigate_client_id: "demo", ...config });
     // Keep the real live lifecycle/target selection; only replace media I/O.
-    Object.getPrototypeOf(card._ensureLivestreamController())._startWebRTCviaWS = async function () {
-      this._setState({ provider: "webrtc", loading: false });
+    const proto = Object.getPrototypeOf(card._ensureLivestreamController());
+    proto._startWebRTCviaHTTP = proto._startWebRTCviaWS = async function (name, video, runId) {
+      this._playbackReady(name, video, runId, this._config());
     };
     document.body.append(card);
     if (!card._config.multiview) card._openLive("gate");
@@ -618,7 +624,7 @@ test("PTZ is a normal disclosure button; only its controls send targeted, bounde
 });
 
 test("multiview PTZ waits for the selected instance and exposes only that tile's capabilities", async (t) => {
-  const page = await openPtzCard(t, { multiview: true, frigate_client_id: null, frigate_vision_entry_id: "selected" });
+  const page = await openPtzCard(t, { multiview: true, hd_sd_button_position: "bottom", frigate_client_id: null, frigate_vision_entry_id: "selected" });
   await page.waitForFunction(() => window.finishProfile && document.querySelector("frigate-vision-card").renderRoot.querySelectorAll("frigate-vision-live-tile").length === 4);
   assert.deepEqual(await page.evaluate(() => window.ptzLookups), []);
   await page.evaluate(() => window.finishProfile());
@@ -639,7 +645,38 @@ test("multiview PTZ waits for the selected instance and exposes only that tile's
     document.querySelector("frigate-vision-card")._activeClip = { _camera: "zoom" }; });
   await panel.waitFor({ state: "hidden" });
   assert.equal(await toggle.count(), 0);
-  assert.equal(await tiles.first().getByRole("button", { name: "PTZ", exact: true }).count(), 1);
+  assert.equal(await tiles.nth(2).locator("frigate-vision-talk-button").count(), 0);
+  const gate = tiles.first();
+  assert.equal(await gate.getByRole("button", { name: "PTZ", exact: true }).count(), 1);
+  assert.equal(await gate.locator(".hd-sd-wrap--top frigate-vision-talk-button").count(), 1);
+  assert.equal(await gate.locator(".hd-sd-wrap--bottom .hd-sd-btn").count(), 1);
+});
+
+test("switching to an unrelated HD alias keeps playback but removes PTZ", async (t) => {
+  const page = await openPtzCard(t, { cameras: { gate: { main: "other_camera", sub: "alias_sd" } } });
+  const ptz = page.getByRole("button", { name: "PTZ", exact: true });
+  await ptz.waitFor();
+  await page.locator(".hd-sd-btn").click();
+  await page.waitForFunction(() => window.ptzAliasLookups.length >= 2);
+  assert.equal(await ptz.count(), 0);
+  assert.equal(await page.locator("frigate-vision-talk-button button").count(), 1);
+  assert.deepEqual(await page.evaluate(() => window.ptzCalls), []);
+});
+
+test("an unverified direct playback endpoint cannot expose PTZ for a same-named camera", async (t) => {
+  const page = await openPtzCard(t, { go2rtc_url: "https://other.example.invalid" });
+  await page.waitForFunction(() => window.profileLookups >= 2);
+  await page.locator("frigate-vision-talk-button button").waitFor();
+  assert.equal(await page.getByRole("button", { name: "PTZ", exact: true }).count(), 0);
+  assert.deepEqual(await page.evaluate(() => [window.ptzLookups, window.ptzCalls]), [[], []]);
+});
+
+test("hiding the live controls hides both camera actions without removing HD/SD", async (t) => {
+  const page = await openPtzCard(t, { live_controls: false });
+  await page.waitForFunction(() => document.querySelector("frigate-vision-card")._liveProvider === "webrtc");
+  assert.equal(await page.locator("frigate-vision-talk-button, frigate-vision-ptz").count(), 0);
+  assert.equal(await page.locator(".hd-sd-btn").count(), 1);
+  assert.deepEqual(await page.evaluate(() => window.ptzLookups), []);
 });
 
 test("switching cameras stops the original entity and stale PTZ info cannot open controls", async (t) => {

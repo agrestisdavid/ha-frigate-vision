@@ -209,5 +209,7 @@ test("non-WebRTC playback never requests a microphone or opens a backchannel", a
   window.MediaSource = class {}; t.after(() => { delete window.MediaSource; });
   await f.live.start("door"); await f.live.startTalk();
   assert.equal(f.states.find(s => s.provider)?.provider, "mse");
+  assert.equal(f.live.playbackTarget.client, "isolated");
+  assert.equal(f.live.playbackTarget.name, "door SD");
   assert.equal(f.talk, "requiresWebRTC"); assert.equal(f.captures.length, 0); assert.equal(f.paths.length, 1);
 });

@@ -913,7 +913,6 @@ class Go2rtcSession {
 
   get isHD() { return this._isHD; }
   get cameraId() { return this._cameraId; }
-  get instanceId() { return this._instanceId; }
   get runGeneration() { return this._runGeneration; }
 
   _config() { return this._opts.getConfig(); }
@@ -1578,14 +1577,19 @@ class LivestreamController extends Go2rtcSession {
     this._talk = null;
   }
 
-  _playbackReady(name, videoEl, runId, config, redirected = false) {
-    // Pin the actual signaling target, not the most recent Card config: a
-    // profile refresh may have changed it while ICE was negotiating.
-    this._webRtcStream = {
+  get playbackTarget() { return this._webRtcStream || this._mseStream; }
+
+  _streamTarget(name, config, redirected = false) {
+    // Pin the signaling target, not a profile that may change during startup.
+    return {
       name, camera: this.cameraId, client: config.frigate_client_id,
       entry: config.frigate_vision_entry_id, redirected,
       directBase: this._usesDirectGo2rtc(config) ? go2rtcBase(config) : null,
     };
+  }
+
+  _playbackReady(name, videoEl, runId, config, redirected = false) {
+    this._webRtcStream = this._streamTarget(name, config, redirected);
     this._setState({ loading: false, provider: "webrtc" });
     this._tryAutoplay(videoEl, runId);
   }
@@ -1595,22 +1599,6 @@ class LivestreamController extends Go2rtcSession {
   }
 
   get talkRequested() { return !!this._talk; }
-
-  async _directStreamMatchesHA(hass, live) {
-    if (live.redirected) return false;
-    const camera = frigateCameraGroups(hass).get(live.client)?.get(live.camera?.toLowerCase());
-    if (!camera || camera.ambiguous) return false;
-    // Identically named aliases on different NVRs are not interchangeable.
-    // Check the chosen HA profile's endpoint AND its readable camera's aliases.
-    const message = { type: "frigate_vision/profile" };
-    if (live.entry) message.entry_id = live.entry;
-    const { profile } = await hass.callWS(message);
-    if (!profile || profile.frigate_client_id !== live.client || go2rtcBase(profile) !== live.directBase) return false;
-    const result = await hass.callWS({
-      type: "frigate_vision/camera_streams", entity_id: camera.entityId, instance_id: live.client,
-    });
-    return Array.isArray(result?.streams) && result.streams.includes(live.name);
-  }
 
   async startTalk() {
     if (this._talk) return;
@@ -1641,7 +1629,7 @@ class LivestreamController extends Go2rtcSession {
     this._setState({ talk: "pending" });
     try {
       if (live.directBase) {
-        const mapped = await this._withTimeout(this._directStreamMatchesHA(hass, live), 5000, "Camera mapping").catch(() => false);
+        const mapped = await this._withTimeout(streamMatchesCamera(hass, live), 5000, "Camera mapping").catch(() => false);
         if (this._talk !== attempt) return; // released during HA lookup
         if (!mapped) { this.stopTalk("unmapped"); return; }
       }
@@ -1974,7 +1962,6 @@ class LivestreamController extends Go2rtcSession {
     const runId = this._invalidateRun();
     this._releaseResources();
     this._cameraId = cameraId;
-    this._instanceId = this._config().frigate_client_id;
     this._proxyRoute = null;
     const streamName = this._streamName();
     this._log("start: cam=", cameraId, "hd=", this._isHD);
@@ -2027,12 +2014,14 @@ class LivestreamController extends Go2rtcSession {
           }
         } else if (mode === "mse" && (window.MediaSource || window.ManagedMediaSource)) {
           if (!videoEl) continue;
+          const config = this._config();
           const ws = await this._withTimeout(
-            this._openGo2rtcWs(streamName, runId),
+            this._openGo2rtcWs(streamName, runId, config),
             12000,
             "MSE WS"
           );
           this._assertRunCurrent(runId);
+          this._mseStream = this._streamTarget(streamName, config);
           await this._withTimeout(
             this._startMSE(ws, videoEl, runId),
             8000,
@@ -2163,6 +2152,7 @@ class LivestreamController extends Go2rtcSession {
     }
   }
   _cleanupMSE() {
+    this._mseStream = null;
     if (this._sourceBuffer) {
       try { this._mediaSource?.removeSourceBuffer(this._sourceBuffer); } catch {}
       this._sourceBuffer = null;
@@ -5671,9 +5661,7 @@ class FrigateVisionCard extends LitElement {
           ` : ""}
           <div class="player-top-buttons">
             ${this._liveProvider && !this._liveLoading && !this._liveError
-              ? talkButton(this._lc, this._config, this._talkState, t) : ""}
-            ${this._config.live_controls && this._config.live_provider !== "off" && this._liveProvider && !this._liveLoading && !this._liveError
-              ? renderPtzControls(this.hass, this._resolvedInstanceId, this._liveCamera, this._lc, t) : ""}
+              ? renderCameraControls(this.hass, this._config, this._resolvedInstanceId, this._liveCamera, this._lc, this._talkState, t) : ""}
             ${hasHdSd && this._config.hd_sd_button && this._config.hd_sd_button_position === "top" ? html`
               <button class="overlay-btn hd-sd-btn" @click=${() => this._toggleHD()} title="${this._isHD ? "HD Stream aktiv" : "SD Stream aktiv"}">
                 <span class="hd-sd-label">${this._isHD ? "HD" : "SD"}</span>
@@ -8080,20 +8068,42 @@ class FrigateVisionCardEditor extends LitElement {
   }
 }
 
-// Mount only for a unique visible HA entity on the instance actually being
-// viewed. Neither a display name nor an HD/SD stream alias is a PTZ target.
-function renderPtzControls(hass, instanceId, cameraId, live, t) {
-  if (!instanceId || !cameraId || live?.instanceId !== instanceId || live.cameraId !== cameraId) return "";
+// A manual alias can belong to a different camera, and the same alias can
+// exist on different NVRs. Never infer a physical control target from it.
+async function streamMatchesCamera(hass, stream) {
+  const camera = frigateCameraGroups(hass).get(stream.client)?.get(stream.camera?.toLowerCase());
+  if (!camera || camera.ambiguous || stream.redirected) return false;
+  if (stream.directBase) {
+    const message = { type: "frigate_vision/profile" };
+    if (stream.entry) message.entry_id = stream.entry;
+    const { profile } = await hass.callWS(message);
+    if (!profile || profile.frigate_client_id !== stream.client || go2rtcBase(profile) !== stream.directBase) return false;
+  } else if (stream.name === camera.cameraName) {
+    return true; // Canonical name on the instance-specific HA proxy.
+  }
+  const result = await hass.callWS({
+    type: "frigate_vision/camera_streams", entity_id: camera.entityId, instance_id: stream.client,
+  });
+  return Array.isArray(result?.streams) && result.streams.includes(stream.name);
+}
+
+function renderCameraControls(hass, config, instanceId, cameraId, live, talkState, t) {
+  if (config.live_controls === false || config.live_provider === "off") return "";
+  return html`${talkButton(live, config, talkState, t)}${renderPtzControls(hass, instanceId, cameraId, live?.playbackTarget, t)}`;
+}
+
+function renderPtzControls(hass, instanceId, cameraId, stream, t) {
+  if (!instanceId || !cameraId || stream?.client !== instanceId || stream.camera !== cameraId) return "";
   if (!hass?.services?.frigate?.ptz || !hass.callService || !hass.callWS || hass.connected === false) return "";
   const camera = frigateCameraGroups(hass).get(instanceId)?.get(cameraId.toLowerCase());
   if (!camera || camera.ambiguous || ["unavailable", "unknown", "off"].includes(hass.states[camera.entityId].state)) return "";
-  return html`<frigate-vision-ptz .hass=${hass} .instanceId=${instanceId} .cameraName=${camera.cameraName}
+  return html`<frigate-vision-ptz .hass=${hass} .stream=${stream} .cameraName=${camera.cameraName}
     .entityId=${camera.entityId} .t=${t}></frigate-vision-ptz>`;
 }
 
 class FrigateVisionPtz extends LitElement {
   static properties = {
-    hass: { attribute: false }, instanceId: { attribute: false }, cameraName: { attribute: false },
+    hass: { attribute: false }, stream: { attribute: false }, cameraName: { attribute: false },
     entityId: { attribute: false }, t: { attribute: false }, _features: { state: true },
     _open: { state: true }, _pulse: { state: true }, _failed: { state: true },
   };
@@ -8118,7 +8128,7 @@ class FrigateVisionPtz extends LitElement {
   willUpdate(changed) {
     if (!this.isConnected) return;
     const connection = this.hass.connection || this.hass.callWS;
-    if (this._target?.connection === connection && !changed.has("instanceId") && !changed.has("cameraName") && !changed.has("entityId")) return;
+    if (this._target?.connection === connection && !changed.has("stream") && !changed.has("cameraName") && !changed.has("entityId")) return;
     this._reset();
     const target = { connection, entityId: this.entityId };
     this._target = target;
@@ -8127,7 +8137,8 @@ class FrigateVisionPtz extends LitElement {
 
   async _loadFeatures(target) {
     try {
-      const result = await this.hass.callWS({ type: "frigate/ptz/info", instance_id: this.instanceId, camera: this.cameraName });
+      if (!await streamMatchesCamera(this.hass, this.stream) || this._target !== target) return;
+      const result = await this.hass.callWS({ type: "frigate/ptz/info", instance_id: this.stream.client, camera: this.cameraName });
       const info = typeof result === "string" ? JSON.parse(result) : result;
       if (this._target === target && Array.isArray(info?.features)) this._features = info.features;
     } catch {
@@ -8620,9 +8631,8 @@ class FrigateVisionLiveTile extends LitElement {
           </div>
         ` : ""}
         <div class="player-top-buttons hd-sd-wrap--top">
-          ${this._provider && !this._loading && !this._error ? talkButton(this._lc, cfg, this._talkState, t) : ""}
-          ${showLiveControls && cfg.live_provider !== "off" && this._provider && !this._loading && !this._error
-            ? renderPtzControls(this.hass, this.instanceId, this.cameraId, this._lc, t) : ""}
+          ${this._provider && !this._loading && !this._error
+            ? renderCameraControls(this.hass, cfg, this.instanceId, this.cameraId, this._lc, this._talkState, t) : ""}
           ${hasHdSd && showHdSd && hdSdPos === "top" ? this._hdButton() : ""}
         </div>
         ${hasHdSd && showHdSd && hdSdPos === "bottom" ? html`
