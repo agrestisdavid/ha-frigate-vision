@@ -82,7 +82,7 @@ test("listening never asks for a microphone; talking signs a separate send-only 
 });
 
 const directUrl = "https://viewer.example.invalid/rtc";
-function directFixture(t, { httpWorks = true, endpoint = directUrl, client = "isolated", streams = ["door SD"], standalone = false, lookup } = {}) {
+function directFixture(t, { httpWorks = true, endpoint = directUrl, client = "isolated", streams = ["door SD"], standalone = false, duplicate = false, connected = true, lookup } = {}) {
   const calls = [];
   t.mock.method(globalThis, "fetch", async url => {
     assert.equal(url, `${directUrl}/api/webrtc?src=door%20SD`);
@@ -91,7 +91,11 @@ function directFixture(t, { httpWorks = true, endpoint = directUrl, client = "is
   const f = fixture(t, {
     config: { go2rtc_url_external: directUrl, frigate_vision_entry_id: "selected-profile" },
     hass: {
-      states: { "camera.renamed": { attributes: { camera_name: "front_door", client_id: "isolated" } } },
+      connected,
+      states: {
+        "camera.renamed": { attributes: { camera_name: "front_door", client_id: "isolated" } },
+        ...(duplicate ? { "camera.second": { attributes: { camera_name: "Front_Door", client_id: "isolated" } } } : {}),
+      },
       callWS: standalone ? undefined : async msg => {
         calls.push(msg);
         if (msg.type === "frigate_vision/profile") return { profile: { go2rtc_url_external: endpoint, frigate_client_id: client } };
@@ -129,6 +133,8 @@ for (const [description, opts, result] of [
   ["same alias on a different endpoint", { endpoint: "https://other.example.invalid" }, "unmapped"],
   ["different Frigate instance", { client: "not-the-selected-NVR" }, "unmapped"],
   ["alias not advertised for this camera", { streams: ["other door SD"] }, "unmapped"],
+  ["duplicate camera identity", { duplicate: true }, "unmapped"],
+  ["disconnected HA session", { connected: false }, "haUnavailable"],
   ["lookup denied", { lookup: () => { throw Error("no access"); } }, "unmapped"],
   ["standalone without HA", { standalone: true }, "haUnavailable"],
 ]) {

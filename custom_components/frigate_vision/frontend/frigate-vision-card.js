@@ -1582,8 +1582,8 @@ class LivestreamController extends Go2rtcSession {
 
   async _directStreamMatchesHA(hass, live) {
     if (live.redirected) return false;
-    const entity = frigateCameraGroups(hass).get(live.client)?.get(live.camera)?.entityId;
-    if (!entity) return false;
+    const camera = frigateCameraGroups(hass).get(live.client)?.get(live.camera?.toLowerCase());
+    if (!camera || camera.ambiguous) return false;
     // Identically named aliases on different NVRs are not interchangeable.
     // Check the chosen HA profile's endpoint AND its readable camera's aliases.
     const message = { type: "frigate_vision/profile" };
@@ -1591,7 +1591,7 @@ class LivestreamController extends Go2rtcSession {
     const { profile } = await hass.callWS(message);
     if (!profile || profile.frigate_client_id !== live.client || go2rtcBase(profile) !== live.directBase) return false;
     const result = await hass.callWS({
-      type: "frigate_vision/camera_streams", entity_id: entity, instance_id: live.client,
+      type: "frigate_vision/camera_streams", entity_id: camera.entityId, instance_id: live.client,
     });
     return Array.isArray(result?.streams) && result.streams.includes(live.name);
   }
@@ -1604,7 +1604,7 @@ class LivestreamController extends Go2rtcSession {
       return;
     }
     const hass = this._hass();
-    if (!hass?.callWS) {
+    if (!hass?.callWS || hass.connected === false) {
       this._setState({ talk: "haUnavailable" });
       return;
     }
@@ -7199,7 +7199,8 @@ function frigateCameraGroups(hass) {
     if (!id || !clientId) continue;
     if (!groups.has(clientId)) groups.set(clientId, new Map());
     const cameras = groups.get(clientId);
-    if (!cameras.has(id)) cameras.set(id, { name: editorString(friendly_name) || id, entityId });
+    if (cameras.has(id)) cameras.get(id).ambiguous = true;
+    else cameras.set(id, { name: editorString(friendly_name) || id, entityId });
   }
   return groups;
 }
