@@ -19,10 +19,10 @@ const litRuntime = await readFile(
   "utf8",
 );
 const hlsRuntime = await readFile(
-  new URL("hls-1.7.3.js", vendorRoot),
+  new URL("hls-1.7.4.js", vendorRoot),
   "utf8",
 );
-const hlsModule = await import(new URL("hls-1.7.3.js", vendorRoot));
+const hlsModule = await import(new URL("hls-1.7.4.js", vendorRoot));
 
 test("uses independent card and custom-element names", () => {
   for (const name of [
@@ -152,8 +152,8 @@ test("retains all five go2rtc transports and the pinned HLS runtime", () => {
   for (const mode of ["webrtc", "mse", "mp4", "hls", "mjpeg"]) {
     assert.match(source, new RegExp(`mode === ["']${mode}["']`));
   }
-  assert.equal(vendorManifest.packages["hls.js"], "1.7.3");
-  assert.match(source, /const HLS_MODULE = "\.\/vendor\/hls-1\.7\.3\.js"/);
+  assert.equal(vendorManifest.packages["hls.js"], "1.7.4");
+  assert.match(source, /const HLS_MODULE = "\.\/vendor\/hls-1\.7\.4\.js"/);
 });
 
 test("loads browser dependencies only from the bundled vendor directory", () => {
@@ -209,7 +209,7 @@ test("uses the authenticated HA Frigate proxy without logging signaling secrets"
 
 test("bundled hls.js exposes the pinned default runtime", () => {
   assert.equal(typeof hlsModule.default, "function");
-  assert.equal(hlsModule.default.version, "1.7.3");
+  assert.equal(hlsModule.default.version, "1.7.4");
 });
 
 test("keeps standalone URLs and supports the optional central profile", () => {

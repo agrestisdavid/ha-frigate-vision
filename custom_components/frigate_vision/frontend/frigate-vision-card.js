@@ -617,7 +617,7 @@ import {
 // The vendored ESM HLS build runs transmuxing on the main thread unless a
 // separately served workerPath is configured. Keep the prior no-worker delivery
 // model rather than adding a new runtime asset or network path for this update.
-const HLS_MODULE = "./vendor/hls-1.7.3.js";
+const HLS_MODULE = "./vendor/hls-1.7.4.js";
 let _hlsLoadPromise = null;
 function loadHls() {
   if (_hlsLoadPromise) return _hlsLoadPromise;

@@ -32,7 +32,7 @@ const EXPECTED_VENDOR_DIR = resolve(
 );
 const PACKAGES = Object.freeze({
   esbuild: "0.28.2",
-  "hls.js": "1.7.3",
+  "hls.js": "1.7.4",
   lit: "3.3.3",
   "lit-element": "4.2.2",
   "lit-html": "3.3.3",
@@ -134,7 +134,7 @@ async function generate(outputDirectory) {
   await build({
     absWorkingDir: ROOT,
     entryPoints: [packagePath("hls.js", "dist", "hls.mjs")],
-    outfile: join(outputDirectory, "hls-1.7.3.js"),
+    outfile: join(outputDirectory, "hls-1.7.4.js"),
     bundle: true,
     charset: "utf8",
     format: "esm",
@@ -145,7 +145,7 @@ async function generate(outputDirectory) {
     sourcemap: false,
     target: ["es2018"],
     banner: {
-      js: "/* Vendored hls.js 1.7.3; see hls.js-LICENSE.txt. */",
+      js: "/* Vendored hls.js 1.7.4; see hls.js-LICENSE.txt. */",
     },
   });
   await copyFile(
@@ -167,7 +167,7 @@ async function generate(outputDirectory) {
 
   await writeManifest(outputDirectory, [
     "hls.js-LICENSE.txt",
-    "hls-1.7.3.js",
+    "hls-1.7.4.js",
     "lit-element-LICENSE.txt",
     "lit-3.3.3.js",
     "lit-html-LICENSE.txt",
