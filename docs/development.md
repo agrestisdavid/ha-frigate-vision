@@ -81,6 +81,41 @@ The image stays cached. The runner does not start or stop Docker Desktop or
 other containers. The fast unit/browser suites and PR checks do not require this
 container run.
 
+### Verify two-way audio without a physical camera
+
+Run `npm ci`, then `python scripts/test_ha_container.py --audio` on a local Linux
+Docker engine with support for isolated bridge gateway mode. This mode uses the
+same disposable HA Core fixture plus the pinned Playwright browser image. It
+creates a temporary **internal** bridge for WebRTC ICE, publishes no ports,
+and removes the containers and network afterwards. After the images and npm
+packages are cached, the test runs offline. No host audio device is mounted.
+
+The real live tile asks HA to sign the selected stream path. A test view stands
+in for Frigate's WebSocket proxy and forwards signaling to the real go2rtc in
+the HA image; the unsigned request must return 401. FFmpeg supplies video and a
+440 Hz camera tone. Chromium measures that tone in the received audio track,
+then captures a different, generated 880 Hz WAV via `getUserMedia`. The camera
+fixture measures decoded G.711 samples at its simulated speaker. The test fails
+if either tone is missing, the two frequencies are confused, or new speaker
+samples arrive after stopping. It repeats click-to-talk and hold-to-talk with
+both HA-proxy playback and a profile-matched direct playback URL. In all four
+cases the browser must send the microphone offer on the same-origin signed HA
+WebSocket for the playing alias. Direct microphone signaling fails the test.
+Neither an SDP answer nor a track count is accepted as audio evidence.
+
+Example local acceptance run (HA Core 2026.11.2, go2rtc 1.9.15):
+
+| Playback | Control | Camera → browser (440 Hz source, FFT peak) | Browser → camera (880 Hz amplitude) | New speaker samples after stop¹ |
+| --- | --- | --- | --- | --- |
+| HA proxy | Tap to start/stop | 441 Hz | 0.353 | 0 |
+| HA proxy | Hold/release | 441 Hz | 0.342 | 0 |
+| Direct override | Tap to start/stop | 441 Hz | 0.342 | 0 |
+| Direct override | Hold/release | 441 Hz | 0.342 | 0 |
+
+¹ Measured over 1.2 s after allowing 0.6 s for in-flight audio. FFT binning
+accounts for 441 Hz rather than exactly 440 Hz. This verifies the Card and
+media path with synthetic endpoints, not a physical camera or loudspeaker.
+
 ## Bundled browser and brand assets
 
 The released Card never fetches JavaScript from a CDN. Rebuild the pinned
