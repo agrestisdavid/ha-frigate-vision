@@ -53,6 +53,20 @@ failure or readiness timeout advances to MSE through Home Assistant. This does
 not imply an automatic MSE switch after a later WebRTC disconnect. The later
 MP4, HLS, and MJPEG transports require an explicit direct override.
 
+## Live camera controls
+
+Opening live view or unmuting a video does not request the browser microphone.
+[Talk](card.md#talk-to-the-camera) creates a separate send-only WebRTC session
+on user input. Its signaling uses the authenticated HA proxy even when playback
+uses a direct URL; the microphone media travels over WebRTC to go2rtc, not to
+the AI provider. Stopping, switching streams or hiding the page releases the
+microphone. A reconnect does not turn it back on.
+
+[PTZ](card.md#ptz-button) uses the existing `frigate.ptz` action. Home
+Assistant checks control permission for the target camera entity. Opening the
+PTZ panel only displays the controls; the Card does not publish directly to
+MQTT. Hiding the overlay changes the dashboard UI, not access permissions.
+
 ## Network exposure
 
 Normal remote Home Assistant access does not require an external go2rtc URL.

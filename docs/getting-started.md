@@ -30,10 +30,18 @@ for any separate Blueprint re-import instructions.
 
 Do not add a separate Lovelace resource for the bundled Card.
 
+### Updating from 0.3.13
+
+Update **Frigate Vision** in HACS, restart Home Assistant, then reload the
+open dashboard so it loads the new Card. No migration or Blueprint re-import
+is needed for 0.4.0. Opening a live view does not activate either new control:
+use [PTZ](card.md#ptz-button) to see supported movements or the
+[microphone](card.md#talk-to-the-camera) to start talking.
+
 ### Upgrading from the split 0.1.x test packages
 
 Remove only the separate **Frigate Vision Card** Lovelace resource before
-loading version 0.3.x. Both versions register the same
+loading the bundled Card. Both versions register the same
 `frigate-vision-card` custom element, so whichever module loads first would
 otherwise remain active until the browser is reloaded.
 
