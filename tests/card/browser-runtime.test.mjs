@@ -696,6 +696,552 @@ test("switching cameras stops the original entity and stale PTZ info cannot open
   assert.deepEqual(await page.evaluate(() => window.ptzCalls), [ptzCall("renamed", "move", "up"), ptzCall("renamed", "stop")]);
 });
 
+test("doorbell editor persists exact states and disabled settings without losing camera fields", async (t) => {
+  const page = await openRuntimePage(t);
+  const input = {
+    type: "custom:frigate-vision-card", title: "Keep title",
+    cameras: [{ id: "Door", name: "Door", main: "door HD", sub: "door SD", ultra_wide: true,
+      extra_camera_setting: { keep: true }, doorbell: { enabled: true, entity: " BINARY_SENSOR.BELL ", from: "Ready", to: "Pressed", extra_setting: 2 } }, "side"],
+  };
+  await page.evaluate(config => {
+    const editor = document.createElement("frigate-vision-card-editor");
+    editor.setConfig(config);
+    editor.addEventListener("config-changed", ({ detail }) => { window.lastConfig = detail.config; });
+    document.body.append(editor);
+  }, input);
+  await page.getByRole("button", { name: "Kameras", exact: true }).click();
+  await page.getByRole("button", { name: "Door", exact: true }).click();
+  const toggle = page.getByLabel("Doorbell (Türklingel)");
+  const entity = page.getByLabel("Klingel-Entität (Home Assistant)");
+  assert.equal(await entity.inputValue(), "binary_sensor.bell");
+  const target = page.getByLabel("Zielzustand");
+  await target.fill(" Door Pressed "); await target.blur();
+  await toggle.uncheck();
+  const expected = {
+    type: input.type, title: input.title, cameras: { door: {
+      ...Object.fromEntries(Object.entries(input.cameras[0]).filter(([key]) => key !== "id")),
+      doorbell: { enabled: false, entity: "binary_sensor.bell", from: "Ready", to: " Door Pressed ", extra_setting: 2 },
+    }, side: {} },
+  };
+  assert.deepEqual(await page.evaluate(() => window.lastConfig), expected);
+  await page.evaluate(() => document.querySelector("frigate-vision-card-editor").setConfig(JSON.parse(JSON.stringify(window.lastConfig))));
+  await toggle.check();
+  assert.equal(await target.inputValue(), " Door Pressed ");
+  const from = page.getByLabel("Von-Zustand");
+  await from.fill(""); await from.blur();
+  assert.equal(await page.evaluate(() => window.lastConfig.cameras.door.doorbell.from), "");
+});
+
+test("doorbell only reacts to subscribed edges; blocked autoplay, retries and late capture do not change the player", async (t) => {
+  const page = await openRuntimePage(t);
+  await page.evaluate(() => {
+    const card = document.createElement("frigate-vision-card");
+    const connection = Object.assign(new EventTarget(), {
+      async subscribeEvents(cb, type) {
+        if (type !== "state_changed") throw Error("Wrong subscription type");
+        window.bellEvent = (from, to, id = "binary_sensor.bell") => cb({ data: { entity_id: id,
+          old_state: from == null ? null : { state: from }, new_state: to == null ? null : { state: to } } });
+        return async () => { window.unsubscribed = true; };
+      },
+    });
+    window.connection = connection;
+    window.doorTarget = false; window.micCalls = 0; window.ringAttempts = 0; window.videoStarts = 0;
+    window.Audio = class {
+      play() { window.ringAttempts++; return Promise.reject(new DOMException("blocked", "NotAllowedError")); }
+      pause() {}
+    };
+    navigator.mediaDevices.getUserMedia = () => {
+      window.micCalls++;
+      if (!window.lateMic) return Promise.reject(new DOMException("denied", "NotAllowedError"));
+      return new Promise(resolve => { window.releaseMic = () => resolve({ getTracks: () => [{ stop() { window.lateStopped = true; } }] }); });
+    };
+    const hass = { connection, connected: true,
+      states: { "binary_sensor.bell": { state: "Pressed" }, "camera.door": { state: "idle", attributes: { camera_name: "door", client_id: "demo" } } },
+      callWS: async msg => {
+        if (msg.type === "frigate_vision/camera_streams") return { streams: window.doorTarget ? ["door_audio"] : ["other_alias"] };
+        if (msg.type === "auth/sign_path") window.signedBackchannel = true;
+        return { children: [] };
+      },
+    };
+    card.hass = hass;
+    card.setConfig({ language: "en", layout: "stacked", cameras: {
+      door: { sub: "door_audio", doorbell: { enabled: true, entity: "binary_sensor.bell", from: "Ready", to: "Pressed" } },
+      other: {},
+    }, frigate_client_id: "demo", auto_refresh_seconds: 0 });
+    card._hasFetchedOnce = true;
+    const live = card._ensureLivestreamController();
+    live._startWebRTCviaWS = async function (name, video, runId) {
+      this._peerConnection = { close() {} };
+      window.videoStarts++;
+      this._playbackReady(name, video, runId, this._config());
+    };
+    document.body.append(card);
+    card._openLive("door");
+    window.card = card;
+  });
+  await page.waitForFunction(() => window.bellEvent);
+  const phone = page.getByRole("button", { name: "Answer", exact: true });
+  assert.equal(await phone.count(), 0);
+  await page.evaluate(() => {
+    const bell = window.bellEvent;
+    bell(null, "Pressed"); bell("Pressed", "Pressed"); bell("unavailable", "Pressed");
+    bell("Ready", "unknown"); bell("Ready", "Pressed", "binary_sensor.other");
+    window.connection.dispatchEvent(new Event("disconnected"));
+    bell("Ready", "Pressed");
+    window.card.hass = { ...window.card.hass, states: { ...window.card.hass.states, "binary_sensor.bell": { state: "Pressed" } } };
+    window.connection.dispatchEvent(new Event("ready"));
+  });
+  assert.equal(await phone.count(), 0);
+  assert.equal(await page.evaluate(() => window.ringAttempts), 0);
+  await page.evaluate(() => window.bellEvent("Ready", "Pressed"));
+  await phone.waitFor();
+  await page.getByText("Doorbell ringing").waitFor();
+  await page.getByRole("button", { name: "Quick replies" }).click();
+  await page.getByRole("button", { name: "Einen Moment bitte" }).click();
+  await page.getByText("Could not send the announcement.").waitFor();
+  await phone.click();
+  await page.getByText("Home Assistant could not verify that this stream belongs to this camera.").waitFor();
+  assert.equal(await page.evaluate(() => window.micCalls), 0, "a wrong alias must not open the mic");
+  await page.evaluate(() => { window.doorTarget = true; });
+  await phone.click();
+  await page.getByText("Microphone access denied.", { exact: false }).waitFor();
+  assert.equal(await page.getByRole("button", { name: "End", exact: true }).count(), 0);
+  await page.evaluate(() => { window.lateMic = true; });
+  await phone.click();
+  await page.getByRole("button", { name: "Cancel", exact: true }).waitFor();
+  assert.equal(await phone.count(), 0, "pending must not look like answering again");
+  await page.waitForFunction(() => window.releaseMic);
+  await page.evaluate(() => { window.card.remove(); window.releaseMic(); });
+  await page.waitForFunction(() => window.lateStopped && window.unsubscribed);
+  assert.deepEqual(await page.evaluate(() => [window.signedBackchannel || false, window.ringAttempts, window.micCalls, window.videoStarts]), [false, 1, 2, 1]);
+});
+
+for (const touch of [false, true]) test(`doorbell exit stays operable in every call state (${touch ? "360px touch" : "desktop"})`, async (t) => {
+  const page = await openRuntimePage(t, touch ? { hasTouch: true, viewport: { width: 360, height: 740 } } : {});
+  await page.evaluate(() => {
+    const card = document.createElement("frigate-vision-card");
+    const f = window.doorbellExit = { micRequests: 0, joins: 0, closes: 0, starts: 0 };
+    window.Audio = class {
+      play() { f.ringtone = this; this.playing = true; return Promise.resolve(); }
+      pause() { this.playing = false; }
+    };
+    navigator.mediaDevices.getUserMedia = async () => {
+      f.micRequests++;
+      if (f.mode === "denied") throw new DOMException("Denied", "NotAllowedError");
+      if (f.mode === "permission") await new Promise(resolve => { f.release = resolve; });
+      const audio = f.audio = { enabled: true, readyState: "live", stop() { this.readyState = "ended"; } };
+      return { getTracks: () => [audio], getAudioTracks: () => [audio] };
+    };
+    card.hass = {
+      connection: Object.assign(new EventTarget(), { async subscribeEvents(cb) {
+        f.ring = () => cb({ data: { entity_id: "input_boolean.fixture", old_state: { state: "off" }, new_state: { state: "on" } } });
+        return async () => {};
+      } }),
+      states: { "camera.door": { state: "idle", attributes: { camera_name: "door", client_id: "demo" } } },
+      async callWS(msg) {
+        if (msg.type !== "frigate_vision/camera_streams") return { children: [] };
+        if (f.mode === "mapping") await new Promise(resolve => { f.release = resolve; });
+        return { streams: f.mode === "blocked" ? ["other"] : ["fixture_speaker"] };
+      },
+    };
+    card.setConfig({ language: "de", layout: "stacked", frigate_client_id: "demo", auto_refresh_seconds: 0,
+      cameras: { door: { sub: "fixture_speaker", doorbell: { enabled: true, entity: "input_boolean.fixture", from: "off", to: "on" } } } });
+    card._hasFetchedOnce = true;
+    const live = f.live = card._ensureLivestreamController();
+    live._startWebRTCviaWS = async function (name, video, runId) {
+      f.starts++;
+      // A synthetic porch view places controls over both bright and dark video.
+      const canvas = document.createElement("canvas");
+      canvas.width = 960; canvas.height = 540;
+      const ctx = canvas.getContext("2d");
+      const draw = () => {
+        const rect = (color, ...position) => { ctx.fillStyle = color; ctx.fillRect(...position); };
+        rect("#dae0dc", 0, 0, 960, 540);
+        rect("#f4ece1", 0, 0, 660, 418);
+        for (let y = 18; y < 411; y += 22) rect("#ded5cb", 0, y, 660, 1);
+        rect("#bfc9c3", 660, 90, 300, 328);
+        rect("#d4c4a9", 0, 418, 960, 122);
+        rect("#e1d0b5", 162, 422, 492, 118);
+        rect("#bcac97", 220, 26, 315, 392);
+        rect("#364446", 234, 38, 285, 380);
+        rect("#63736d", 261, 64, 231, 141);
+        rect("#8fa399", 271, 73, 211, 122);
+        rect("#364446", 375, 73, 5, 122);
+        rect("#253332", 263, 231, 232, 152);
+        rect("#485856", 269, 237, 220, 140);
+        rect("#d2b689", 472, 212, 26, 6);
+        rect("#91806d", 240, 437, 278, 35);
+        rect("#776857", 753, 362, 78, 60);
+        ctx.fillStyle = "#596f55";
+        for (const [x, y, a] of [[767, 336, -.6], [796, 304, .15], [823, 335, .7], [801, 347, .3]]) {
+          ctx.beginPath(); ctx.ellipse(x, y, 21, 46, a, 0, Math.PI * 2); ctx.fill();
+        }
+        rect("#aa9d8c", 900 + (Math.floor(performance.now() / 100) % 12), 525, 15, 2);
+      };
+      draw();
+      const stream = canvas.captureStream(12);
+      const timer = setInterval(draw, 83);
+      video.srcObject = stream;
+      f.video = video;
+      this._peerConnection = f.videoPeer = { close() { clearInterval(timer); stream.getTracks().forEach(track => track.stop()); } };
+      this._playbackReady(name, video, runId, this._config());
+    };
+    live._backchannel = () => ({
+      runGeneration: 1, _withTimeout: promise => promise,
+      async _startWebRTCviaWS() {
+        f.joins++;
+        if (f.mode === "webrtc") await new Promise(resolve => { f.release = resolve; });
+        if (f.mode === "failed") throw Error("No compatible audio backchannel");
+      },
+      close() { f.closes++; },
+    });
+    live.playDoorbellReply = () => new Promise(resolve => { f.finishReply = resolve; });
+    live.stopAnnouncement = () => { if (f.finishReply) f.stoppedReply = true; };
+    document.body.append(card);
+    card._openLive("door");
+  });
+  await page.waitForFunction(() => window.doorbellExit.ring);
+  const door = page.locator("frigate-vision-doorbell");
+  const phone = door.getByRole("button", { name: "Annehmen", exact: true });
+  const dismiss = door.locator(".dismiss");
+  const status = door.getByRole("status");
+  const activate = locator => touch ? locator.tap() : locator.click();
+  const ring = async mode => {
+    await page.evaluate(mode => {
+      Object.assign(window.doorbellExit, { mode, release: null, audio: null });
+      window.doorbellExit.ring();
+    }, mode);
+    await phone.waitFor();
+  };
+  const exit = async label => {
+    await door.getByRole("button", { name: label, exact: true }).waitFor();
+    const box = await dismiss.boundingBox();
+    assert.ok(box.width >= 44 && box.height >= 44, "exit target must be large enough for touch");
+    await activate(dismiss);
+    await dismiss.waitFor({ state: "hidden" });
+  };
+  const snapshot = () => page.evaluate(() => {
+    const f = window.doorbellExit;
+    const bell = document.querySelector("frigate-vision-card").renderRoot.querySelector("frigate-vision-doorbell");
+    return { requests: f.micRequests, joins: f.joins, active: f.live.talkRequested, audio: f.audio?.readyState,
+      enabled: f.audio?.enabled, ringing: !!bell._ringAudio?.playing, samePeer: f.starts === 1 && f.live._peerConnection === f.videoPeer };
+  });
+  const screen = async name => {
+    if (!process.env.FV_DOORBELL_SCREENSHOTS) return;
+    await page.locator(".player-wrap.live").screenshot({ path: resolve(process.env.FV_DOORBELL_SCREENSHOTS, `${touch ? "touch" : "desktop"}-${name}.png`) });
+  };
+  await ring("menu");
+  const video = page.locator("video.player");
+  await page.waitForFunction(() => window.doorbellExit.video.getVideoPlaybackQuality().totalVideoFrames > 1);
+  const firstFrameCount = await video.evaluate(v => v.getVideoPlaybackQuality().totalVideoFrames);
+  const beforeDecline = await snapshot();
+  const more = door.getByRole("button", { name: "Schnellantworten" });
+  assert.deepEqual(await dismiss.evaluate(el => ({ text: el.textContent.trim(), tag: el.tagName,
+    circle: getComputedStyle(el).borderRadius, red: getComputedStyle(el).backgroundColor, path: el.querySelector("svg path")?.getAttribute("transform") })),
+  { text: "", tag: "BUTTON", circle: "50%", red: "rgb(189, 39, 59)", path: "" });
+  assert.equal(await phone.locator("svg path").getAttribute("transform"), "rotate(135 12 12)");
+  assert.ok((await more.boundingBox()).x < (await phone.boundingBox()).x);
+  await screen("ringing");
+  if (!touch) {
+    await dismiss.press("Tab"); await more.press("Shift+Tab");
+    assert.equal(await dismiss.evaluate(el => el.matches(":focus-visible") && getComputedStyle(el).outlineWidth === "2px"), true);
+    await more.press("Enter");
+    const first = door.getByRole("button", { name: "Einen Moment bitte" });
+    await first.waitFor();
+    assert.equal(await first.evaluate(el => el.getRootNode().activeElement === el), true);
+    await page.keyboard.press("Tab");
+    const second = door.getByRole("button", { name: "Bitte vor der Tür abstellen" });
+    assert.equal(await second.evaluate(el => el.getRootNode().activeElement === el), true);
+    await page.keyboard.press("Escape");
+    await first.waitFor({ state: "hidden" });
+    assert.equal(await more.evaluate(el => el.getRootNode().activeElement === el), true);
+  } else {
+    // Verify that the controls remain tappable inside a narrow video tile.
+    const player = page.locator(".player-wrap.live");
+    await player.evaluate(el => { el.style.width = "164px"; });
+    const frame = await player.boundingBox();
+    for (const button of [dismiss, more, phone]) {
+      const b = await button.boundingBox();
+      assert.ok(b.x >= frame.x && b.x + b.width <= frame.x + frame.width && b.y >= frame.y && b.y + b.height <= frame.y + frame.height);
+    }
+    await exit("Anruf ablehnen");
+    await player.evaluate(el => { el.style.width = ""; });
+    await ring("menu");
+  }
+  await activate(more);
+  const replyChoice = door.getByRole("button", { name: "Einen Moment bitte" });
+  await replyChoice.waitFor();
+  assert.ok((await replyChoice.boundingBox()).y < (await more.boundingBox()).y);
+  await screen("menu");
+  await exit("Anruf ablehnen"); // First click/tap also closes an open popover.
+  const afterDecline = await snapshot();
+  assert.equal(afterDecline.ringing, false);
+  assert.equal(afterDecline.requests, beforeDecline.requests);
+  assert.equal(afterDecline.joins, beforeDecline.joins);
+  assert.equal(afterDecline.samePeer, true);
+  assert.equal(await page.evaluate(() => window.doorbellExit.ringtone.playing), false);
+  await page.waitForFunction(frames => window.doorbellExit.video.getVideoPlaybackQuality().totalVideoFrames > frames, firstFrameCount);
+  if (!touch) {
+    await ring("keyboard");
+    await dismiss.press("Space");
+    await dismiss.waitFor({ state: "hidden" });
+    assert.equal((await snapshot()).requests, beforeDecline.requests);
+  }
+
+  for (const [mode, text] of [["blocked", /nicht eindeutig zuordnen/], ["denied", /Mikrofonzugriff verweigert/], ["failed", /keinen kompatiblen Audiorückkanal/]]) {
+    const previous = await snapshot();
+    await ring(mode); await activate(phone); await status.filter({ hasText: text }).waitFor();
+    const current = await snapshot();
+    assert.equal(current.active, false);
+    if (mode === "blocked") assert.equal(current.requests, previous.requests);
+    if (mode === "failed") assert.equal(current.audio, "ended");
+    await exit("Schließen");
+  }
+  for (const mode of ["mapping", "permission", "webrtc"]) {
+    const previous = await snapshot();
+    await ring(mode); await activate(phone);
+    await page.waitForFunction(() => window.doorbellExit.release);
+    assert.equal(await phone.count(), 0);
+    if (mode === "webrtc") assert.equal((await snapshot()).enabled, false);
+    await exit("Abbrechen");
+    if (mode === "webrtc") assert.equal((await snapshot()).audio, "ended");
+    await page.evaluate(() => window.doorbellExit.release());
+    if (mode !== "mapping") await page.waitForFunction(() => window.doorbellExit.audio?.readyState === "ended");
+    const current = await snapshot();
+    if (mode === "mapping") assert.equal(current.requests, previous.requests);
+    assert.equal(current.joins, previous.joins + (mode === "webrtc" ? 1 : 0));
+    assert.equal(current.active, false);
+  }
+  await ring("active"); await activate(phone);
+  await status.filter({ hasText: "Mikrofon sendet" }).waitFor();
+  assert.equal(await dismiss.getAttribute("data-sending"), "");
+  const mute = door.getByRole("button", { name: "Mikrofon stummschalten", exact: true });
+  const active = await snapshot();
+  const box = await mute.boundingBox();
+  assert.ok(box.width >= 44 && box.height >= 44);
+  if (touch) await mute.tap(); else await mute.press("Space");
+  await status.filter({ hasText: "Mikrofon stumm" }).waitFor();
+  assert.equal(await mute.getAttribute("aria-pressed"), "true");
+  assert.equal((await snapshot()).enabled, false);
+  await screen("muted");
+  await activate(mute);
+  await status.filter({ hasText: "Mikrofon sendet" }).waitFor();
+  assert.equal(await mute.getAttribute("aria-pressed"), "false");
+  assert.equal((await snapshot()).enabled, true);
+  assert.equal((await snapshot()).requests, active.requests);
+  assert.equal((await snapshot()).joins, active.joins);
+  await activate(mute);
+  await status.filter({ hasText: "Mikrofon stumm" }).waitFor();
+  await exit("Beenden");
+  assert.equal((await snapshot()).audio, "ended");
+
+  await ring("reply"); await activate(door.getByRole("button", { name: "Schnellantworten" }));
+  await activate(door.getByRole("button", { name: "Einen Moment bitte" }));
+  const reply = await dismiss.evaluate(button => ({ focused: button.getRootNode().activeElement === button, sending: button.hasAttribute("data-sending") }));
+  assert.deepEqual(reply, { focused: true, sending: false });
+  await exit("Beenden");
+  await page.evaluate(() => {
+    if (!window.doorbellExit.stoppedReply) throw Error("reply was not stopped");
+    window.doorbellExit.finishReply(false);
+  });
+  assert.equal(await dismiss.count(), 0, "late completion must not reopen the call");
+  assert.equal((await snapshot()).samePeer, true);
+});
+
+test("Doorbell view editor requires an explicit camera and preserves normal settings and other entries", async (t) => {
+  const page = await openRuntimePage(t);
+  const input = { multiview: true, auto_refresh_seconds: 30, cameras: {
+    front: { main: "klingel_talk", sub: "klingel_talk", doorbell: { enabled: true, entity: "input_boolean.fixture" } },
+    side: { name: "Side" },
+  } };
+  await page.evaluate(config => {
+    const editor = document.createElement("frigate-vision-card-editor");
+    editor.setConfig(config);
+    editor.addEventListener("config-changed", e => { window.config = e.detail.config; });
+    document.body.append(editor);
+  }, input);
+  await page.getByRole("button", { name: "Anzeige", exact: true }).click();
+  await page.getByLabel("Ansicht", { exact: true }).selectOption("doorbell");
+  await page.getByRole("button", { name: "Kameras", exact: true }).click();
+  const camera = page.getByLabel("Doorbell-Kamera", { exact: true });
+  assert.equal(await camera.inputValue(), "");
+  await page.getByRole("alert").filter({ hasText: "genau eine Kamera" }).waitFor();
+  await camera.selectOption("side");
+  await page.getByRole("alert").filter({ hasText: "Aktiviere Doorbell" }).waitFor();
+  await camera.selectOption("front");
+  assert.equal(await camera.getAttribute("aria-invalid"), "false");
+  assert.deepEqual(await page.evaluate(() => window.config), { ...input, doorbell_camera: "front", view_mode: "doorbell" });
+  await page.getByRole("button", { name: "Anzeige", exact: true }).click();
+  await page.getByLabel("Ansicht", { exact: true }).selectOption("events");
+  assert.deepEqual(await page.evaluate(() => window.config), { ...input, doorbell_camera: "front", view_mode: "events" });
+});
+
+test("Doorbell view refuses absent, disabled and ambiguous selections without starting a player", async (t) => {
+  const page = await openRuntimePage(t);
+  const scenarios = [
+    [undefined, "Select exactly one camera"], ["other", "not configured"], ["side", "Enable Doorbell"],
+    ["door", "ambiguous", true], ["door", "ambiguous", false, true], ["door", "needs live streaming", false, false, true],
+  ];
+  for (const [id, message, duplicateDefinitions, duplicateEntities, liveOff] of scenarios) {
+    await page.evaluate(({ id, duplicateDefinitions, duplicateEntities, liveOff }) => {
+      window.card?.remove();
+      const card = window.card = document.createElement("frigate-vision-card");
+      const camera = { attributes: { camera_name: "door", client_id: "demo" } };
+      card.hass = { callWS: async () => ({}), states: { "camera.door": camera, ...(duplicateEntities ? { "camera.duplicate": camera } : {}) } };
+      const door = { doorbell: { enabled: true, entity: "input_boolean.fixture" } };
+      card.setConfig({ view_mode: "doorbell", doorbell_camera: id, language: "en", live_provider: liveOff ? "off" : "auto",
+        cameras: { door, side: {}, ...(duplicateDefinitions ? { Door: door } : {}) } });
+      document.body.append(card);
+    }, { id, duplicateDefinitions, duplicateEntities, liveOff });
+    await page.getByRole("alert").filter({ hasText: message }).waitFor();
+    assert.equal(await page.locator("frigate-vision-live-tile, video").count(), 0);
+  }
+});
+
+test("Doorbell view keeps one player on panel resize and releases capture on popup close or detach", async (t) => {
+  const page = await openRuntimePage(t, { viewport: { width: 1100, height: 800 } });
+  await page.evaluate(() => {
+    const card = document.createElement("frigate-vision-card");
+    const f = window.dedicated = { asks: [], plays: [], stops: 0, card };
+    const proto = Object.getPrototypeOf(card._ensureLivestreamController());
+    proto._startWebRTCviaWS = async function (name, video, runId) {
+      f.plays.push(name);
+      const canvas = document.createElement("canvas"); canvas.width = 160; canvas.height = 90;
+      canvas.getContext("2d").fillRect(0,0,160,90);
+      const stream = canvas.captureStream(10);
+      this._peerConnection = { close() { stream.getTracks().forEach(track => track.stop()); } };
+      video.srcObject = stream;
+      this._playbackReady(name, video, runId, this._config());
+    };
+    proto._backchannel = () => ({ runGeneration: 1, _withTimeout: promise => promise, async _startWebRTCviaWS() {}, close() {} });
+    navigator.mediaDevices.getUserMedia = async () => {
+      const track = { enabled: true, readyState: "live", stop() { this.readyState = "ended"; f.stops++; } };
+      return { getAudioTracks: () => [track], getTracks: () => [track] };
+    };
+    window.Audio = class { play() { return Promise.resolve(); } pause() {} };
+    f.connection = Object.assign(new EventTarget(), { async subscribeEvents(cb) {
+      f.ring = (entity_id = "input_boolean.door") => cb({ data: { entity_id, old_state: { state: "off" }, new_state: { state: "on" } } });
+      return async () => {};
+    } });
+    card.hass = { connection: f.connection, states: {
+      "camera.door": { attributes: { camera_name: "door", client_id: "demo" } },
+      "camera.side": { attributes: { camera_name: "side", client_id: "demo" } },
+    }, async callWS(msg) {
+      f.asks.push(msg.type);
+      if (msg.type === "frigate_vision/profile") return { profile: { frigate_client_id: "demo" } };
+      if (msg.type === "frigate_vision/camera_streams") return { streams: ["klingel_talk"] };
+      if (msg.type === "media_source/browse_media") return { children: [{ media_content_id: "media-source://frigate/demo/event-search/clips//////" }] };
+      return [];
+    } };
+    f.config = { language: "en", view_mode: "doorbell", doorbell_camera: "door", layout: "stacked", go2rtc_modes: "webrtc", live_autostart: false,
+      section_mode: true, multiview: true, live_controls: false, auto_refresh_seconds: 60, cameras: {
+      door: { main: "klingel_talk", sub: "klingel_talk", doorbell: { enabled: true, entity: "input_boolean.door" } },
+      side: { doorbell: { enabled: true, entity: "input_boolean.side" } },
+    } };
+    card.setConfig(f.config);
+    const dialog = f.dialog = document.createElement("dialog");
+    Object.assign(dialog.style, { width: "320px", height: "220px", padding: "0" });
+    dialog.append(card); document.body.append(dialog); dialog.showModal();
+  });
+  const video = page.locator("video.player");
+  const answer = page.getByRole("button", { name: "Answer", exact: true });
+  await page.waitForFunction(() => {
+    const tile = window.dedicated.card.renderRoot.querySelector("frigate-vision-live-tile");
+    return tile?.renderRoot.querySelector("frigate-vision-doorbell")?._surfaceVisible;
+  });
+  assert.equal(await video.count(), 1);
+  assert.equal(await page.locator(".header, .filters, .live-controls, .player-top-buttons, .timeline, .list-wrap, .multiview-grid").count(), 0);
+  assert.deepEqual(await video.evaluate(v => ({ controls: v.controls, fullscreen: !!document.fullscreenElement })), { controls: false, fullscreen: false });
+  const size = await video.boundingBox();
+  assert.ok(size.width <= 320 && size.height <= 220 && size.height > 100);
+  await video.evaluate(v => {
+    const f = window.dedicated;
+    const tile = f.card.renderRoot.querySelector("frigate-vision-live-tile");
+    f.initial = [v, v.srcObject, tile._lc._peerConnection];
+    f.dialog.style.width = "950px"; f.dialog.style.height = "610px";
+    f.card.hass = { ...f.card.hass, states: { ...f.card.hass.states } };
+    f.ring("input_boolean.side");
+  });
+  assert.equal(await answer.count(), 0);
+  await page.waitForFunction(() => window.dedicated.initial[0].getBoundingClientRect().width > 900);
+  assert.deepEqual(await video.evaluate(v => {
+    const f = window.dedicated;
+    const tile = f.card.renderRoot.querySelector("frigate-vision-live-tile");
+    return [v === f.initial[0] && v.srcObject === f.initial[1] && tile._lc._peerConnection === f.initial[2], f.plays, f.asks, !!f.card._autoRefreshTimer];
+  }), [true, ["klingel_talk"], ["frigate_vision/profile"], false]);
+  await page.evaluate(() => window.dedicated.ring());
+  await answer.click(); await page.getByRole("button", { name: "End", exact: true }).waitFor();
+  await page.evaluate(() => window.dedicated.dialog.close());
+  await page.waitForFunction(() => window.dedicated.stops === 1);
+  await page.evaluate(() => window.dedicated.ring());
+  assert.equal(await answer.count(), 0);
+  await page.evaluate(() => window.dedicated.dialog.showModal());
+  await page.waitForFunction(() => window.dedicated.card.renderRoot.querySelector("frigate-vision-live-tile").renderRoot.querySelector("frigate-vision-doorbell")._surfaceVisible);
+  await page.evaluate(() => window.dedicated.ring());
+  await answer.click(); await page.getByRole("button", { name: "End", exact: true }).waitFor();
+  await page.getByRole("button", { name: "Mute microphone", exact: true }).click();
+  await page.getByText("Microphone muted", { exact: true }).waitFor();
+  await page.evaluate(() => window.dedicated.card.remove());
+  await page.waitForFunction(() => window.dedicated.stops === 2);
+  await page.evaluate(() => {
+    const f = window.dedicated;
+    f.dialog.close(); f.card.setConfig({ ...f.config, view_mode: "events", multiview: false, auto_refresh_seconds: 0 });
+    document.body.append(f.card);
+  });
+  await page.locator(".header").waitFor();
+  await page.waitForFunction(() => window.dedicated.asks.includes("media_source/browse_media"));
+  assert.equal(await page.locator("frigate-vision-live-tile").count(), 0);
+});
+
+test("opt-in popup can take over a recent ring on mount; the panel, stale snapshots and repeat mounts cannot", async (t) => {
+  const page = await openRuntimePage(t);
+  await page.evaluate(() => {
+    const seed = document.createElement("frigate-vision-card");
+    const proto = Object.getPrototypeOf(seed._ensureLivestreamController());
+    proto._startWebRTCviaWS = async function (name, video, runId) { this._playbackReady(name, video, runId, this._config()); };
+    window.Audio = class { play() { return Promise.resolve(); } pause() {} };
+    window.gumRequests = 0;
+    navigator.mediaDevices.getUserMedia = () => { window.gumRequests++; throw Error("unexpected capture"); };
+    const connection = Object.assign(new EventTarget(), { async subscribeEvents(cb) {
+      window.deliverFresh = () => cb({ data: { entity_id: "input_boolean.fixture", old_state: { state: "off" }, new_state: window.mountState } });
+      return async () => {};
+    } });
+    const dialog = document.createElement("dialog");
+    dialog.style.width = "340px"; document.body.append(dialog); dialog.showModal();
+    window.fresh = new Date().toISOString();
+    window.mount = (popup, state, stamp) => {
+      dialog.replaceChildren();
+      const card = document.createElement("frigate-vision-card");
+      window.mountState = { state, last_changed: stamp };
+      card.hass = { connection, states: {
+        "input_boolean.fixture": window.mountState,
+        "camera.door": { attributes: { camera_name: "door", client_id: "demo" } },
+      }, callWS: async () => ({ profile: { frigate_client_id: "demo" } }) };
+      card.setConfig({ view_mode: "doorbell", doorbell_camera: "door", doorbell_ring_on_mount: popup, language: "en", go2rtc_modes: "webrtc",
+        cameras: { door: { doorbell: { enabled: true, entity: "input_boolean.fixture" } } } });
+      dialog.append(card);
+    };
+  });
+  const answer = page.getByRole("button", { name: "Answer", exact: true });
+  const mount = async (popup, state, when) => {
+    await page.evaluate(({ popup, state, when }) => window.mount(popup, state, when === "fresh" ? window.fresh : when), { popup, state, when });
+    await page.waitForFunction(() => {
+      const tile = document.querySelector("frigate-vision-card").renderRoot.querySelector("frigate-vision-live-tile");
+      const bell = tile?.renderRoot.querySelector("frigate-vision-doorbell");
+      return bell?._subscription?.unsubscribe && bell?._surfaceVisible && (!bell.ringOnMount || bell._mountChecked);
+    });
+  };
+  await mount(false, "on", "fresh"); assert.equal(await answer.count(), 0);
+  await mount(true, "off", "fresh"); assert.equal(await answer.count(), 0);
+  await mount(true, "on", "2000-01-01T00:00:00Z"); assert.equal(await answer.count(), 0);
+  await mount(true, "on", "fresh"); await answer.waitFor();
+  await page.getByRole("button", { name: "Decline call", exact: true }).click();
+  await page.evaluate(() => window.deliverFresh());
+  assert.equal(await answer.count(), 0);
+  await mount(true, "on", "fresh"); assert.equal(await answer.count(), 0);
+  assert.equal(await page.evaluate(() => window.gumRequests), 0);
+});
+
 test("mixed Ultra-Wide tiles span responsive grid rows without overflow or distorted media", async (t) => {
   const page = await openRuntimePage(t);
   const scenarios = [

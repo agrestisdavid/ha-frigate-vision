@@ -116,7 +116,36 @@ Example local acceptance run (HA Core 2026.11.2, go2rtc 1.9.15):
 accounts for 441 Hz rather than exactly 440 Hz. This verifies the Card and
 media path with synthetic endpoints, not a physical camera or loudspeaker.
 
+The same run checks a doorbell call in the single player (HA proxy) and a
+live tile (profile-matched direct playback). A separate fixture user controls
+`input_boolean.besucher` only in the disposable HA. The read-only browser gets
+real HA `state_changed` events. It must not ring on initial `on`, an attribute
+update, or `unavailable` recovery. The test checks that the local ringtone
+plays in Chromium without reaching go2rtc, then selects each German reply,
+measures decoded speech at the synthetic speaker and asserts zero microphone
+requests. Answering must carry the simulated voice input, and hanging up must
+end its track. Ending an announcement early must also stop its generated track
+and the flow of audio samples to the synthetic speaker. The video element,
+media stream and receiving WebRTC peer must stay identical while decoded frames
+keep advancing. The fast Chromium suite also covers blocked ringtone autoplay,
+reconnect and a late grant after detach, and checks the Close/Cancel/End button
+with desktop clicks and narrow touchscreen taps while the reply menu is open,
+while stream verification, permission or WebRTC setup are pending, and after
+verification, permission or backchannel errors. The Doorbell-only view also
+runs inside a native test dialog mounted after the HA edge. It must present
+the recent call without requesting capture, resize without replacing the
+receive peer, and never query events or recordings. Fast tests verify normal
+panel startup, popup replay rejection and capture cleanup on hide or detach.
+
 ## Bundled browser and brand assets
+
+The small files in `frontend/doorbell/` are standalone audio assets served by
+Home Assistant. `wait.flac` and `leave.flac` are speech rendered offline with
+[eSpeak NG](https://github.com/espeak-ng/espeak-ng) 1.51 (`-v de -s 150 -w …`,
+texts `Einen Moment bitte.` and `Bitte vor der Tür abstellen.` respectively).
+The output is mono FLAC at 16 kHz with 250 ms of trailing silence. `ring.flac`
+is a locally synthesized two-tone chime (660 Hz, then 523.25 Hz). No speech
+engine or cloud TTS connection is needed at runtime.
 
 The released Card never fetches JavaScript from a CDN. Rebuild the pinned
 browser bundles and their checksum manifest with:

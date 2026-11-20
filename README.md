@@ -24,6 +24,8 @@ Frigate Vision is independent of LLM Vision:
 - No provider credentials, fixed hosts, or private addresses are embedded in
   the Card or Blueprint.
 
+**New in 0.4.1:** Set up [Doorbell calls and quick replies](https://agrestisdavid.github.io/ha-frigate-vision/card/#doorbell-calls-and-quick-replies) in a live view or a dedicated single-camera card. Answer, mute your microphone, or send a prerecorded German reply.
+
 **New in 0.4.0:** Use the [PTZ controls](https://agrestisdavid.github.io/ha-frigate-vision/card/#ptz-button)
 or [talk to the camera](https://agrestisdavid.github.io/ha-frigate-vision/card/#talk-to-the-camera)
 from a single live view or a multiview tile. Opening the Card does not move a

@@ -183,8 +183,82 @@ No new public endpoint or HA service is needed.
 Stopping, switching camera/quality, leaving or hiding the view, or losing the
 connection releases the microphone. A later connection does not turn it on
 again. Starting another tile's microphone stops the previous one. Disabling
-**Livestream → Live-Controls Overlay anzeigen** hides both the microphone and
-PTZ controls; the separate HD/SD button setting is unchanged.
+**Livestream → Live-Controls Overlay anzeigen** hides the microphone,
+doorbell and PTZ controls; the separate HD/SD button setting is unchanged.
+
+### Doorbell calls and quick replies
+
+In the Card editor, open **Kameras**, expand the door camera and enable
+**Doorbell (Türklingel)**. Enter a Home Assistant entity ID and the exact
+internal **Von-Zustand** (from) and **Zielzustand** (to). Keep live controls
+enabled. The equivalent Card YAML is:
+
+```yaml
+cameras:
+  front_door:
+    doorbell:
+      enabled: true
+      entity: binary_sensor.front_doorbell
+      from: "off"
+      to: "on"
+```
+
+Only a new matching state change rings, and only while that camera's live
+image is open in a visible dashboard. Opening the card on `on`, reconnecting,
+attribute-only updates and transitions through `unknown` or `unavailable`
+do not ring. There are no push notifications. The incoming call still appears
+if the browser blocks the local ringtone. Unanswered calls time out after
+about 25 seconds.
+
+The green handset answers the call, replacing the ordinary microphone button
+for a doorbell-enabled camera. The red horizontal handset declines the call,
+including with quick replies open, without turning on the microphone. During
+connection setup use **Cancel**; if the browser is prompting for microphone
+permission, you can also use its cancel or deny control. During a call use
+**End** to release the microphone, even when muted. The microphone button
+mutes and unmutes only your outgoing voice without affecting the camera's
+sound or restarting the call.
+
+The **…** button just left of the handset opens two prerecorded German speech
+replies: **Einen Moment bitte** and **Bitte vor der Tür abstellen**. Choosing
+either one sends it to the door camera without answering, opening the
+microphone or playing the reply on the browser's speakers. Use **End** to
+stop an announcement in progress.
+
+Both actions use the authenticated Home Assistant proxy and check that the
+playing alias belongs to that Frigate camera; there is no separate talk-alias
+setting. For a custom alias, use a stream declared under that camera's
+`live.streams` and present in `go2rtc.streams` in the Frigate configuration
+that HA received. The selected alias needs a compatible go2rtc speaker
+backchannel; answering additionally requires live
+WebRTC and browser microphone permission. The Card does not automatically
+switch streams or quality. With a synthetic door camera, you can test with a
+HA Toggle helper (for example `input_boolean.besucher`): open the camera's
+live view, set the helper to off, then turn it on.
+
+### Doorbell-only card
+
+Choose **Anzeige → Ansicht → Doorbell (eine Kamera)** and select the
+**Doorbell-Kamera** under **Kameras**. Enable Doorbell and configure its
+trigger as above. In YAML, use `view_mode: doorbell` and
+`doorbell_camera: front_door` alongside the existing `cameras` mapping.
+The mode shows only the selected live video and the incoming call controls.
+Other camera entries and normal view settings stay saved; the mode does not
+load events or recordings. The Sub alias is used if set, otherwise Main or
+then the exact camera ID. Main and Sub may name the same alias.
+
+Embed the same card in a Home Assistant panel or in a popup that your dashboard
+already manages. The card does not open popups or force fullscreen. For a popup
+that is **mounted after** the configured edge, enable **Vorhandenen Ruf beim
+Öffnen übernehmen (nur Klingel-Popup)** (YAML: `doorbell_ring_on_mount: true`).
+The popup itself should be configured to open on that exact entity/edge: when
+it mounts, the card can only check the resulting state and its `last_changed`
+timestamp, not the previous state. It accepts a matching state newer than
+25 seconds at most once for that camera/entity per browser connection. It
+never starts the microphone on mount. The popup should remove the card from
+the page or its layout when closed, not just make it transparent. Leave the
+option off in a normal panel, which rings only on a live edge. Camera sound can be unmuted using the video
+controls during the call.
 
 ### PTZ button
 
