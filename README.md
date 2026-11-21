@@ -24,6 +24,16 @@ Frigate Vision is independent of LLM Vision:
 - No provider credentials, fixed hosts, or private addresses are embedded in
   the Card or Blueprint.
 
+**New in 0.5.0:** In the [Doorbell-only card](https://agrestisdavid.github.io/ha-frigate-vision/card/#doorbell-only-card),
+**Camera sound** and **Start talking** work without a call: the player starts
+muted, listening and talking stay independent, and the live video keeps running
+after you hang up. A [quick reply](https://agrestisdavid.github.io/ha-frigate-vision/card/#doorbell-calls-and-quick-replies)
+now only silences the ringtone, so the same call can still be answered or
+declined, and its texts come from any Home Assistant `tts.*` entity — up to
+three, 120 characters each — instead of only the two bundled German replies.
+Update Frigate Vision in HACS and restart Home Assistant; no Card migration, new
+Lovelace resource or Blueprint re-import is needed.
+
 **New in 0.4.1:** Set up [Doorbell calls and quick replies](https://agrestisdavid.github.io/ha-frigate-vision/card/#doorbell-calls-and-quick-replies) in a live view or a dedicated single-camera card. Answer, mute your microphone, or send a prerecorded German reply.
 
 **New in 0.4.0:** Use the [PTZ controls](https://agrestisdavid.github.io/ha-frigate-vision/card/#ptz-button)

@@ -76,7 +76,8 @@ native options selector, validation, synthesis at save, reuse on subsequent
 reads, private persistence, failed-save rollback, provider changes, cache
 removal and camera-scoped WebSocket permissions. This tests **one Core version**, not
 HACS installation, real Frigate, model quality, hardware or browser rendering.
-Use the Chromium suite separately for the Card UI.
+Use the Chromium suite separately for the Card UI. It runs Chromium only, so
+Safari, Firefox and mobile browsers remain manual checks on real devices.
 
 Success, test failure, interruption or the run deadline (120 seconds by default;
 `--timeout SECONDS` to adjust) cleans up this run's container and configuration.
@@ -148,7 +149,19 @@ while stream verification, permission or WebRTC setup are pending, and after
 verification, permission or backchannel errors. The Doorbell-only view also
 runs inside a native test dialog mounted after the HA edge. It must present
 the recent call without requesting capture, resize without replacing the
-receive peer, and never query events or recordings. The dedicated popup also
+receive peer, and never query events or recordings. The Chromium suite also
+separates the two Doorbell-only audio controls: a new player stays muted, the
+speaker button unmutes it without any capture request, an idle microphone
+survives fullscreen and is adopted by Answer without a second connection, End
+mutes the sound while the same player keeps running and a later tap unmutes it
+again, a rejected playback stays muted with a retry, and the transport fallback
+never inherits the failed player's tracks. A dedicated fast suite covers the
+reply lifecycle: a bundled or TTS reply silences the ringtone at once while the
+same call stays answerable, Answer or End during a reply cancels it and a late
+completion is ignored, a muted call survives panel and popup rebuilds without
+ringing again, and the per-connection call cache expires without new events. In
+the isolated HA audio run, the browser waits for the muted-call status after a
+reply and then declines the still open call. The dedicated popup also
 uses one custom label with literal markup-like characters. The browser saves it
 via the actual HA OptionsFlow API, verifies no samples are sent on save, and
 selects it twice without a microphone request or another synthesis. The
