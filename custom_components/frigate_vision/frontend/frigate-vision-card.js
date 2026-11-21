@@ -1,4 +1,4 @@
-const CARD_VERSION = "0.4.1";
+const CARD_VERSION = "0.4.2";
 
 const VALID_LIVE_PROVIDERS = ["auto", "go2rtc", "mjpeg", "off"];
 const VALID_GO2RTC_MODES = ["webrtc", "mse", "mp4", "hls", "mjpeg"];
@@ -56,7 +56,7 @@ const STRINGS = {
       disconnected: "Verbindung unterbrochen. Das Mikrofon ist aus.",
       connectionFailed: "Der Audiorückkanal konnte nicht verbunden werden.",
     },
-    doorbell: { incoming: "Es klingelt", answer: "Annehmen", decline: "Anruf ablehnen", listen: "Kameraton einschalten", listenBlocked: "Kameraton ist stumm. Tippe auf „Kameraton einschalten“.", mute: "Mikrofon stummschalten", unmute: "Mikrofon wieder einschalten", muted: "Mikrofon stumm", cancel: "Abbrechen", end: "Beenden", replies: "Schnellantworten", playing: "Ansage wird gesendet …", failed: "Ansage konnte nicht gesendet werden.", dismiss: "Schließen" },
+    doorbell: { incoming: "Es klingelt", answer: "Annehmen", decline: "Anruf ablehnen", fullscreen: "Vollbild öffnen", exitFullscreen: "Vollbild verlassen", listen: "Kameraton einschalten", listenBlocked: "Kameraton ist stumm. Tippe auf „Kameraton einschalten“.", mute: "Mikrofon stummschalten", unmute: "Mikrofon wieder einschalten", muted: "Mikrofon stumm", cancel: "Abbrechen", end: "Beenden", replies: "Schnellantworten", playing: "Ansage wird gesendet …", failed: "Ansage konnte nicht gesendet werden.", dismiss: "Schließen" },
     ptz: { label: "PTZ-Steuerung", up: "Nach oben", down: "Nach unten", left: "Nach links", right: "Nach rechts", stop: "Stopp", failed: "PTZ-Befehl fehlgeschlagen. Verbindung und Berechtigung prüfen." },
     timeline_loading: "Lade Aufnahme…",
     timeline_no_recording: "Keine Aufnahme für diesen Zeitraum",
@@ -109,7 +109,7 @@ const STRINGS = {
       disconnected: "Connection lost. The microphone is off.",
       connectionFailed: "Could not connect the audio backchannel.",
     },
-    doorbell: { incoming: "Doorbell ringing", answer: "Answer", decline: "Decline call", listen: "Enable camera sound", listenBlocked: "Camera sound is off. Select “Enable camera sound”.", mute: "Mute microphone", unmute: "Unmute microphone", muted: "Microphone muted", cancel: "Cancel", end: "End", replies: "Quick replies", playing: "Sending announcement…", failed: "Could not send the announcement.", dismiss: "Close" },
+    doorbell: { incoming: "Doorbell ringing", answer: "Answer", decline: "Decline call", fullscreen: "Enter fullscreen", exitFullscreen: "Exit fullscreen", listen: "Enable camera sound", listenBlocked: "Camera sound is off. Select “Enable camera sound”.", mute: "Mute microphone", unmute: "Unmute microphone", muted: "Microphone muted", cancel: "Cancel", end: "End", replies: "Quick replies", playing: "Sending announcement…", failed: "Could not send the announcement.", dismiss: "Close" },
     ptz: { label: "PTZ controls", up: "Tilt up", down: "Tilt down", left: "Pan left", right: "Pan right", stop: "Stop", failed: "PTZ command failed. Check the connection and permissions." },
     timeline_loading: "Loading recording…",
     timeline_no_recording: "No recording for this period",
@@ -5926,7 +5926,8 @@ class FrigateVisionCard extends LitElement {
             ? (this._mjpegSignedUrl
                 ? html`<img class="live-mjpeg" src="${this._mjpegSignedUrl}" @error=${() => this._onMjpegError()} />`
                 : html`<div class="loading">${t.live_connecting}</div>`)
-            : html`<video class="player" autoplay playsinline muted controls></video>`
+            : html`<video class="player" autoplay playsinline muted controls
+                controlslist=${hasDoorbellOverlay(this._config, entry?.doorbell) && canFullscreenPlayer() ? "nofullscreen" : ""}></video>`
           }
           ${this._config.live_controls ? html`
             <div class="live-controls live-controls--${this._config.live_controls_position}">
@@ -6922,6 +6923,10 @@ class FrigateVisionCard extends LitElement {
       .split.is-split > .left .player-wrap.live video.player {
         max-height: none;
         height: auto;
+      }
+      .player-wrap.live:fullscreen { width: 100%; height: 100%; background: black; }
+      .player-wrap.live:fullscreen :is(video.player, .live-mjpeg) {
+        width: 100% !important; height: 100% !important; max-height: none !important; object-fit: contain;
       }
 
       /* ── Timeline (VoD recording) ── */
@@ -8409,8 +8414,24 @@ function renderCameraControls(hass, config, instanceId, cameraId, live, talkStat
   return html`${usableDoorbell(doorbell) ? "" : talkButton(live, config, talkState, t)}${renderPtzControls(hass, instanceId, cameraId, live?.playbackTarget, t)}`;
 }
 
+function hasDoorbellOverlay(config, doorbell) {
+  return usableDoorbell(doorbell) && config.live_controls !== false && config.live_provider !== "off";
+}
+
+function canFullscreenPlayer() {
+  return document.fullscreenEnabled && typeof Element.prototype.requestFullscreen === "function";
+}
+
+function containingDialog(element) {
+  for (let node = element; node; node = node.getRootNode().host) {
+    const dialog = node.closest("dialog");
+    if (dialog) return dialog;
+  }
+  return null;
+}
+
 function renderDoorbell(hass, config, cameraId, live, talkState, talkMuted, talkAudioBlocked, t, doorbell, embedded = false) {
-  if (!usableDoorbell(doorbell) || config.live_controls === false || config.live_provider === "off") return "";
+  if (!hasDoorbellOverlay(config, doorbell)) return "";
   return html`<frigate-vision-doorbell .hass=${hass} .cameraId=${cameraId} .controller=${live}
     .settings=${doorbell} .talkState=${talkState} .talkMuted=${talkMuted} .talkAudioBlocked=${talkAudioBlocked} .t=${t} .embedded=${embedded}
     .ringOnMount=${embedded && config.doorbell_ring_on_mount === true}></frigate-vision-doorbell>`;
@@ -8422,7 +8443,7 @@ class FrigateVisionDoorbell extends LitElement {
     settings: { attribute: false }, talkState: {}, talkMuted: { attribute: false }, talkAudioBlocked: { attribute: false }, t: { attribute: false },
     embedded: { attribute: false }, ringOnMount: { attribute: false },
     _incoming: { state: true }, _menu: { state: true }, _reply: { state: true },
-    _failed: { state: true }, _triedAnswer: { state: true },
+    _failed: { state: true }, _triedAnswer: { state: true }, _fullscreen: { state: true },
   };
 
   connectedCallback() {
@@ -8432,6 +8453,29 @@ class FrigateVisionDoorbell extends LitElement {
     const options = { signal: this._lifetime.signal };
     window.addEventListener("pagehide", () => this._dismiss(), options);
     document.addEventListener("visibilitychange", () => { if (document.hidden) this._dismiss(); }, options);
+    document.addEventListener("fullscreenchange", () => {
+      this._fullscreen = this._ownFullscreen();
+      if (this._menu) this._positionMenu();
+    }, options);
+    const leaveFullscreen = event => {
+      if (!this._ownFullscreen()) return;
+      // Some browsers deliver Escape to the modal's close watcher before
+      // leaving fullscreen. Exit the camera surface, not the dialog/call.
+      event.preventDefault();
+      event.stopPropagation();
+      this._exitFullscreen();
+    };
+    document.addEventListener("keydown", event => {
+      if (event.key === "Escape") leaveFullscreen(event);
+    }, { ...options, capture: true });
+    const dialog = containingDialog(this);
+    dialog?.addEventListener("cancel", leaveFullscreen, options);
+    dialog?.addEventListener("close", () => {
+      if (!dialog.open) {
+        this._dismiss();
+        if (this._ownFullscreen()) this._exitFullscreen();
+      }
+    }, options);
     const moveMenu = () => { if (this._menu) this._positionMenu(); };
     window.addEventListener("resize", moveMenu, options);
     window.addEventListener("scroll", moveMenu, { ...options, capture: true });
@@ -8531,6 +8575,23 @@ class FrigateVisionDoorbell extends LitElement {
     }
   }
 
+  _ownFullscreen() {
+    const player = this.parentElement;
+    const fullscreen = player?.getRootNode().fullscreenElement;
+    return Boolean(fullscreen && player.contains(fullscreen));
+  }
+
+  _exitFullscreen() {
+    document.exitFullscreen?.().catch(() => {});
+  }
+
+  _toggleFullscreen() {
+    if (this._ownFullscreen()) this._exitFullscreen();
+    // Fullscreen the wrapper containing both the existing video and overlay.
+    // Never move or recreate the video or any call controls.
+    else this.parentElement?.requestFullscreen?.().catch(() => {});
+  }
+
   _positionMenu() {
     const menu = this.renderRoot?.querySelector(".replies");
     const button = this.renderRoot?.querySelector(".more");
@@ -8616,8 +8677,15 @@ class FrigateVisionDoorbell extends LitElement {
   }
 
   render() {
-    if (!this._incoming) return "";
     const d = this.t?.doorbell || STRINGS.en.doorbell;
+    const fullscreenLabel = this._fullscreen ? d.exitFullscreen : d.fullscreen;
+    const fullscreen = canFullscreenPlayer() && (this._incoming || !this.embedded || this._fullscreen)
+      ? html`<button type="button" class="fullscreen" aria-label=${fullscreenLabel} title=${fullscreenLabel}
+          @click=${this._toggleFullscreen}>
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true" focusable="false">
+            <path d=${this._fullscreen ? "M4 9h5V4m11 5h-5V4M4 15h5v5m11-5h-5v5" : "M4 9V4h5m6 0h5v5M4 15v5h5m6 0h5v-5"} />
+          </svg></button>` : "";
+    if (!this._incoming) return fullscreen;
     const talk = this.t?.talk || STRINGS.en.talk;
     const state = this._triedAnswer ? this.talkState : "idle";
     const sending = state === "sending", pending = state === "pending";
@@ -8626,7 +8694,7 @@ class FrigateVisionDoorbell extends LitElement {
     const exitLabel = ringing ? d.decline : sending || this._reply ? d.end : pending ? d.cancel : d.dismiss;
     const muted = sending && !!this.talkMuted;
     const status = this._reply ? d.playing : this._failed ? d.failed : muted ? d.muted : talk[state] || d.incoming;
-    return html`<div class="call" ?data-ringing=${ringing} @keydown=${(e) => {
+    return html`${fullscreen}<div class="call" ?data-ringing=${ringing} @keydown=${(e) => {
       if (e.key !== "Escape") return;
       e.stopPropagation();
       if (this._menu) {
@@ -8640,7 +8708,7 @@ class FrigateVisionDoorbell extends LitElement {
           @click=${() => { this._focusDismiss(); this.controller?.enableTalkAudio(); }}>${d.listen}</button>` : ""}
       <div class="buttons">
         <button type="button" class="dismiss" ?data-sending=${sending} aria-label=${exitLabel} @click=${() => this._dismiss()}>
-          ${ringing ? doorbellHandset() : html`${sending ? doorbellHandset() : ""}${exitLabel}`}
+          ${ringing || sending ? doorbellHandset() : exitLabel}
         </button>
         ${sending ? html`<button type="button" class="mic-toggle" aria-label=${d.mute}
           aria-pressed=${String(muted)} title=${muted ? d.unmute : d.mute}
@@ -8660,10 +8728,14 @@ class FrigateVisionDoorbell extends LitElement {
   }
 
   static styles = css`
-    :host { position: absolute; inset-inline: 8px; bottom: 48px; z-index: 5; pointer-events: none; container-type: inline-size; }
-    :host(:has(.call[data-ringing])) { bottom: clamp(6px, calc(100% - 62px), 48px); }
-    .call { --decline: #bd273b; --answer: #17683b; --neutral: #222b33; --ink: #fff; --edge: #10161c;
-      display: grid; justify-items: end; gap: 4px; color: var(--ink); font: 13px/1.3 system-ui, sans-serif; }
+    :host { --decline: #bd273b; --answer: #17683b; --neutral: #222b33; --ink: #fff; --edge: #10161c;
+      position: absolute; inset: 0 8px; z-index: 5; pointer-events: none; container-type: inline-size; color: var(--ink); }
+    .call { position: absolute; inset-inline: 0; bottom: clamp(6px, calc(100% - 80px), 48px);
+      display: grid; justify-items: center; gap: 4px; font: 13px/1.3 system-ui, sans-serif; }
+    .call[data-ringing] { bottom: clamp(6px, calc(100% - 62px), 48px); }
+    .fullscreen { position: absolute; inset-inline-start: 0; top: 8px; pointer-events: auto;
+      display: grid; place-items: center; border-radius: 50%; background: rgb(16 22 28 / .8); }
+    .fullscreen svg { inline-size: 23px; block-size: 23px; }
     .status { max-width: min(20rem, 60vw); padding: 4px 8px; background: #121212eb; border-radius: 6px; }
     .buttons { position: relative; display: flex; align-items: center; gap: 5px; pointer-events: auto; }
     button { cursor: pointer; color: inherit; border: 0; border-radius: 8px; background: var(--neutral);
@@ -8675,11 +8747,11 @@ class FrigateVisionDoorbell extends LitElement {
     .phone { display: grid; place-items: center; background: var(--answer); }
     .dismiss { display: inline-flex; align-items: center; gap: 4px; padding-inline: 10px;
       border: 1px solid rgb(255 255 255 / .7); font-weight: 600; }
-    .dismiss[data-sending] { background: var(--decline); }
+    .dismiss[data-sending] { display: grid; place-items: center; padding: 0; inline-size: 52px; block-size: 52px;
+      border-radius: 50%; background: var(--decline); }
     .mic-toggle { display: grid; place-items: center; padding: 0; border-radius: 50%;
       border: 1px solid rgb(255 255 255 / .48); }
     .mic-toggle[aria-pressed=true] { background: var(--ink); color: var(--neutral); }
-    .call[data-ringing] { justify-items: center; }
     .call[data-ringing] .status { position: absolute; inline-size: 1px; block-size: 1px;
       padding: 0; overflow: hidden; clip-path: inset(50%); white-space: nowrap; }
     .call[data-ringing] .buttons { gap: 9px; }
@@ -9245,6 +9317,7 @@ class FrigateVisionLiveTile extends LitElement {
               ? html`<img class="live-mjpeg" src=${this._mjpegSignedUrl} />`
               : html`<div class="loading">${t.live_connecting || "…"}</div>`)
           : html`<video class="player" autoplay playsinline muted
+              controlslist=${hasDoorbellOverlay(cfg, e.doorbell) && canFullscreenPlayer() ? "nofullscreen" : ""}
               ?controls=${!this.doorbellOnly || this._talkState === "sending"}></video>`}
         ${showLiveControls ? html`
           <div class="live-controls live-controls--${liveControlsPos}">
@@ -9285,6 +9358,8 @@ class FrigateVisionLiveTile extends LitElement {
       }
       .doorbell-only { height: 100%; }
       .doorbell-only video.player, .doorbell-only .live-mjpeg { height: 100%; max-height: 100%; }
+      .player-wrap.live:fullscreen { width: 100%; height: 100%; background: black; }
+      .player-wrap.live:fullscreen :is(video.player, .live-mjpeg) { height: 100%; max-height: none; }
       .loading, .error {
         position: absolute; inset: 0; display: flex;
         align-items: center; justify-content: center;

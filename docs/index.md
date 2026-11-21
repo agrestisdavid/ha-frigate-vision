@@ -16,6 +16,15 @@ timeline database. A successful event analysis can be written to the exact
 Frigate event as `data.description`, while clips and event metadata continue
 to come from Frigate.
 
+## What’s new in 0.4.2
+
+- [Doorbell](card.md#doorbell-calls-and-quick-replies) keeps the active call,
+  microphone mute setting, and call controls when entering or leaving the
+  card’s fullscreen view. Closing the popup still ends the call.
+
+No dashboard changes or Blueprint re-import are needed. Update the HACS
+integration, restart Home Assistant, and reload the dashboard.
+
 ## What’s new in 0.4.1
 
 - Configure a [doorbell](card.md#doorbell-calls-and-quick-replies) per camera to
