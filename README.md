@@ -24,6 +24,13 @@ Frigate Vision is independent of LLM Vision:
 - No provider credentials, fixed hosts, or private addresses are embedded in
   the Card or Blueprint.
 
+**New in 0.4.2:** An active [Doorbell call](https://agrestisdavid.github.io/ha-frigate-vision/card/#doorbell-calls-and-quick-replies)
+survives entering and leaving the Card's fullscreen view on browsers that
+support element fullscreen: the live image, camera sound, microphone and the
+hang-up control stay together, and returning does not end the call. Closing the
+popup itself still ends it. No dashboard change or Blueprint re-import is
+needed.
+
 **New in 0.4.1:** Set up [Doorbell calls and quick replies](https://agrestisdavid.github.io/ha-frigate-vision/card/#doorbell-calls-and-quick-replies) in a live view or a dedicated single-camera card. Answer, mute your microphone, or send a prerecorded German reply.
 
 **New in 0.4.0:** Use the [PTZ controls](https://agrestisdavid.github.io/ha-frigate-vision/card/#ptz-button)

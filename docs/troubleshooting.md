@@ -128,6 +128,35 @@ live controls overlay is enabled in the Card editor.
   main stream has one, switch to HD. MSE works for viewing but cannot send
   microphone audio. If a direct stream cannot be verified, use HA proxy
   playback; do not expose another public endpoint. See [Talk to the camera](card.md#talk-to-the-camera).
+- **The stream is not offered at all:** when no alias with a backchannel is
+  available to select, check [The talk alias is configured but no microphone
+  appears](#the-talk-alias-is-configured-but-no-microphone-appears).
+
+## The talk alias is configured but no microphone appears
+
+Symptom: the active Frigate configuration defines the two-way audio alias, but
+`frigate_vision/camera_streams` does not return it in the offered stream list,
+so the Card shows no microphone for that camera's stream.
+
+A talk alias must be listed in **two** places in the Frigate configuration:
+the global `go2rtc.streams` block and the camera's `live.streams` mapping. An
+alias present in only one of them is not offered; see the alias lookup under
+[Visual editor](card.md#visual-editor) and the requirements under
+[Talk to the camera](card.md#talk-to-the-camera).
+
+If both places do list the alias, the Frigate integration is the reason. It
+keeps the Frigate configuration in memory from the moment its config entry was
+set up, and `frigate_vision/camera_streams` reads exactly that stored copy
+rather than a freshly requested Frigate configuration. Reload the Frigate
+config entry once from its overflow menu under **Settings → Devices &
+services**, then check the offered stream list again and reopen the live popup
+if it was already open. A Home Assistant restart is not required.
+
+None of the following is needed for this case: clearing a cache, including the
+browser cache, restarting Home Assistant, restarting Frigate or go2rtc, or
+restarting the camera. When Frigate does not define the alias at all, add it in
+Frigate first; that is a missing configuration, not the stored copy described
+here.
 
 ## The Card cannot load its central profile
 
