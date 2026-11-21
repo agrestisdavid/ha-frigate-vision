@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import argparse
+import hashlib
 import signal
 import subprocess
 import sys
@@ -14,11 +15,6 @@ ROOT = Path(__file__).resolve().parents[1]
 IMAGE = (
     "ghcr.io/home-assistant/home-assistant:2026.11.2@"
     "sha256:493a07e8f6530fc640223f4a0a5248f20a61ca2f718bb1d31efbf08a2c5ea28f"
-)
-
-BROWSER_IMAGE = (
-    "mcr.microsoft.com/playwright:v1.65.1-noble@"
-    "sha256:1507cbfc550a63a6b7396791ca4f00df17beb56342d2447b3f106c306f525579"
 )
 
 
@@ -54,7 +50,31 @@ def ensure_image(docker: list[str], image: str) -> None:
         subprocess.run([*docker, "pull", image], check=True, timeout=900)
 
 
-def audio_browser(docker: list[str], name: str, label: str, deadline: float) -> None:
+def ensure_audio_image(docker: list[str]) -> str:
+    dockerfile = (ROOT / "tests/ha_container/audio/Dockerfile").read_bytes()
+    spec = hashlib.sha256(dockerfile).hexdigest()[:16]
+    image = f"frigate-vision-audio-smoke:{spec}"
+    if subprocess.run(
+        [*docker, "image", "inspect", image],
+        check=False,
+        timeout=30,
+        stdout=subprocess.DEVNULL,
+        stderr=subprocess.DEVNULL,
+    ).returncode:
+        # Only the Dockerfile is sent as input; it cannot read the checkout or
+        # host. The first build downloads Ubuntu's signed audio packages.
+        subprocess.run(
+            [*docker, "build", "-t", image, "-"],
+            input=dockerfile,
+            check=True,
+            timeout=300,
+        )
+    return image
+
+
+def audio_browser(
+    docker: list[str], name: str, label: str, deadline: float, image: str
+) -> None:
     """Share the fixture's isolated network namespace; pass its token only on stdin."""
     marker = "/config/audio-test.json"
     while time.monotonic() < deadline:
@@ -91,7 +111,7 @@ def audio_browser(docker: list[str], name: str, label: str, deadline: float) -> 
             f"type=bind,src={ROOT / 'tests' / 'ha_container' / 'audio'},dst=/audio,readonly",
             "--entrypoint",
             "node",
-            BROWSER_IMAGE,
+            image,
             "/audio/browser.mjs",
         ],
         input=bootstrap,
@@ -103,10 +123,11 @@ def audio_browser(docker: list[str], name: str, label: str, deadline: float) -> 
 def run(timeout: int, audio: bool = False) -> None:
     docker = local_docker()
     ensure_image(docker, IMAGE)
+    audio_image = None
     if audio:
         if not (ROOT / "node_modules/playwright-core/index.mjs").is_file():
             raise ValueError("Run npm ci before --audio.")
-        ensure_image(docker, BROWSER_IMAGE)
+        audio_image = ensure_audio_image(docker)
     deadline = time.monotonic() + timeout
     name = f"frigate-vision-smoke-{uuid.uuid4().hex}"
     label = f"io.github.agrestisdavid.frigate-vision.smoke={name}"
@@ -161,10 +182,10 @@ def run(timeout: int, audio: bool = False) -> None:
             check=True,
             timeout=timeout,
         )
-        if audio:
+        if audio_image:
             # Browser diagnostics show only protocol stages. Do not dump raw HA
             # HTTP logs: a rejected handshake can contain a signed request URL.
-            audio_browser(docker, name, label, deadline)
+            audio_browser(docker, name, label, deadline, audio_image)
     finally:
         # A timeout or Ctrl+C can kill the CLI before the container's PID 1 exits.
         # --rm covers normal exits; only remove IDs carrying *this run's* label.

@@ -7,7 +7,7 @@ import socket
 from pathlib import Path
 
 from aiohttp import WSMsgType, web
-from homeassistant.auth.const import GROUP_ID_READ_ONLY
+from homeassistant.auth.const import GROUP_ID_ADMIN, GROUP_ID_READ_ONLY
 from homeassistant.helpers.http import HomeAssistantView
 
 STREAM = "fixture_b"
@@ -45,7 +45,14 @@ def speaker_measurement():
             5,
         )
 
-    return {"samples": size, "mic880": level(880), "camera440": level(440)}
+    return {
+        "samples": size,
+        "mic880": level(880),
+        "camera440": level(440),
+        "rms": round(math.sqrt(sum(x * x for x in samples) / len(samples)), 5)
+        if samples
+        else 0,
+    }
 
 
 class SpeakerView(HomeAssistantView):
@@ -109,11 +116,16 @@ async def serve(hass, session, module_url):
             "Synthetic audio viewer", group_ids=[GROUP_ID_READ_ONLY]
         )
         refresh = await hass.auth.async_create_refresh_token(user)
-        # The host runner passes this one-run token over stdin, never a CLI arg,
+        emitter = await hass.auth.async_create_system_user(
+            "Synthetic doorbell emitter", group_ids=[GROUP_ID_ADMIN]
+        )
+        emitter_refresh = await hass.auth.async_create_refresh_token(emitter)
+        # The host runner passes these one-run tokens over stdin, never a CLI arg,
         # HTTP bootstrap endpoint, log or host file. /config is a fresh tmpfs.
         settings = json.dumps(
             {
                 "token": hass.auth.async_create_access_token(refresh),
+                "emitter": hass.auth.async_create_access_token(emitter_refresh),
                 "module": module_url,
             }
         )

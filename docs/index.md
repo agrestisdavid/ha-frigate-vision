@@ -16,6 +16,17 @@ timeline database. A successful event analysis can be written to the exact
 Frigate event as `data.description`, while clips and event metadata continue
 to come from Frigate.
 
+## What’s new in 0.4.1
+
+- Configure a [doorbell](card.md#doorbell-calls-and-quick-replies) per camera to
+  show incoming calls in a live view. Decline, answer, mute your microphone or
+  send a prerecorded German reply without opening the microphone.
+- Use the [Doorbell-only card](card.md#doorbell-only-card) for one camera in a
+  panel or in a popup managed by your dashboard.
+
+Update the HACS integration and restart Home Assistant, then reload the
+dashboard. No Blueprint re-import or existing dashboard change is required.
+
 ## What’s new in 0.4.0
 
 - [Pan, tilt or zoom](card.md#ptz-button) a supported camera from its live view

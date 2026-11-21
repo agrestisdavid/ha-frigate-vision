@@ -1499,6 +1499,7 @@ test("multiview tile ignores callbacks from a superseded clip attempt", async ()
 
 test("live tile restarts on profile-backed cardConfig changes outside clips", () => {
   const tile = new FrigateVisionLiveTile();
+  tile.isConnected = true;
   tile._started = true;
   tile.hass = {};
   tile.cameraId = "driveway";
