@@ -330,6 +330,10 @@ try {
           await dismiss.click();
           assert.equal(await page.evaluate(() => window.replyTrack.readyState), 'ended');
           await assertSpeakerStops('speaker still received speech samples after End');
+        } else {
+          await page.getByText('Incoming call (ringtone muted)', { exact: true }).waitFor({ timeout: 10000 });
+          await phone.waitFor({ state: 'visible' });
+          await page.getByRole('button', { name: 'Decline call', exact: true }).click();
         }
         await dismiss.waitFor({ state: 'hidden', timeout: 10000 });
         assert.equal(await page.evaluate(() => window.micRequests), 0, 'quick replies must never request the microphone');

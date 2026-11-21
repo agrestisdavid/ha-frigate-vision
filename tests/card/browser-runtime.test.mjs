@@ -1272,9 +1272,9 @@ async function openFullscreenDoorbell(t, { popup, touch, answerCall = true }) {
       if (f.deferMic) await new Promise(resolve => { f.grant = resolve; });
       return { getAudioTracks: () => [track], getTracks: () => [track] };
     };
-    window.Audio = class { play() { return Promise.resolve(); } pause() {} };
+    window.Audio = class { play() { f.rings = (f.rings || 0) + 1; return Promise.resolve(); } pause() {} };
     card.hass = { connection: Object.assign(new EventTarget(), { async subscribeEvents(cb) {
-      f.ring = () => cb({ data: { entity_id: "input_boolean.fixture", old_state: { state: "off" }, new_state: { state: "on" } } });
+      f.ring = last_changed => cb({ data: { entity_id: "input_boolean.fixture", old_state: { state: "off" }, new_state: { state: "on", last_changed } } });
       return async () => {};
     } }), states: { "camera.door": { attributes: { camera_name: "door", client_id: "demo" } } },
     async callWS(msg) { return msg.type === "frigate_vision/profile" ? { profile: { frigate_client_id: "demo" } } : { streams: ["fixture"] }; } };
@@ -1434,6 +1434,83 @@ test("Doorbell-only handles blocked camera playback, superseded Accept audio and
   await page.getByText("Microphone on air", { exact: true }).waitFor();
   await page.evaluate(() => fullscreenDoor.host.style.display = "none"); // No dialog close event or detach.
   await page.waitForFunction(() => fullscreenDoor.stops === 5 && fullscreenDoor.closes === 5 && fullscreenDoor.video.muted);
+});
+
+test("Doorbell-only keeps listening and fullscreen across TTS reply, next ring, Accept race and decline", async (t) => {
+  const page = await openFullscreenDoorbell(t, { popup: true, touch: false, answerCall: false });
+  await page.evaluate(() => {
+    const f = fullscreenDoor;
+    f.card.hass.callWS = async msg => {
+      if (msg.type === "frigate_vision/doorbell_replies") {
+        return msg.reply_id ? { audio: "Zg==" } : { replies: [{ id: "d".repeat(32), text: "Fixture TTS" }] };
+      }
+      return { streams: ["fixture"] };
+    };
+    // Exercise the real announcement lock/pipeline without decoding or playing media.
+    window.AudioContext = class {
+      resume() { return Promise.resolve(); }
+      close() { f.contextCloses = (f.contextCloses || 0) + 1; return Promise.resolve(); }
+      decodeAudioData(bytes) {
+        if (new Uint8Array(bytes)[0] !== 102) throw Error("unexpected TTS bytes");
+        return f.deferReply ? new Promise(resolve => { f.finishDecode = () => resolve({ duration: 1 }); }) : Promise.resolve({ duration: 1 });
+      }
+      createMediaStreamDestination() {
+        const track = { stop() { f.replyStops = (f.replyStops || 0) + 1; } };
+        return { stream: { getAudioTracks: () => [track], getTracks: () => [track] } };
+      }
+      createBufferSource() { return { connect() {}, stop() {}, start() { this.onended(); } }; }
+    };
+  });
+  const button = (name) => page.getByRole("button", { name, exact: true });
+  const speaker = button("Camera sound"), answer = button("Answer"), decline = button("Decline call");
+  const reply = async () => { await button("Quick replies").click(); await button("Fixture TTS").click(); };
+  const quiet = page.getByText("Incoming call (ringtone muted)", { exact: true });
+  const snapshot = () => page.evaluate(() => {
+    const f = fullscreenDoor;
+    return { same: f.tile().renderRoot.querySelector("video") === f.video && f.video.srcObject === f.stream && f.tile()._lc._peerConnection === f.peer,
+      captures: f.captures, joins: f.joins, rings: f.rings, muted: f.video.muted, full: !!document.fullscreenElement };
+  });
+  await speaker.click();
+  await button("Enter fullscreen").click();
+  await button("Exit fullscreen").waitFor();
+  const stamp = await page.evaluate(() => {
+    const stamp = new Date().toISOString(); fullscreenDoor.ring(stamp); return stamp;
+  });
+  await reply();
+  await quiet.waitFor();
+  await answer.waitFor();
+  await decline.waitFor();
+  await page.evaluate(stamp => fullscreenDoor.ring(stamp), stamp);
+  assert.deepEqual(await snapshot(), { same: true, captures: 0, joins: 1, rings: 1, muted: false, full: true });
+  await page.evaluate(() => fullscreenDoor.ring(new Date().toISOString()));
+  await page.getByText("Doorbell ringing", { exact: true }).waitFor();
+  assert.deepEqual(await snapshot(), { same: true, captures: 0, joins: 1, rings: 2, muted: false, full: true });
+
+  await page.evaluate(() => { fullscreenDoor.deferReply = true; });
+  await reply();
+  await page.waitForFunction(() => fullscreenDoor.finishDecode && fullscreenDoor.tile()._lc._announcement);
+  await answer.click();
+  await button("Mute microphone").waitFor();
+  await page.evaluate(() => fullscreenDoor.finishDecode());
+  await page.waitForFunction(() => fullscreenDoor.contextCloses === 2 && !fullscreenDoor.tile()._lc._announcement);
+  assert.deepEqual(await snapshot(), { same: true, captures: 1, joins: 2, rings: 2, muted: false, full: true });
+  assert.equal(await page.evaluate(() => fullscreenDoor.mic.enabled), true);
+  await button("End").click();
+  await page.waitForFunction(() => fullscreenDoor.mic.readyState === "ended");
+  assert.equal(await speaker.getAttribute("aria-pressed"), "false");
+  await speaker.click();
+  await page.evaluate(() => { fullscreenDoor.deferReply = false; fullscreenDoor.ring(new Date().toISOString()); });
+  await reply();
+  await quiet.waitFor();
+  await decline.click();
+  await answer.waitFor({ state: "hidden" });
+  assert.deepEqual(await snapshot(), { same: true, captures: 1, joins: 3, rings: 3, muted: true, full: true });
+  await button("Exit fullscreen").click();
+  await page.waitForFunction(() => !document.fullscreenElement);
+  await button("Start talking").click();
+  await page.getByText("Microphone on air", { exact: true }).waitFor();
+  await button("Stop talking").click();
+  assert.deepEqual(await snapshot(), { same: true, captures: 2, joins: 4, rings: 3, muted: true, full: false });
 });
 
 for (const popup of [false, true]) for (const touch of [false, true]) {
