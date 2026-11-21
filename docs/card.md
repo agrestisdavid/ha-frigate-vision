@@ -236,9 +236,12 @@ Both actions use the authenticated Home Assistant proxy and check that the
 playing alias belongs to that Frigate camera; there is no separate talk-alias
 setting. For a custom alias, use a stream declared under that camera's
 `live.streams` and present in `go2rtc.streams` in the Frigate configuration
-that HA received. The selected alias needs a compatible go2rtc speaker
-backchannel; answering additionally requires live
-WebRTC and browser microphone permission. The Card does not automatically
+that HA received. If both list the alias and the Card still offers no
+microphone for that stream, see
+[The talk alias is configured but no microphone appears](troubleshooting.md#the-talk-alias-is-configured-but-no-microphone-appears).
+The selected alias needs a compatible go2rtc speaker backchannel; answering
+additionally requires live WebRTC and browser microphone permission. The Card
+does not automatically
 switch streams or quality. With a synthetic door camera, you can test with a
 HA Toggle helper (for example `input_boolean.besucher`): open the camera's
 live view, set the helper to off, then turn it on.
