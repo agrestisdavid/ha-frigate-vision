@@ -448,7 +448,7 @@ if __name__ == "__main__":
     ):
         asyncio.run(
             scenario(
-                f"/frigate_vision/frontend/{module}?v={version}-doorbell-tts.1",
+                f"/frigate_vision/frontend/{module}?v={version}",
                 (COMPONENT / "frontend" / module).read_bytes(),
                 audio=audio,
             ),

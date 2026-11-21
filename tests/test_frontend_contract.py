@@ -53,7 +53,7 @@ class FrontendRegistrationTests(unittest.IsolatedAsyncioTestCase):
         version = json.loads((COMPONENT / "manifest.json").read_bytes())["version"]
         register_paths.assert_awaited_once_with([StaticPath(base, str(FRONTEND), True)])
         add_url.assert_called_once_with(
-            hass, f"{base}/frigate-vision-card.js?v={version}-doorbell-tts.1"
+            hass, f"{base}/frigate-vision-card.js?v={version}"
         )
 
 
