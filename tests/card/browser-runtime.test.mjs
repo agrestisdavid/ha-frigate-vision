@@ -883,6 +883,14 @@ for (const touch of [false, true]) test(`doorbell exit stays operable in every c
       const timer = setInterval(draw, 83);
       video.srcObject = stream;
       f.video = video;
+      const play = video.play.bind(video);
+      video.play = () => {
+        if (!video.muted && f.mode === "audio-blocked" && !f.unmutePolicyAllows) {
+          video.pause(); // Simulate a browser that pauses on asynchronous unmute.
+          return Promise.reject(new DOMException("User gesture required", "NotAllowedError"));
+        }
+        return play();
+      };
       this._peerConnection = f.videoPeer = { close() { clearInterval(timer); stream.getTracks().forEach(track => track.stop()); } };
       this._playbackReady(name, video, runId, this._config());
     };
@@ -924,6 +932,7 @@ for (const touch of [false, true]) test(`doorbell exit stays operable in every c
     const f = window.doorbellExit;
     const bell = document.querySelector("frigate-vision-card").renderRoot.querySelector("frigate-vision-doorbell");
     return { requests: f.micRequests, joins: f.joins, active: f.live.talkRequested, audio: f.audio?.readyState,
+      cameraMuted: f.video.muted, cameraPaused: f.video.paused, cameraVolume: f.video.volume,
       enabled: f.audio?.enabled, ringing: !!bell._ringAudio?.playing, samePeer: f.starts === 1 && f.live._peerConnection === f.videoPeer };
   });
   const screen = async name => {
@@ -993,6 +1002,7 @@ for (const touch of [false, true]) test(`doorbell exit stays operable in every c
     await ring(mode); await activate(phone); await status.filter({ hasText: text }).waitFor();
     const current = await snapshot();
     assert.equal(current.active, false);
+    assert.equal(current.cameraMuted, true, "mapping and backchannel errors must not make the camera audible");
     if (mode === "blocked") assert.equal(current.requests, previous.requests);
     if (mode === "failed") assert.equal(current.audio, "ended");
     await exit("Schließen");
@@ -1002,6 +1012,7 @@ for (const touch of [false, true]) test(`doorbell exit stays operable in every c
     await ring(mode); await activate(phone);
     await page.waitForFunction(() => window.doorbellExit.release);
     assert.equal(await phone.count(), 0);
+    assert.equal((await snapshot()).cameraMuted, true, "keep camera audio off until the call has connected");
     if (mode === "webrtc") assert.equal((await snapshot()).enabled, false);
     await exit("Abbrechen");
     if (mode === "webrtc") assert.equal((await snapshot()).audio, "ended");
@@ -1012,6 +1023,33 @@ for (const touch of [false, true]) test(`doorbell exit stays operable in every c
     assert.equal(current.joins, previous.joins + (mode === "webrtc" ? 1 : 0));
     assert.equal(current.active, false);
   }
+  await ring("audio-blocked"); await activate(phone);
+  const enableAudio = door.getByRole("button", { name: "Kameraton einschalten", exact: true });
+  await enableAudio.waitFor();
+  const blocked = await snapshot();
+  assert.equal(blocked.cameraMuted, true);
+  assert.equal(blocked.cameraPaused, false, "a denied unmute must keep silent video running");
+  await page.evaluate(() => { window.doorbellExit.unmutePolicyAllows = true; });
+  await activate(enableAudio);
+  await enableAudio.waitFor({ state: "hidden" });
+  assert.equal((await snapshot()).cameraMuted, false);
+  assert.equal((await snapshot()).requests, blocked.requests);
+  assert.equal((await snapshot()).joins, blocked.joins);
+  await exit("Beenden");
+  assert.equal((await snapshot()).cameraMuted, true);
+
+  // Explicitly enabling sound may temporarily lift zero volume; restore the
+  // individual value/pause rather than applying a global playback default.
+  await page.evaluate(() => { const v = window.doorbellExit.video; v.volume = 0; v.pause(); });
+  await ring("zero-volume"); await activate(phone);
+  await activate(enableAudio);
+  assert.equal((await snapshot()).cameraVolume, 1);
+  assert.equal((await snapshot()).cameraMuted, false);
+  await exit("Beenden");
+  assert.equal((await snapshot()).cameraVolume, 0);
+  assert.equal((await snapshot()).cameraPaused, true);
+
+  await page.evaluate(async () => { const v = window.doorbellExit.video; v.volume = 0.3; v.muted = false; await v.play(); });
   await ring("active"); await activate(phone);
   await status.filter({ hasText: "Mikrofon sendet" }).waitFor();
   assert.equal(await dismiss.getAttribute("data-sending"), "");
@@ -1034,6 +1072,8 @@ for (const touch of [false, true]) test(`doorbell exit stays operable in every c
   await status.filter({ hasText: "Mikrofon stumm" }).waitFor();
   await exit("Beenden");
   assert.equal((await snapshot()).audio, "ended");
+  assert.equal((await snapshot()).cameraMuted, false, "restore pre-existing manual camera listening");
+  assert.equal((await snapshot()).cameraVolume, 0.3);
 
   await ring("reply"); await activate(door.getByRole("button", { name: "Schnellantworten" }));
   await activate(door.getByRole("button", { name: "Einen Moment bitte" }));
@@ -1171,8 +1211,9 @@ test("Doorbell view keeps one player on panel resize and releases capture on pop
   }), [true, ["klingel_talk"], ["frigate_vision/profile"], false]);
   await page.evaluate(() => window.dedicated.ring());
   await answer.click(); await page.getByRole("button", { name: "End", exact: true }).waitFor();
+  assert.equal(await video.evaluate(v => v.muted), false);
   await page.evaluate(() => window.dedicated.dialog.close());
-  await page.waitForFunction(() => window.dedicated.stops === 1);
+  await page.waitForFunction(() => window.dedicated.stops === 1 && window.dedicated.initial[0].muted);
   await page.evaluate(() => window.dedicated.ring());
   assert.equal(await answer.count(), 0);
   await page.evaluate(() => window.dedicated.dialog.showModal());

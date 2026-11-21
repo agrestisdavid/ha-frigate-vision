@@ -214,8 +214,12 @@ The green handset answers the call, replacing the ordinary microphone button
 for a doorbell-enabled camera. The red horizontal handset declines the call,
 including with quick replies open, without turning on the microphone. During
 connection setup use **Cancel**; if the browser is prompting for microphone
-permission, you can also use its cancel or deny control. During a call use
-**End** to release the microphone, even when muted. The microphone button
+permission, you can also use its cancel or deny control. Camera sound starts
+only after the call connects, not while the card is ringing. If the browser
+blocks playback after the connection is ready, tap **Enable camera sound**.
+The card restores the previous playback setting when the call ends.
+
+Use **End** to release the microphone, even when muted. The microphone button
 mutes and unmutes only your outgoing voice without affecting the camera's
 sound or restarting the call.
 
@@ -257,8 +261,7 @@ timestamp, not the previous state. It accepts a matching state newer than
 25 seconds at most once for that camera/entity per browser connection. It
 never starts the microphone on mount. The popup should remove the card from
 the page or its layout when closed, not just make it transparent. Leave the
-option off in a normal panel, which rings only on a live edge. Camera sound can be unmuted using the video
-controls during the call.
+option off in a normal panel, which rings only on a live edge.
 
 ### PTZ button
 

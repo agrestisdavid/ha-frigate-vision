@@ -56,7 +56,7 @@ const STRINGS = {
       disconnected: "Verbindung unterbrochen. Das Mikrofon ist aus.",
       connectionFailed: "Der Audiorückkanal konnte nicht verbunden werden.",
     },
-    doorbell: { incoming: "Es klingelt", answer: "Annehmen", decline: "Anruf ablehnen", mute: "Mikrofon stummschalten", unmute: "Mikrofon wieder einschalten", muted: "Mikrofon stumm", cancel: "Abbrechen", end: "Beenden", replies: "Schnellantworten", playing: "Ansage wird gesendet …", failed: "Ansage konnte nicht gesendet werden.", dismiss: "Schließen" },
+    doorbell: { incoming: "Es klingelt", answer: "Annehmen", decline: "Anruf ablehnen", listen: "Kameraton einschalten", listenBlocked: "Kameraton ist stumm. Tippe auf „Kameraton einschalten“.", mute: "Mikrofon stummschalten", unmute: "Mikrofon wieder einschalten", muted: "Mikrofon stumm", cancel: "Abbrechen", end: "Beenden", replies: "Schnellantworten", playing: "Ansage wird gesendet …", failed: "Ansage konnte nicht gesendet werden.", dismiss: "Schließen" },
     ptz: { label: "PTZ-Steuerung", up: "Nach oben", down: "Nach unten", left: "Nach links", right: "Nach rechts", stop: "Stopp", failed: "PTZ-Befehl fehlgeschlagen. Verbindung und Berechtigung prüfen." },
     timeline_loading: "Lade Aufnahme…",
     timeline_no_recording: "Keine Aufnahme für diesen Zeitraum",
@@ -109,7 +109,7 @@ const STRINGS = {
       disconnected: "Connection lost. The microphone is off.",
       connectionFailed: "Could not connect the audio backchannel.",
     },
-    doorbell: { incoming: "Doorbell ringing", answer: "Answer", decline: "Decline call", mute: "Mute microphone", unmute: "Unmute microphone", muted: "Microphone muted", cancel: "Cancel", end: "End", replies: "Quick replies", playing: "Sending announcement…", failed: "Could not send the announcement.", dismiss: "Close" },
+    doorbell: { incoming: "Doorbell ringing", answer: "Answer", decline: "Decline call", listen: "Enable camera sound", listenBlocked: "Camera sound is off. Select “Enable camera sound”.", mute: "Mute microphone", unmute: "Unmute microphone", muted: "Microphone muted", cancel: "Cancel", end: "End", replies: "Quick replies", playing: "Sending announcement…", failed: "Could not send the announcement.", dismiss: "Close" },
     ptz: { label: "PTZ controls", up: "Tilt up", down: "Tilt down", left: "Pan left", right: "Pan right", stop: "Stop", failed: "PTZ command failed. Check the connection and permissions." },
     timeline_loading: "Loading recording…",
     timeline_no_recording: "No recording for this period",
@@ -1687,7 +1687,7 @@ class LivestreamController extends Go2rtcSession {
 
   get talkRequested() { return !!this._talk; }
 
-  async startTalk({ verifyTarget = false } = {}) {
+  async startTalk({ verifyTarget = false, listen = false } = {}) {
     if (this._talk || this._announcement) return;
     const live = this._webRtcStream;
     if (!live || !this._peerConnection || this._connectionLost(this._peerConnection)) {
@@ -1708,8 +1708,10 @@ class LivestreamController extends Go2rtcSession {
     const link = this._backchannel(live, hass, () => {
       if (this._talk?.link === link) this.stopTalk("disconnected");
     });
-    const attempt = this._talk = { link, stream: null };
-    this._setState({ talk: "pending" });
+    const video = listen ? this._videoEl() : null;
+    const playback = video && { video, source: video.srcObject, muted: video.muted, volume: video.volume, paused: video.paused };
+    const attempt = this._talk = { link, stream: null, playback };
+    this._setState({ talk: "pending", talkAudioBlocked: false });
     try {
       if (verifyTarget || live.directBase) {
         const mapped = await this._withTimeout(streamMatchesCamera(hass, live), 5000, "Camera mapping").catch(() => false);
@@ -1732,6 +1734,15 @@ class LivestreamController extends Go2rtcSession {
       attempt.mic = mic;
       mic.enabled = true;
       this._setState({ talk: "sending", talkMuted: false });
+      if (playback) {
+        playback.observe = () => {
+          if (this._talk === attempt && video.srcObject === playback.source && !playback.enabling) {
+            this._setState({ talkAudioBlocked: video.muted || video.volume === 0 || video.paused });
+          }
+        };
+        for (const event of ["pause", "playing", "volumechange"]) video.addEventListener(event, playback.observe);
+        this._enableTalkAudio(attempt);
+      }
     } catch (error) {
       if (this._talk !== attempt) return;
       const reason = error.name === "NotAllowedError" || error.name === "SecurityError" ? "denied"
@@ -1739,6 +1750,56 @@ class LivestreamController extends Go2rtcSession {
         : !attempt.stream ? "micUnavailable"
         : error.message === "No compatible audio backchannel" ? "noChannel" : "connectionFailed";
       this.stopTalk(reason);
+    }
+  }
+
+  enableTalkAudio() {
+    // Called directly by the retry button, with a fresh trusted user gesture.
+    if (this._talk?.playback && this._talk.mic) this._enableTalkAudio(this._talk, true);
+  }
+
+  async _enableTalkAudio(attempt, gesture = false) {
+    const playback = attempt.playback;
+    const { video, source } = playback;
+    if (this._talk !== attempt || video !== this._videoEl() || video.srcObject !== source || playback.enabling) return;
+    if (video.volume === 0 && !gesture) {
+      this._setState({ talkAudioBlocked: true });
+      return;
+    }
+    playback.enabling = playback.changed = true;
+    try {
+      if (video.volume === 0) {
+        video.volume = 1;
+        playback.changedVolume = true;
+      }
+      video.muted = false;
+      // Negotiation/permission may outlive transient activation. If unmuted
+      // play is blocked, restore playback and offer a new explicit gesture.
+      await video.play();
+      if (this._talk !== attempt || video.srcObject !== source) return;
+      const blocked = video.muted || video.volume === 0 || video.paused;
+      if (blocked) this._restoreTalkAudio(playback);
+      this._setState({ talkAudioBlocked: blocked });
+    } catch {
+      if (this._talk !== attempt || video.srcObject !== source) return;
+      this._restoreTalkAudio(playback);
+      this._setState({ talkAudioBlocked: true });
+    } finally {
+      playback.enabling = false;
+    }
+  }
+
+  _restoreTalkAudio(playback) {
+    if (!playback?.changed) return;
+    const { video, source, muted, volume, paused, changedVolume } = playback;
+    // Never write into a player now showing a different stream.
+    if (video.srcObject !== source) return;
+    playback.changed = playback.changedVolume = false;
+    video.muted = muted;
+    if (changedVolume) video.volume = volume;
+    if (paused) video.pause();
+    else if (video.paused && video.isConnected) {
+      try { video.play()?.catch(() => {}); } catch {}
     }
   }
 
@@ -1760,7 +1821,12 @@ class LivestreamController extends Go2rtcSession {
       track.stop();
     }
     attempt?.link.close();
-    this._setState({ talk: reason, talkMuted: false });
+    const playback = attempt?.playback;
+    if (playback?.observe) {
+      for (const event of ["pause", "playing", "volumechange"]) playback.video.removeEventListener(event, playback.observe);
+    }
+    this._restoreTalkAudio(playback);
+    this._setState({ talk: reason, talkMuted: false, talkAudioBlocked: false });
   }
 
   async playDoorbellReply(reply) {
@@ -2435,6 +2501,7 @@ class FrigateVisionCard extends LitElement {
       _liveLoading: { state: true },
       _talkState: { state: true },
       _talkMuted: { state: true },
+      _talkAudioBlocked: { state: true },
       _isHD: { state: true },
       _mjpegSignedUrl: { state: true },
       _timelineCamera: { state: true },
@@ -4270,6 +4337,7 @@ class FrigateVisionCard extends LitElement {
     if ("provider" in patch) this._liveProvider = patch.provider ?? null;
     if ("talk" in patch) this._talkState = patch.talk;
     if ("talkMuted" in patch) this._talkMuted = patch.talkMuted;
+    if ("talkAudioBlocked" in patch) this._talkAudioBlocked = patch.talkAudioBlocked;
     if ("error" in patch) this._liveError = patch.error ?? null;
     if ("mjpegUrl" in patch) this._mjpegSignedUrl = patch.mjpegUrl ?? null;
   }
@@ -5888,7 +5956,7 @@ class FrigateVisionCard extends LitElement {
             </button>
           </div>
           ${this._liveProvider && !this._liveLoading && !this._liveError
-            ? renderDoorbell(this.hass, this._config, this._liveCamera, this._lc, this._talkState, this._talkMuted, t, entry?.doorbell) : ""}
+            ? renderDoorbell(this.hass, this._config, this._liveCamera, this._lc, this._talkState, this._talkMuted, this._talkAudioBlocked, t, entry?.doorbell) : ""}
         </div>
       `;
     }
@@ -8341,17 +8409,17 @@ function renderCameraControls(hass, config, instanceId, cameraId, live, talkStat
   return html`${usableDoorbell(doorbell) ? "" : talkButton(live, config, talkState, t)}${renderPtzControls(hass, instanceId, cameraId, live?.playbackTarget, t)}`;
 }
 
-function renderDoorbell(hass, config, cameraId, live, talkState, talkMuted, t, doorbell, embedded = false) {
+function renderDoorbell(hass, config, cameraId, live, talkState, talkMuted, talkAudioBlocked, t, doorbell, embedded = false) {
   if (!usableDoorbell(doorbell) || config.live_controls === false || config.live_provider === "off") return "";
   return html`<frigate-vision-doorbell .hass=${hass} .cameraId=${cameraId} .controller=${live}
-    .settings=${doorbell} .talkState=${talkState} .talkMuted=${talkMuted} .t=${t} .embedded=${embedded}
+    .settings=${doorbell} .talkState=${talkState} .talkMuted=${talkMuted} .talkAudioBlocked=${talkAudioBlocked} .t=${t} .embedded=${embedded}
     .ringOnMount=${embedded && config.doorbell_ring_on_mount === true}></frigate-vision-doorbell>`;
 }
 
 class FrigateVisionDoorbell extends LitElement {
   static properties = {
     hass: { attribute: false }, cameraId: {}, controller: { attribute: false },
-    settings: { attribute: false }, talkState: {}, talkMuted: { attribute: false }, t: { attribute: false },
+    settings: { attribute: false }, talkState: {}, talkMuted: { attribute: false }, talkAudioBlocked: { attribute: false }, t: { attribute: false },
     embedded: { attribute: false }, ringOnMount: { attribute: false },
     _incoming: { state: true }, _menu: { state: true }, _reply: { state: true },
     _failed: { state: true }, _triedAnswer: { state: true },
@@ -8522,7 +8590,7 @@ class FrigateVisionDoorbell extends LitElement {
     const call = this._incoming;
     const controller = this.controller;
     this._armExpiry();
-    await controller?.startTalk({ verifyTarget: true });
+    await controller?.startTalk({ verifyTarget: true, listen: true });
     if (this._incoming === call && this.controller === controller && controller?.talkRequested) clearTimeout(this._expires);
   }
 
@@ -8567,6 +8635,9 @@ class FrigateVisionDoorbell extends LitElement {
       } else this._dismiss();
     }}>
       <span class="status" role="status">${status}</span>
+      ${sending && this.talkAudioBlocked ? html`<span id="camera-audio-status" class="status" role="status">${d.listenBlocked}</span>
+        <button type="button" class="listen" aria-describedby="camera-audio-status"
+          @click=${() => { this._focusDismiss(); this.controller?.enableTalkAudio(); }}>${d.listen}</button>` : ""}
       <div class="buttons">
         <button type="button" class="dismiss" ?data-sending=${sending} aria-label=${exitLabel} @click=${() => this._dismiss()}>
           ${ringing ? doorbellHandset() : html`${sending ? doorbellHandset() : ""}${exitLabel}`}
@@ -8599,6 +8670,7 @@ class FrigateVisionDoorbell extends LitElement {
       min-height: 44px; min-width: 44px; font: inherit; touch-action: manipulation; }
     button:focus-visible { outline: 2px solid var(--ink); outline-offset: 2px; box-shadow: 0 0 0 6px var(--edge); }
     button svg { display: block; inline-size: 24px; block-size: 24px; }
+    .listen { max-width: 100%; padding-inline: 10px; pointer-events: auto; border: 1px solid var(--ink); }
     .more { font-size: 21px; line-height: 1; }
     .phone { display: grid; place-items: center; background: var(--answer); }
     .dismiss { display: inline-flex; align-items: center; gap: 4px; padding-inline: 10px;
@@ -8794,6 +8866,7 @@ class FrigateVisionLiveTile extends LitElement {
       _clipMode: { state: true },
       _talkState: { state: true },
       _talkMuted: { state: true },
+      _talkAudioBlocked: { state: true },
       _provider: { state: true },
       _loading: { state: true },
       _error: { state: true },
@@ -8834,13 +8907,7 @@ class FrigateVisionLiveTile extends LitElement {
     ) {
       this._start();
     }
-    if (this.doorbellOnly) {
-      if (changed.get("_talkState") === "sending" && this._talkState !== "sending") {
-        const video = this.renderRoot.querySelector("video.player");
-        if (video) video.muted = true;
-      }
-      return;
-    }
+    if (this.doorbellOnly) return;
     const clipSourceChanged =
       changed.has("clipUrl") ||
       changed.has("clipAttemptId") ||
@@ -9098,6 +9165,7 @@ class FrigateVisionLiveTile extends LitElement {
     if ("provider" in patch) this._provider = patch.provider ?? null;
     if ("talk" in patch) this._talkState = patch.talk;
     if ("talkMuted" in patch) this._talkMuted = patch.talkMuted;
+    if ("talkAudioBlocked" in patch) this._talkAudioBlocked = patch.talkAudioBlocked;
     if ("error" in patch) this._error = patch.error ?? null;
     if ("mjpegUrl" in patch) this._mjpegSignedUrl = patch.mjpegUrl ?? null;
   }
@@ -9194,7 +9262,7 @@ class FrigateVisionLiveTile extends LitElement {
           ${hasHdSd && showHdSd && hdSdPos === "top" ? this._hdButton() : ""}
         </div>` : ""}
         ${this._provider && !this._loading && !this._error
-          ? renderDoorbell(this.hass, cfg, this.cameraId, this._lc, this._talkState, this._talkMuted, t, e.doorbell, this.doorbellOnly) : ""}
+          ? renderDoorbell(this.hass, cfg, this.cameraId, this._lc, this._talkState, this._talkMuted, this._talkAudioBlocked, t, e.doorbell, this.doorbellOnly) : ""}
         ${hasHdSd && showHdSd && hdSdPos === "bottom" ? html`
           <div class="player-top-buttons hd-sd-wrap--bottom">${this._hdButton()}</div>` : ""}
       </div>

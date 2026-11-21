@@ -85,16 +85,18 @@ container run.
 
 Run `npm ci`, then `python scripts/test_ha_container.py --audio` on a local Linux
 Docker engine with support for isolated bridge gateway mode. This mode uses the
-same disposable HA Core fixture plus the pinned Playwright browser image. It
-creates a temporary **internal** bridge for WebRTC ICE, publishes no ports,
-and removes the containers and network afterwards. After the images and npm
-packages are cached, the test runs offline. No host audio device is mounted.
+same disposable HA Core fixture plus a test image built from pinned Playwright
+and Ubuntu's PulseAudio packages. It creates a temporary **internal** bridge
+for WebRTC ICE, publishes no ports, and removes the containers and network
+afterwards. The first image build needs access to the Ubuntu package archive;
+once cached, the test runs offline. No host audio device or server socket is mounted.
 
 The real live tile asks HA to sign the selected stream path. A test view stands
 in for Frigate's WebSocket proxy and forwards signaling to the real go2rtc in
 the HA image; the unsigned request must return 401. FFmpeg supplies video and a
-440 Hz camera tone. Chromium measures that tone in the received audio track,
-then captures a different, generated 880 Hz WAV via `getUserMedia`. The camera
+440 Hz camera tone. The legacy tap/hold test verifies its receive track;
+the doorbell test measures the actual browser output as described below.
+Chromium captures a different, generated 880 Hz WAV via `getUserMedia`. The camera
 fixture measures decoded G.711 samples at its simulated speaker. The test fails
 if either tone is missing, the two frequencies are confused, or new speaker
 samples arrive after stopping. It repeats click-to-talk and hold-to-talk with
@@ -116,8 +118,17 @@ Example local acceptance run (HA Core 2026.11.2, go2rtc 1.9.15):
 accounts for 441 Hz rather than exactly 440 Hz. This verifies the Card and
 media path with synthetic endpoints, not a physical camera or loudspeaker.
 
-The same run checks a doorbell call in the single player (HA proxy) and a
-live tile (profile-matched direct playback). A separate fixture user controls
+Doorbell tests capture PCM from the monitor of the browser container's
+private PulseAudio null sink. There is no browser-side audio probe in these
+cases; the camera tone must come from the product video player. The test
+requires the 440 Hz output before, during and after microphone mute in the
+single player, live tile and Doorbell-only popup. It verifies that the camera
+tone is absent while idle, ringing, after decline and after ending the call or
+closing the popup. Independently, the go2rtc speaker must receive the 880 Hz
+microphone tone, then silence or no samples, then the tone again. Browser and
+camera output are measured at different endpoints.
+
+A separate fixture user controls
 `input_boolean.besucher` only in the disposable HA. The read-only browser gets
 real HA `state_changed` events. It must not ring on initial `on`, an attribute
 update, or `unavailable` recovery. The test checks that the local ringtone

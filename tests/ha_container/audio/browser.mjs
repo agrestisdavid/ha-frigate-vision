@@ -3,6 +3,7 @@ import assert from 'node:assert/strict';
 import { readFileSync, writeFileSync } from 'node:fs';
 import { setTimeout as delay } from 'node:timers/promises';
 import { chromium } from '/opt/playwright-core/index.mjs';
+import { browserOutput } from './output.mjs';
 
 const base = 'http://127.0.0.1:8123';
 const settings = JSON.parse(readFileSync(0, 'utf8'));
@@ -36,12 +37,13 @@ async function speaker() {
   return response.json();
 }
 
-const browser = await chromium.launch({ args: [
-  '--use-fake-device-for-media-stream', '--use-fake-ui-for-media-stream',
-  '--use-file-for-fake-audio-capture=/tmp/fv-mic.wav',
-  '--autoplay-policy=no-user-gesture-required',
-] });
+const output = await browserOutput();
+let browser;
 try {
+  browser = await chromium.launch({ ignoreDefaultArgs: ['--mute-audio'], env: output.env, args: [
+    '--use-fake-device-for-media-stream', '--use-fake-ui-for-media-stream',
+    '--use-file-for-fake-audio-capture=/tmp/fv-mic.wav',
+  ] });
   // Verify the HA middleware is really in the signaling path (no unsigned proxy).
   assert.equal((await fetch(`${base}/api/frigate/smoke/go2rtc/ws/api/ws?src=fixture_b`)).status, 401);
   for (const [mode, direct] of [['toggle', false], ['hold', false], ['toggle', true], ['hold', true], ['doorbell', false], ['doorbell', true], ['doorbell-view', true]]) {
@@ -183,9 +185,10 @@ try {
     }, { settings: { token: settings.token, module: settings.module }, mode, direct, directBase, bellEntity, single, dedicated, doorbell });
     const video = page.locator('video.player');
     await wait(() => (window.player()?._provider || window.player()?._liveProvider) === 'webrtc', 25000);
-    // Measure decoded samples from the receiving player's media stream, not SDP,
-    // packet counters, the generator or a microphone local-monitor stream.
-    const down = await video.evaluate(async video => {
+    // Legacy talk buttons do not change the user's playback mute preference.
+    // Keep their existing receive-track check. In Doorbell cases the actual
+    // OS sink is the only receiver measurement; no probe or player injection.
+    const down = doorbell ? null : await video.evaluate(async video => {
       const ctx = new AudioContext();
       try {
         const [received] = video.srcObject.getAudioTracks();
@@ -208,7 +211,7 @@ try {
         throw Error(`No sustained 440 Hz camera tone in the browser (last peak ${peakHz} Hz)`);
       } finally { await ctx.close(); }
     });
-    assert.ok(Math.abs(down.hz - 440) < 10, `unexpected browser peak ${down.hz} Hz`);
+    if (down) assert.ok(Math.abs(down.hz - 440) < 10, `unexpected receive-track peak ${down.hz} Hz`);
     let checkFrames;
     const phone = page.locator('frigate-vision-doorbell .phone');
     const dismiss = page.locator('frigate-vision-doorbell .dismiss');
@@ -240,6 +243,13 @@ try {
       await setBell('off'); await setBell('unavailable'); await setBell('on');
       await wait(() => window.bellEvents >= 4, 5000);
       assert.equal(await phone.count(), 0, 'unavailable gaps do not count as an edge');
+      await output.noTone(`${description}/idle`);
+      await ring();
+      await output.noTone(`${description}/ringing`);
+      await dismiss.click();
+      await dismiss.waitFor({ state: 'hidden' });
+      await output.noTone(`${description}/declined`);
+      assert.equal(await page.evaluate(() => window.micRequests), 0);
       await video.evaluate(video => {
         const controller = window.player()._lc;
         window.frameProof = { video, stream: video.srcObject, peer: controller._peerConnection, frames: video.getVideoPlaybackQuality().totalVideoFrames };
@@ -310,6 +320,7 @@ try {
     const up = await waitForMic(before);
     if (doorbell) {
       await checkFrames();
+      await output.tone(`${description}/microphone active`);
       await video.evaluate(v => {
         const a = window.player()._lc._talk;
         const peer = a.link._peerConnection;
@@ -329,6 +340,7 @@ try {
         await checkFrames();
       };
       await toggle(true);
+      await output.tone(`${description}/microphone muted`);
       await delay(600);
       let quiet = await speaker();
       const mutedBaseline = quiet.samples;
@@ -344,14 +356,19 @@ try {
       }
       await toggle(false);
       const resumed = await waitForMic(quiet.samples);
+      await output.tone(`${description}/microphone restored`);
       console.log(`${description}/mute: ${up.mic880} → ${quiet.samples === mutedBaseline ? 'no new samples' : worstMutedTone} → ${resumed.mic880} at 880 Hz, same peers and running frames`);
       await toggle(true);
       assert.equal(await dismiss.getAttribute('data-sending'), '');
-      await dismiss.click();
+      if (dedicated) await page.evaluate(() => window.popup.close());
+      else await dismiss.click();
       await dismiss.waitFor({ state: 'hidden' });
+      // A closed dialog becomes non-visible before the intersection callback.
+      await wait(() => !window.player()._lc.talkRequested, 5000);
       assert.deepEqual(await page.evaluate(() => ({ tracks: window.micTracks.map(track => track.readyState),
         sendPeer: window.muteProof.peer.connectionState, attempt: window.player()._lc.talkRequested })),
       { tracks: ['ended'], sendPeer: 'closed', attempt: false });
+      await output.noTone(`${description}/${dedicated ? 'popup closed' : 'ended'}`);
       await checkFrames();
     } else {
       assert.equal(await button.getAttribute('aria-pressed'), 'true');
@@ -365,7 +382,11 @@ try {
     assert.deepEqual(await page.evaluate(() => window.signed), Array(outgoingCount + (direct ? 0 : 1)).fill(`${proxyPath}?src=fixture_b`));
     assert.deepEqual(errors, []);
     if (dedicated) assert.ok((await page.evaluate(() => window.wsCalls)).every(type => ['get_states', 'frigate_vision/profile', 'auth/sign_path', 'frigate_vision/camera_streams'].includes(type)), 'Doorbell view must not browse events or recordings');
-    console.log(`${direct ? 'direct' : 'proxy'}/${mode}: browser ${down.hz} Hz (${down.db} dB); speaker 880 Hz amplitude ${up.mic880}, 440 Hz ${up.camera440}; after stop ${afterStop} new samples / 1200 ms`);
+    const receiver = down ? `receive track ${down.hz} Hz (${down.db} dB)` : 'browser PCM checked above';
+    console.log(`${direct ? 'direct' : 'proxy'}/${mode}: ${receiver}; speaker 880 Hz amplitude ${up.mic880}, 440 Hz ${up.camera440}; after stop ${afterStop} new samples / 1200 ms`);
     await page.close();
   }
-} finally { await browser.close(); }
+} finally {
+  try { await browser?.close(); }
+  finally { await output.close(); }
+}
