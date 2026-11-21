@@ -341,6 +341,25 @@ try {
       };
       await toggle(true);
       await output.tone(`${description}/microphone muted`);
+      const fullscreen = page.getByRole('button', { name: 'Enter fullscreen', exact: true });
+      const leaveFullscreen = page.getByRole('button', { name: 'Exit fullscreen', exact: true });
+      await fullscreen.click();
+      await leaveFullscreen.waitFor();
+      assert.equal(await video.evaluate(v => v.getRootNode().fullscreenElement === v.parentElement), true);
+      await output.tone(`${description}/fullscreen while muted`);
+      if (dedicated) await page.keyboard.press('Escape');
+      else await leaveFullscreen.click();
+      await fullscreen.waitFor();
+      assert.equal(await video.evaluate(v => {
+        const p = window.muteProof, a = window.player()._lc._talk;
+        window.frameProof.frames = v.getVideoPlaybackQuality().totalVideoFrames;
+        return !document.fullscreenElement && (!window.popup || window.popup.open) && a === p.attempt &&
+          a.link._peerConnection === p.peer && p.sender.track === p.track && !p.track.enabled &&
+          v.muted === p.cameraMuted && window.micRequests === 1 && window.signed.length === p.offers;
+      }), true, 'fullscreen round trip changed the call or muted the camera');
+      assert.equal(await mic.getAttribute('aria-pressed'), 'true');
+      await checkFrames();
+      await output.tone(`${description}/returned while muted`);
       await delay(600);
       let quiet = await speaker();
       const mutedBaseline = quiet.samples;

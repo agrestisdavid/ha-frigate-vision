@@ -1234,6 +1234,149 @@ test("Doorbell view keeps one player on panel resize and releases capture on pop
   assert.equal(await page.locator("frigate-vision-live-tile").count(), 0);
 });
 
+async function openFullscreenDoorbell(t, { popup, touch }) {
+  const page = await openRuntimePage(t, { viewport: touch ? { width: 360, height: 680 } : { width: 1100, height: 700 }, hasTouch: touch });
+  await page.evaluate(({ popup, touch }) => {
+    const card = document.createElement("frigate-vision-card");
+    const f = window.fullscreenDoor = { card, starts: 0, captures: 0, joins: 0, stops: 0, closes: 0, events: [] };
+    const controller = Object.getPrototypeOf(card._ensureLivestreamController());
+    controller._startWebRTCviaWS = async function (name, video, runId) {
+      f.starts++;
+      const canvas = document.createElement("canvas");
+      canvas.width = 640; canvas.height = 360;
+      const ctx = canvas.getContext("2d");
+      const draw = () => {
+        ctx.fillStyle = "#ddd9d0"; ctx.fillRect(0, 0, 640, 360);
+        ctx.fillStyle = "#263e42"; ctx.fillRect(190, 20, 260, 305);
+        ctx.fillStyle = "#596f6a"; ctx.fillRect(224, 43, 191, 117);
+        ctx.fillStyle = "#a9bfb6"; ctx.fillRect(233, 52, 173, 99);
+        ctx.fillStyle = "#3a4a50"; ctx.fillRect(232, 193, 175, 106);
+        ctx.fillStyle = "#cfaa75"; ctx.fillRect(404, 175, 24, 4);
+        ctx.fillStyle = "#999180"; ctx.fillRect(0, 325, 640, 35);
+        ctx.fillRect(470 + (Math.floor(performance.now() / 90) % 50), 308, 4, 4);
+      };
+      draw();
+      const stream = canvas.captureStream(12);
+      const timer = setInterval(draw, 83);
+      video.srcObject = stream;
+      this._peerConnection = { close() { clearInterval(timer); stream.getTracks().forEach(track => track.stop()); } };
+      f.video = video; f.stream = stream; f.peer = this._peerConnection;
+      this._playbackReady(name, video, runId, this._config());
+    };
+    controller._backchannel = () => ({ runGeneration: 1, _withTimeout: p => p,
+      async _startWebRTCviaWS() { f.joins++; }, close() { f.closes++; } });
+    navigator.mediaDevices.getUserMedia = async () => {
+      f.captures++;
+      const track = f.mic = { enabled: true, readyState: "live", stop() { f.stops++; this.readyState = "ended"; } };
+      return { getAudioTracks: () => [track], getTracks: () => [track] };
+    };
+    window.Audio = class { play() { return Promise.resolve(); } pause() {} };
+    card.hass = { connection: Object.assign(new EventTarget(), { async subscribeEvents(cb) {
+      f.ring = () => cb({ data: { entity_id: "input_boolean.fixture", old_state: { state: "off" }, new_state: { state: "on" } } });
+      return async () => {};
+    } }), states: { "camera.door": { attributes: { camera_name: "door", client_id: "demo" } } },
+    async callWS(msg) { return msg.type === "frigate_vision/profile" ? { profile: { frigate_client_id: "demo" } } : { streams: ["fixture"] }; } };
+    card.setConfig({ language: "en", view_mode: "doorbell", doorbell_camera: "door", go2rtc_modes: "webrtc", section_mode: true,
+      cameras: { door: { sub: "fixture", doorbell: { enabled: true, entity: "input_boolean.fixture" } } } });
+    const host = f.host = document.createElement(popup ? "dialog" : "main");
+    Object.assign(host.style, { width: touch ? "320px" : "960px", height: touch ? "228px" : "572px", padding: "0" });
+    host.append(card);
+    document.body.append(host);
+    if (popup) host.showModal();
+    host.addEventListener("cancel", () => f.events.push("cancel"));
+    host.addEventListener("close", () => f.events.push("close"));
+    document.addEventListener("fullscreenchange", () => f.events.push(document.fullscreenElement ? "enter" : "exit"));
+    f.tile = () => card.renderRoot.querySelector("frigate-vision-live-tile");
+    f.bell = () => f.tile()?.renderRoot.querySelector("frigate-vision-doorbell");
+  }, { popup, touch });
+  await page.waitForFunction(() => fullscreenDoor.ring && fullscreenDoor.bell()?._surfaceVisible);
+  await page.evaluate(() => fullscreenDoor.ring());
+  const answer = page.getByRole("button", { name: "Answer", exact: true });
+  await answer[touch ? "tap" : "click"]();
+  await page.getByRole("button", { name: "End", exact: true }).waitFor();
+  return page;
+}
+
+for (const popup of [false, true]) for (const touch of [false, true]) {
+  test(`doorbell fullscreen retains its live call in the ${popup ? "popup" : "panel"} (${touch ? "touch" : "desktop"})`, async (t) => {
+    const page = await openFullscreenDoorbell(t, { popup, touch });
+    const exit = page.getByRole("button", { name: "End", exact: true });
+    const mute = page.getByRole("button", { name: "Mute microphone", exact: true });
+    const fs = page.locator("frigate-vision-doorbell .fullscreen");
+    const display = () => page.evaluate(() => {
+      const f = fullscreenDoor;
+      const box = f.bell().renderRoot.querySelector(".buttons").getBoundingClientRect();
+      const image = f.video.getBoundingClientRect();
+      return { full: !!document.fullscreenElement, target: f.video.getRootNode().fullscreenElement === f.video.parentElement,
+        popupOpen: f.host.open ?? true, video: f.tile().renderRoot.querySelector("video") === f.video,
+        onlyOneVideo: f.tile().renderRoot.querySelectorAll("video").length === 1,
+        stream: f.video.srcObject === f.stream, peer: f.tile()._lc._peerConnection === f.peer,
+        track: f.mic.readyState, enabled: f.mic.enabled, talking: f.tile()._lc.talkRequested, cameraMuted: f.video.muted,
+        counts: [f.starts, f.captures, f.joins, f.stops, f.closes],
+        centered: Math.abs((box.left + box.right) - (image.left + image.right)) <= 2,
+        belowCenter: box.top > (image.top + image.bottom) / 2 && box.bottom <= image.bottom,
+        missedPopup: f.events.includes("close") || f.events.includes("cancel") };
+    });
+    const press = locator => touch ? locator.tap() : locator.click();
+    const confirm = async (full, enabled) => {
+      assert.deepEqual(await display(), { full, target: full, popupOpen: true, video: true, onlyOneVideo: true,
+        stream: true, peer: true, track: "live", enabled, talking: true, cameraMuted: false,
+        counts: [1, 1, 1, 0, 0], centered: true, belowCenter: true, missedPopup: false });
+      assert.equal(await mute.getAttribute("aria-pressed"), String(!enabled));
+      const frame = await page.locator("video.player").evaluate(v => v.getVideoPlaybackQuality().totalVideoFrames);
+      await page.waitForFunction(frame => fullscreenDoor.video.getVideoPlaybackQuality().totalVideoFrames > frame, frame);
+    };
+    await confirm(false, true);
+    assert.equal(await exit.textContent().then(text => text.trim()), "");
+    assert.equal(await exit.locator("svg").count(), 1);
+    assert.ok((await exit.boundingBox()).height >= 44 && (await exit.boundingBox()).width >= 44);
+    assert.equal(await page.locator("video.player").getAttribute("controlslist"), "nofullscreen");
+    await press(fs);
+    await page.getByRole("button", { name: "Exit fullscreen", exact: true }).waitFor();
+    await confirm(true, true);
+    await press(mute);
+    await confirm(true, false);
+    await press(fs);
+    await page.waitForFunction(() => !document.fullscreenElement);
+    await confirm(false, false);
+    await press(fs);
+    await page.waitForFunction(() => document.fullscreenElement);
+    if (!touch) {
+      // Escape must exit fullscreen, not the active call or enclosing dialog.
+      await mute.focus();
+      await page.keyboard.press("Escape");
+      await page.waitForFunction(() => !document.fullscreenElement);
+      await confirm(false, false);
+      assert.equal(await mute.evaluate(button => button.getRootNode().activeElement === button), true);
+      await page.keyboard.press("Shift+Tab");
+      assert.equal(await exit.evaluate(button => button.matches(":focus-visible")), true);
+      await page.keyboard.press("Shift+Tab");
+      assert.equal(await fs.evaluate(button => button.matches(":focus-visible")), true);
+      await mute.press("Space");
+    } else {
+      await press(fs);
+      await page.waitForFunction(() => !document.fullscreenElement);
+      await confirm(false, false);
+      await press(mute);
+    }
+    await confirm(false, true);
+    await press(exit);
+    await page.waitForFunction(() => fullscreenDoor.stops === 1 && fullscreenDoor.closes === 1 && fullscreenDoor.video.muted);
+    await exit.waitFor({ state: "hidden" });
+    assert.equal(await page.evaluate(() => fullscreenDoor.video.srcObject === fullscreenDoor.stream), true);
+
+    // Real close/detach still terminates even if the player is fullscreen.
+    await page.evaluate(() => fullscreenDoor.ring());
+    await press(page.getByRole("button", { name: "Answer", exact: true }));
+    await exit.waitFor();
+    await press(fs);
+    await page.waitForFunction(() => document.fullscreenElement);
+    await page.evaluate(popup => { if (popup) fullscreenDoor.host.close(); else fullscreenDoor.card.remove(); }, popup);
+    await page.waitForFunction(() => fullscreenDoor.stops === 2 && fullscreenDoor.closes === 2 && !document.fullscreenElement);
+    assert.equal(await page.evaluate(() => fullscreenDoor.mic.readyState), "ended");
+  });
+}
+
 test("opt-in popup can take over a recent ring on mount; the panel, stale snapshots and repeat mounts cannot", async (t) => {
   const page = await openRuntimePage(t);
   await page.evaluate(() => {

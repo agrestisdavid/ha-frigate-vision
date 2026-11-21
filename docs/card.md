@@ -219,9 +219,12 @@ only after the call connects, not while the card is ringing. If the browser
 blocks playback after the connection is ready, tap **Enable camera sound**.
 The card restores the previous playback setting when the call ends.
 
-Use **End** to release the microphone, even when muted. The microphone button
-mutes and unmutes only your outgoing voice without affecting the camera's
-sound or restarting the call.
+Use the red horizontal handset to end the call and release the microphone,
+even when muted. The microphone button mutes only your outgoing voice, not
+camera sound. The fullscreen control keeps the live image and call buttons
+together on browsers that support element fullscreen. Use that same control
+or Escape to return without ending the call. Closing the popup itself still
+ends the call.
 
 The **…** button just left of the handset opens two prerecorded German speech
 replies: **Einen Moment bitte** and **Bitte vor der Tür abstellen**. Choosing
