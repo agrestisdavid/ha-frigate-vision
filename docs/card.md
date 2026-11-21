@@ -237,17 +237,18 @@ camera without answering, opening the microphone, interrupting the live
 video or playing the reply on the browser's speakers. Use **End** to stop an
 announcement in progress.
 
-A reply also silences the local ringtone for this call right away, while any
-camera sound you switched on keeps playing. The call stays open and its status
-reads *Incoming call (ringtone muted)* (*Eingehender Anruf (Klingelton stumm)*),
-so **Answer** and the decline handset keep working. Once the announcement
-finishes, roughly 25 seconds remain to answer or decline; while it is still
-being delivered, a stuck announcement is abandoned after 60 seconds and the
-failure is shown with the call still silent and operable. **Answer** during an
-announcement cancels it, and a new doorbell press replaces the silent call and
-rings normally again. Inside the same browser tab and Home Assistant connection,
-reopening the panel or popup within that window brings back the silent call; a
-full page reload or a new connection does not restore it.
+Selecting a reply silences the local ringtone right away without muting any
+camera sound you switched on. **Answer** during the announcement cancels it
+and starts connecting the microphone. After a successful reply, the status
+reads *Incoming call (ringtone muted)* (*Eingehender Anruf (Klingelton stumm)*).
+If playback fails, the card shows *Could not send the announcement.* instead.
+In either case the call stays silent and you have about 25 seconds to answer
+or decline. If the reply never completes, the card cancels it and closes the
+call after 60 seconds. A distinct new ring can replace a silenced call if
+microphone setup is not pending and talkback is not active. A still-pending
+quiet call can survive a card rebuild in the same browser tab and Home Assistant
+connection without ringing again; that quiet state does not survive a full page
+reload or a new connection.
 
 To customize them, go to **Settings → Devices & services → Frigate Vision →
 Configure** for this Frigate instance. Select an existing `tts.*` entity and
@@ -280,7 +281,7 @@ Choose **Anzeige → Ansicht → Doorbell (eine Kamera)** and select the
 **Doorbell-Kamera** under **Kameras**. Enable Doorbell and configure its
 trigger as above. In YAML, use `view_mode: doorbell` and
 `doorbell_camera: front_door` alongside the existing `cameras` mapping.
-The mode shows only the selected live video and the incoming call controls.
+The mode shows only the selected live video with audio and call controls.
 Other camera entries and normal view settings stay saved; the mode does not
 load events or recordings. The Sub alias is used if set, otherwise Main or
 then the exact camera ID. Main and Sub may name the same alias.
@@ -308,17 +309,21 @@ In this view listening and talking are separate controls:
 - **Start talking** (**Sprechen starten**) opens the microphone while nothing is
   ringing. Tapping it again (**Stop talking** / **Sprechen beenden**) releases
   the capture or discards a pending permission request and leaves the camera
-  sound unchanged. **Answer** then adopts that running microphone instead of
-  capturing audio or connecting a second time.
+  sound unchanged. **Answer** reuses manual talkback if already requested and
+  attempts to enable camera sound when talkback connects. You can still toggle
+  the speaker independently and use the in-call microphone mute.
 - **End** releases the microphone and mutes the camera sound. The live video
   keeps running, and the speaker button turns the sound back on afterwards.
+  Closing the popup, hiding the card or losing the connection also releases
+  the microphone; it doesn't restart by itself.
 - When the browser refuses audible playback, the video continues muted with
   *Camera sound is off. Select “Enable camera sound”.*; the next tap retries.
 
-Both buttons disappear when **Livestream → Live-Controls Overlay anzeigen** is
-off. Talking still requires a secure browser context, microphone permission and
-a WebRTC stream with a compatible speaker backchannel. MSE playback can carry
-the camera sound but offers no microphone.
+The Doorbell-only card shows its own overlay even if **Live-Controls Overlay
+anzeigen** is off for other live views. Talking still requires a secure browser
+context (HTTPS or localhost), microphone permission and a WebRTC stream with a
+compatible speaker backchannel. MSE playback can carry camera sound but cannot
+send microphone audio.
 
 ### PTZ button
 

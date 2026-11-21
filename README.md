@@ -28,9 +28,9 @@ Frigate Vision is independent of LLM Vision:
 **Camera sound** and **Start talking** work without a call: the player starts
 muted, listening and talking stay independent, and the live video keeps running
 after you hang up. A [quick reply](https://agrestisdavid.github.io/ha-frigate-vision/card/#doorbell-calls-and-quick-replies)
-now only silences the ringtone, so the same call can still be answered or
-declined, and its texts come from any Home Assistant `tts.*` entity — up to
-three, 120 characters each — instead of only the two bundled German replies.
+silences the local ringtone without ending the call, so you can still answer
+or decline. You can keep the two bundled German replies or use a Home Assistant
+`tts.*` entity to prepare up to three custom replies of 120 characters each.
 Update Frigate Vision in HACS and restart Home Assistant; no Card migration, new
 Lovelace resource or Blueprint re-import is needed.
 

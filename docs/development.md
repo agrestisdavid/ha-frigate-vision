@@ -76,8 +76,8 @@ native options selector, validation, synthesis at save, reuse on subsequent
 reads, private persistence, failed-save rollback, provider changes, cache
 removal and camera-scoped WebSocket permissions. This tests **one Core version**, not
 HACS installation, real Frigate, model quality, hardware or browser rendering.
-Use the Chromium suite separately for the Card UI. It runs Chromium only, so
-Safari, Firefox and mobile browsers remain manual checks on real devices.
+Use the Chromium suite separately for the Card UI. It includes narrow and
+touch viewports, but does not cover Safari, Firefox or real mobile devices.
 
 Success, test failure, interruption or the run deadline (120 seconds by default;
 `--timeout SECONDS` to adjust) cleans up this run's container and configuration.

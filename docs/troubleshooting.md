@@ -116,7 +116,8 @@ empty, the Card uses the Home Assistant proxy.
 ## I can watch the camera but cannot talk or move it
 
 First open a **live** player (not a clip or a recording) and check that the
-live controls overlay is enabled in the Card editor.
+live controls overlay is enabled in the Card editor for regular live views.
+The Doorbell-only card has its own overlay.
 
 - **No PTZ button:** Use WebRTC or MSE. Enable ONVIF/PTZ in Frigate and select
   the correct instance and camera. For a custom stream name, check the camera’s
