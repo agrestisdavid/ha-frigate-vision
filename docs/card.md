@@ -226,11 +226,26 @@ together on browsers that support element fullscreen. Use that same control
 or Escape to return without ending the call. Closing the popup itself still
 ends the call.
 
-The **…** button just left of the handset opens two prerecorded German speech
-replies: **Einen Moment bitte** and **Bitte vor der Tür abstellen**. Choosing
-either one sends it to the door camera without answering, opening the
-microphone or playing the reply on the browser's speakers. Use **End** to
-stop an announcement in progress.
+The **…** button just left of the handset opens the quick replies. By default
+these are the two prerecorded German replies **Einen Moment bitte** and
+**Bitte vor der Tür abstellen**. Selecting a reply sends it to the door
+camera without answering, opening the microphone, interrupting the live
+video or playing the reply on the browser's speakers. Use **End** to stop an
+announcement in progress.
+
+To customize them, go to **Settings → Devices & services → Frigate Vision →
+Configure** for this Frigate instance. Select an existing `tts.*` entity and
+enter up to three short replies (120 characters each). Blank slots are not
+shown. Clear all three to restore the prerecorded German replies.
+
+Saving synthesizes new texts with the selected engine's default language and
+voice. Saving does not play or send any sound. Frigate Vision adds no TTS
+provider; if you choose a cloud TTS entity, that provider processes the text.
+The cache survives HA restarts and serves prepared audio even when the TTS
+entity is offline. Switching the entity prepares the replies again. If an edit
+fails, the previous replies and other settings stay active. The cache is stored
+outside the public Card files. Custom labels and audio require an authenticated
+HA connection with read access to the corresponding Frigate camera.
 
 Both actions use the authenticated Home Assistant proxy and check that the
 playing alias belongs to that Frigate camera; there is no separate talk-alias

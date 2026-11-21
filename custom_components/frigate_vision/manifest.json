@@ -4,7 +4,8 @@
   "after_dependencies": [
     "camera",
     "frigate",
-    "image"
+    "image",
+    "tts"
   ],
   "codeowners": [
     "@agrestisdavid"

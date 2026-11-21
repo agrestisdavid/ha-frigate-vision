@@ -71,9 +71,9 @@ def camera_stream_options(config: Mapping, camera: str) -> dict[str, Any]:
     return result
 
 
-def _options_for_entity(
+def _camera_for_entity(
     hass: HomeAssistant, entity_id: str, instance_id: str
-) -> dict[str, Any] | None:
+) -> tuple[str, str, Mapping] | None:
     entity = er.async_get(hass).async_get(entity_id)
     if (
         not entity
@@ -95,7 +95,22 @@ def _options_for_entity(
         "client_id"
     ) != instance_id or camera not in _mapping(config.get("cameras")):
         return None
-    return camera_stream_options(config, camera)
+    return entry_id, camera, config
+
+
+@callback
+def readable_camera(
+    hass: HomeAssistant,
+    connection: websocket_api.ActiveConnection,
+    entity_id: str,
+    instance_id: str,
+) -> tuple[str, str, Mapping] | None:
+    """Resolve a readable, registry-owned Frigate camera on this exact instance."""
+    if entity_id.startswith("camera.") and connection.user.permissions.check_entity(
+        entity_id, POLICY_READ
+    ):
+        return _camera_for_entity(hass, entity_id, instance_id)
+    return None
 
 
 @websocket_api.websocket_command(
@@ -110,14 +125,11 @@ def ws_camera_streams(
     hass: HomeAssistant, connection: websocket_api.ActiveConnection, msg: dict
 ) -> None:
     """Resolve one readable Frigate entity, including when HA has renamed it."""
-    entity_id = msg["entity_id"]
-    if entity_id.startswith("camera.") and connection.user.permissions.check_entity(
-        entity_id, POLICY_READ
-    ):
-        options = _options_for_entity(hass, entity_id, msg["instance_id"])
-        if options is not None:
-            connection.send_result(msg["id"], options)
-            return
+    target = readable_camera(hass, connection, msg["entity_id"], msg["instance_id"])
+    if target is not None:
+        _, camera, config = target
+        connection.send_result(msg["id"], camera_stream_options(config, camera))
+        return
     # Identical response for absent, unreadable and foreign entities.
     connection.send_error(
         msg["id"], "not_found", "Keine Streamnamen für diese Kamera verfügbar."

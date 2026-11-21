@@ -59,7 +59,11 @@
       "invalid_endpoint": "Enter an absolute HTTP or HTTPS URL.",
       "invalid_image_source": "Select a supported Frigate image source.",
       "model_required": "Enter a model name.",
-      "invalid_reasoning_effort": "Select a supported reasoning setting."
+      "invalid_reasoning_effort": "Select a supported reasoning setting.",
+      "reply_too_long": "Use at most 120 characters for each quick reply.",
+      "reply_tts_required": "Select an available Home Assistant TTS entity.",
+      "reply_synthesis_failed": "This reply could not be synthesized. Check the TTS engine and try a shorter text. The previous replies are still active.",
+      "reply_storage_failed": "Could not save the reply cache. Check Home Assistant storage and try again. The previous replies are still active."
     },
     "step": {
       "init": {
@@ -77,9 +81,15 @@
           "go2rtc_url": "Direct local go2rtc URL (advanced)",
           "go2rtc_url_external": "Direct remote go2rtc URL (advanced)",
           "go2rtc_modes": "Live transport fallback order",
-          "reasoning_effort": "Reasoning"
+          "reasoning_effort": "Reasoning",
+          "doorbell_tts_entity": "Doorbell quick replies: TTS entity",
+          "doorbell_reply_1": "Quick reply 1",
+          "doorbell_reply_2": "Quick reply 2",
+          "doorbell_reply_3": "Quick reply 3"
         },
         "data_description": {
+          "doorbell_tts_entity": "Select an existing TTS entity to prepare your replies on save, without playing them. Leave all three texts blank to use the two bundled German replies.",
+          "doorbell_reply_1": "Optional, up to 120 characters. Blank replies are not shown.",
           "timeout": "Maximum provider request duration for still-image analysis.",
           "video_timeout": "Maximum provider request duration for video-frame analysis.",
           "target_width": "Maximum still-image width. Smaller images are never enlarged.",

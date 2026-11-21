@@ -11,6 +11,7 @@ http:
   server_host: 127.0.0.1
   server_port: 8123
 frontend:
+config:
 input_boolean:
   besucher:
     name: Synthetic doorbell

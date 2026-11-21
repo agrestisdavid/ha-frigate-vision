@@ -71,7 +71,10 @@ user and once as a user without entity access, using only synthetic aliases. It 
 `frigate_vision.analyze_event` on a generated image; the model fixture checks
 the actual JPEG and prompt before replying. Unloading the last entry must remove
 all three services. After setting up that entry again, the same checks must
-pass without duplicate registrations. This tests **one Core version**, not
+pass without duplicate registrations. The isolated TTS fixture checks the
+native options selector, validation, synthesis at save, reuse on subsequent
+reads, private persistence, failed-save rollback, provider changes, cache
+removal and camera-scoped WebSocket permissions. This tests **one Core version**, not
 HACS installation, real Frigate, model quality, hardware or browser rendering.
 Use the Chromium suite separately for the Card UI.
 
@@ -145,7 +148,12 @@ while stream verification, permission or WebRTC setup are pending, and after
 verification, permission or backchannel errors. The Doorbell-only view also
 runs inside a native test dialog mounted after the HA edge. It must present
 the recent call without requesting capture, resize without replacing the
-receive peer, and never query events or recordings. Fast tests verify normal
+receive peer, and never query events or recordings. The dedicated popup also
+uses one custom label with literal markup-like characters. The browser saves it
+via the actual HA OptionsFlow API, verifies no samples are sent on save, and
+selects it twice without a microphone request or another synthesis. The
+synthetic speaker must decode the selected engine's distinct 660 Hz tone.
+Fast tests verify normal
 panel startup, popup replay rejection and capture cleanup on hide or detach.
 
 ## Bundled browser and brand assets

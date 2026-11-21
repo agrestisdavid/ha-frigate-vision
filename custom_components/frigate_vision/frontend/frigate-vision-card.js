@@ -56,7 +56,7 @@ const STRINGS = {
       disconnected: "Verbindung unterbrochen. Das Mikrofon ist aus.",
       connectionFailed: "Der Audiorückkanal konnte nicht verbunden werden.",
     },
-    doorbell: { incoming: "Es klingelt", answer: "Annehmen", decline: "Anruf ablehnen", fullscreen: "Vollbild öffnen", exitFullscreen: "Vollbild verlassen", listen: "Kameraton einschalten", listenBlocked: "Kameraton ist stumm. Tippe auf „Kameraton einschalten“.", mute: "Mikrofon stummschalten", unmute: "Mikrofon wieder einschalten", muted: "Mikrofon stumm", cancel: "Abbrechen", end: "Beenden", replies: "Schnellantworten", playing: "Ansage wird gesendet …", failed: "Ansage konnte nicht gesendet werden.", dismiss: "Schließen" },
+    doorbell: { incoming: "Es klingelt", answer: "Annehmen", decline: "Anruf ablehnen", fullscreen: "Vollbild öffnen", exitFullscreen: "Vollbild verlassen", listen: "Kameraton einschalten", listenBlocked: "Kameraton ist stumm. Tippe auf „Kameraton einschalten“.", mute: "Mikrofon stummschalten", unmute: "Mikrofon wieder einschalten", muted: "Mikrofon stumm", cancel: "Abbrechen", end: "Beenden", replies: "Schnellantworten", loadingReplies: "Schnellantworten werden geladen …", repliesUnavailable: "Schnellantworten nicht verfügbar.", playing: "Ansage wird gesendet …", failed: "Ansage konnte nicht gesendet werden.", dismiss: "Schließen" },
     ptz: { label: "PTZ-Steuerung", up: "Nach oben", down: "Nach unten", left: "Nach links", right: "Nach rechts", stop: "Stopp", failed: "PTZ-Befehl fehlgeschlagen. Verbindung und Berechtigung prüfen." },
     timeline_loading: "Lade Aufnahme…",
     timeline_no_recording: "Keine Aufnahme für diesen Zeitraum",
@@ -109,7 +109,7 @@ const STRINGS = {
       disconnected: "Connection lost. The microphone is off.",
       connectionFailed: "Could not connect the audio backchannel.",
     },
-    doorbell: { incoming: "Doorbell ringing", answer: "Answer", decline: "Decline call", fullscreen: "Enter fullscreen", exitFullscreen: "Exit fullscreen", listen: "Enable camera sound", listenBlocked: "Camera sound is off. Select “Enable camera sound”.", mute: "Mute microphone", unmute: "Unmute microphone", muted: "Microphone muted", cancel: "Cancel", end: "End", replies: "Quick replies", playing: "Sending announcement…", failed: "Could not send the announcement.", dismiss: "Close" },
+    doorbell: { incoming: "Doorbell ringing", answer: "Answer", decline: "Decline call", fullscreen: "Enter fullscreen", exitFullscreen: "Exit fullscreen", listen: "Enable camera sound", listenBlocked: "Camera sound is off. Select “Enable camera sound”.", mute: "Mute microphone", unmute: "Unmute microphone", muted: "Microphone muted", cancel: "Cancel", end: "End", replies: "Quick replies", loadingReplies: "Loading quick replies…", repliesUnavailable: "Quick replies are unavailable.", playing: "Sending announcement…", failed: "Could not send the announcement.", dismiss: "Close" },
     ptz: { label: "PTZ controls", up: "Tilt up", down: "Tilt down", left: "Pan left", right: "Pan right", stop: "Stop", failed: "PTZ command failed. Check the connection and permissions." },
     timeline_loading: "Loading recording…",
     timeline_no_recording: "No recording for this period",
@@ -1832,7 +1832,8 @@ class LivestreamController extends Go2rtcSession {
   async playDoorbellReply(reply) {
     const live = this.playbackTarget;
     const hass = this._hass();
-    if (!Object.hasOwn(DOORBELL_REPLIES, reply) || !live || live.camera !== this.cameraId ||
+    const bundled = Object.hasOwn(DOORBELL_REPLIES, reply);
+    if ((!bundled && !customReplyId(reply)) || !live || live.camera !== this.cameraId ||
         !hass?.callWS || hass.connected === false || this._talk || this._announcement) return false;
     const attempt = { cancel: new AbortController() };
     this._announcement = attempt;
@@ -1842,9 +1843,12 @@ class LivestreamController extends Go2rtcSession {
       // Start from the reply click, before any asynchronous lookup. Audio goes
       // only to the sender track, never to the browser's speakers or microphone.
       const ready = ctx.resume();
-      const file = fetch(doorbellAudioUrl(reply), { signal: attempt.cancel.signal }).then((response) => {
+      const file = bundled ? fetch(doorbellAudioUrl(reply), { signal: attempt.cancel.signal }).then((response) => {
         if (!response.ok) throw new Error("Doorbell reply unavailable");
         return response.arrayBuffer();
+      }) : doorbellReplyRequest(hass, live, reply).then(({ audio }) => {
+        if (typeof audio !== "string" || !audio || audio.length > 860000) throw new Error("Doorbell reply unavailable");
+        return Uint8Array.from(atob(audio), byte => byte.charCodeAt(0)).buffer;
       });
       const [mapped, bytes] = await this._withTimeout(Promise.all([
         streamMatchesCamera(hass, live), file, ready,
@@ -8390,6 +8394,20 @@ class FrigateVisionCardEditor extends LitElement {
   }
 }
 
+const customReplyId = id => typeof id === "string" && /^[0-9a-f]{32}$/.test(id);
+
+async function doorbellReplyRequest(hass, stream, replyId) {
+  const camera = frigateCameraGroups(hass).get(stream?.client)?.get(stream?.camera?.toLowerCase());
+  if (!camera || camera.ambiguous || stream.redirected || !hass?.callWS || hass.connected === false) {
+    if (replyId) throw new Error("Doorbell reply unavailable");
+    return { replies: null };
+  }
+  return hass.callWS({
+    type: "frigate_vision/doorbell_replies", entity_id: camera.entityId, instance_id: stream.client,
+    ...(replyId ? { reply_id: replyId } : {}),
+  });
+}
+
 // A manual alias can belong to a different camera, and the same alias can
 // exist on different NVRs. Never infer a physical control target from it.
 async function streamMatchesCamera(hass, stream) {
@@ -8444,6 +8462,7 @@ class FrigateVisionDoorbell extends LitElement {
     embedded: { attribute: false }, ringOnMount: { attribute: false },
     _incoming: { state: true }, _menu: { state: true }, _reply: { state: true },
     _failed: { state: true }, _triedAnswer: { state: true }, _fullscreen: { state: true },
+    _choices: { state: true },
   };
 
   connectedCallback() {
@@ -8505,8 +8524,8 @@ class FrigateVisionDoorbell extends LitElement {
     if (changed.has("_menu") && this._menu) {
       const menu = this._positionMenu();
       menu?.showPopover?.();
-      if (this._focusReplyMenu) this.renderRoot.querySelector(".replies button")?.focus();
     }
+    if (this._menu && changed.has("_choices") && this._focusReplyMenu) this.renderRoot.querySelector(".replies button")?.focus();
     if (this._incoming && changed.get("talkState") === "sending" && this.talkState !== "sending") this._armExpiry();
     const connection = this.hass?.connection;
     const { entity, from, to } = this.settings || {};
@@ -8637,7 +8656,7 @@ class FrigateVisionDoorbell extends LitElement {
     clearTimeout(this._expires);
     this._silence();
     this._incoming = this._menu = this._failed = this._triedAnswer = false;
-    this._reply = null;
+    this._reply = this._choiceRequest = null;
     if (controller?.talkRequested) controller.stopTalk();
     controller?.stopAnnouncement();
   }
@@ -8659,6 +8678,30 @@ class FrigateVisionDoorbell extends LitElement {
     // Answer and reply controls disappear while busy. Keep keyboard focus on
     // the persistent exit button instead of dropping it onto the document.
     this.renderRoot.querySelector(".dismiss")?.focus({ preventScroll: true });
+  }
+
+  async _toggleReplies(event) {
+    this._menu = !this._menu;
+    if (!this._menu) return;
+    this._focusReplyMenu = event.detail === 0;
+    this._choices = null;
+    const call = this._incoming, target = this.controller?.playbackTarget;
+    const request = this._choiceRequest = {};
+    let choices;
+    try {
+      const result = await doorbellReplyRequest(this.hass, target);
+      choices = Array.isArray(result?.replies) ? result.replies.slice(0, 3).filter(
+        item => customReplyId(item?.id) && typeof item.text === "string" && item.text.trim()
+      ) : Object.entries(DOORBELL_REPLIES).map(([id, text]) => ({ id, text, bundled: true }));
+    } catch (err) {
+      // A stale/pre-upgrade backend has no command; built-in assets still work.
+      if (err?.code === "unknown_command") choices = Object.entries(DOORBELL_REPLIES).map(([id, text]) => ({ id, text, bundled: true }));
+      else choices = [];
+    }
+    if (this._choiceRequest === request && this._incoming === call && this.controller?.playbackTarget === target) {
+      this._choices = choices;
+      this.updateComplete.then(() => { if (this._menu) this._positionMenu(); });
+    }
   }
 
   async _playReply(reply) {
@@ -8715,13 +8758,15 @@ class FrigateVisionDoorbell extends LitElement {
           @click=${() => this.controller?.toggleTalkMute()}>${doorbellMicIcon(muted)}</button>` : ""}
         ${!busy ? html`
           <button type="button" class="more" title=${d.replies} aria-label=${d.replies} aria-expanded=${String(!!this._menu)}
-            aria-controls="replies" @click=${(e) => { this._focusReplyMenu = e.detail === 0; this._menu = !this._menu; }}>…</button>
+            aria-controls="replies" @click=${this._toggleReplies}>…</button>
           <button type="button" class="phone" aria-label=${d.answer} title=${d.answer} @click=${this._answer}>
             ${doorbellHandset(true)}
           </button>` : ""}
         ${this._menu ? html`<div id="replies" class="replies" popover="auto" aria-label=${d.replies}
           @toggle=${(e) => { if (e.newState === "closed" && e.target.isConnected) this._menu = false; }}>
-          ${Object.entries(DOORBELL_REPLIES).map(([id, text]) => html`<button lang="de" type="button" @click=${() => this._playReply(id)}>${text}</button>`)}
+          ${this._choices === null ? html`<span class="reply-message" role="status">${d.loadingReplies}</span>` :
+            this._choices?.length ? this._choices.map(({ id, text, bundled }) => html`<button lang=${bundled ? 'de' : ''} type="button" @click=${() => this._playReply(id)}>${text}</button>`) :
+              html`<span class="reply-message" role="status">${d.repliesUnavailable}</span>`}
         </div>` : ""}
       </div>
     </div>`;

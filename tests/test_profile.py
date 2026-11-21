@@ -56,6 +56,7 @@ def load_integration():
         Any=lambda *values: values,
         Coerce=lambda value: value,
         Invalid=Invalid,
+        Match=lambda _pattern: str,
         Optional=lambda key, **_kwargs: key,
         Required=lambda key, **_kwargs: key,
         Range=lambda **_kwargs: object(),
@@ -215,6 +216,11 @@ class ProfileTests(unittest.TestCase):
                     integration, "build_runtime", AsyncMock(side_effect=runtimes)
                 ),
                 patch.object(integration, "analyze_event", analyze),
+                patch.object(
+                    integration,
+                    "reply_cache",
+                    return_value=SimpleNamespace(async_load=AsyncMock()),
+                ),
                 patch.object(integration.websocket_api, "async_register_command") as ws,
             ):
                 await integration.async_setup(hass, {})
@@ -247,6 +253,7 @@ class ProfileTests(unittest.TestCase):
                     [
                         ws_call(hass, integration.ws_profile),
                         ws_call(hass, integration.ws_camera_streams),
+                        ws_call(hass, integration.ws_doorbell_replies),
                     ],
                 )
 

@@ -17,6 +17,7 @@ from homeassistant.config_entries import ConfigEntryState
 from homeassistant.const import EVENT_SERVICE_REGISTERED
 from homeassistant.core import callback
 from homeassistant.helpers import entity_registry as er
+from homeassistant.helpers.storage import Store
 from homeassistant.runner import RuntimeConfig, create_event_loop
 from PIL import Image
 from zeroconf import IPVersion
@@ -188,6 +189,178 @@ async def check_camera_streams(hass, session):
     )
 
 
+async def setup_tts(hass):
+    result = await hass.config_entries.flow.async_init(
+        "synthetic_tts", context={"source": "user"}
+    )
+    assert result["result"].state is ConfigEntryState.LOADED
+    assert hass.states.get("tts.synthetic_660") is not None
+
+
+async def check_replies(hass, entry, session):
+    """Verify the actual OptionsFlow, provider API, cache lifecycle and access."""
+    from custom_components.frigate_vision.doorbell_replies import ReplyCache
+
+    camera = register_fixture_camera(hass)
+    fields = {
+        "doorbell_reply_1": " Private reply ",
+        "doorbell_reply_2": "  ",
+        "doorbell_reply_3": "Other reply",
+    }
+    engine = {"doorbell_tts_entity": "tts.synthetic_660"}
+    flows = hass.config_entries.options
+    calls = hass.data["synthetic_tts_calls"]
+    user = await hass.auth.async_create_system_user(
+        "Reply viewer", group_ids=[GROUP_ID_READ_ONLY]
+    )
+    refresh = await hass.auth.async_create_refresh_token(user)
+
+    async def submit(values):
+        form = await flows.async_init(entry.entry_id)
+        assert form["type"] == "form", form
+        selector = next(
+            v
+            for k, v in form["data_schema"].schema.items()
+            if k.schema == "doorbell_tts_entity"
+        )
+        assert selector.serialize()["selector"]["entity"]["domain"] in ("tts", ["tts"])
+        result = await flows.async_configure(form["flow_id"], values)
+        await hass.async_block_till_done()
+        return result
+
+    async with session.ws_connect("http://127.0.0.1:8123/api/websocket") as ws:
+        assert (await ws.receive_json())["type"] == "auth_required"
+        await ws.send_json(
+            {
+                "type": "auth",
+                "access_token": hass.auth.async_create_access_token(refresh),
+            }
+        )
+        assert (await ws.receive_json())["type"] == "auth_ok"
+        counter = 0
+
+        async def request(**overrides):
+            nonlocal counter
+            counter += 1
+            await ws.send_json(
+                {
+                    "id": counter,
+                    "type": f"{DOMAIN}/doorbell_replies",
+                    "entity_id": camera.entity_id,
+                    "instance_id": "smoke",
+                    **overrides,
+                }
+            )
+            return await ws.receive_json()
+
+        assert (await request())["result"] == {"replies": None}
+        assert (await submit(fields))["errors"] == {
+            "doorbell_tts_entity": "reply_tts_required"
+        }
+        assert (await submit({**engine, "doorbell_reply_1": "x" * 121}))["errors"] == {
+            "doorbell_reply_1": "reply_too_long"
+        }
+        assert (await submit({**engine, **fields}))["type"] == "create_entry"
+        assert calls == [
+            ("tts.synthetic_660", "Private reply"),
+            ("tts.synthetic_660", "Other reply"),
+        ]
+        choices = (await request())["result"]["replies"]
+        assert [clip["text"] for clip in choices] == ["Private reply", "Other reply"]
+        old_id = choices[0]["id"]
+        assert (await request(instance_id="wrong"))["error"]["code"] == "not_found"
+        audio = (await request(reply_id=old_id))["result"]["audio"]
+        assert base64.b64decode(audio).startswith(b"RIFF")
+        assert (await request(reply_id=old_id))["result"] == {"audio": audio}
+        assert (await submit({**engine, **fields}))["type"] == "create_entry"
+        assert (await request())["result"]["replies"] == choices
+        assert len(calls) == 2, calls
+        fresh = ReplyCache(hass, entry.entry_id)
+        await fresh.async_load()
+        assert (
+            fresh.clips[0]["audio"] == audio
+        )  # Reload from persisted cache, no TTS call.
+        assert len(calls) == 2
+        saved_options = dict(entry.options)
+        fail = await submit(
+            {
+                **engine,
+                **fields,
+                "doorbell_reply_2": "fixture failure",
+                "model": "unsaved model",
+            }
+        )
+        assert fail["errors"] == {"doorbell_reply_2": "reply_synthesis_failed"}, fail[
+            "errors"
+        ]
+        assert (
+            entry.options == saved_options
+            and (await request())["result"]["replies"] == choices
+        )
+        # Some HA versions log and swallow a storage write failure. Simulate a
+        # dropped write just for the reply Store; the old generation must stay.
+        original_save = Store.async_save
+
+        async def dropped_write(store, data):
+            if not store.key.startswith(f"{DOMAIN}.doorbell_replies."):
+                await original_save(store, data)
+
+        with patch.object(Store, "async_save", dropped_write):
+            failed = await submit({**engine, "model": "not saved to options"})
+        assert failed["errors"] == {"base": "reply_storage_failed"}
+        assert entry.options == saved_options
+        assert (await request())["result"]["replies"] == choices
+        assert (await submit({**fields, "doorbell_tts_entity": "tts.synthetic_720"}))[
+            "type"
+        ] == "create_entry"
+        assert calls[-2:] == [
+            ("tts.synthetic_720", "Private reply"),
+            ("tts.synthetic_720", "Other reply"),
+        ]
+        assert (await request(reply_id=old_id))["error"]["code"] == "not_found"
+        assert (await submit({"doorbell_reply_1": "   "}))["type"] == "create_entry"
+        assert (await request())["result"] == {"replies": None}
+        assert (await submit({**engine, **fields}))["type"] == "create_entry"
+        active_id = (await request())["result"]["replies"][0]["id"]
+        assert (await request(reply_id=active_id))["success"]
+
+    denied = await hass.auth.async_create_system_user(
+        "No camera permission", group_ids=[]
+    )
+    denied_refresh = await hass.auth.async_create_refresh_token(denied)
+    async with session.ws_connect("http://127.0.0.1:8123/api/websocket") as ws:
+        await ws.receive_json()
+        await ws.send_json(
+            {
+                "type": "auth",
+                "access_token": hass.auth.async_create_access_token(denied_refresh),
+            }
+        )
+        assert (await ws.receive_json())["type"] == "auth_ok"
+        for id_, extra in [(1, {}), (2, {"reply_id": active_id})]:
+            await ws.send_json(
+                {
+                    "id": id_,
+                    "type": f"{DOMAIN}/doorbell_replies",
+                    "entity_id": camera.entity_id,
+                    "instance_id": "smoke",
+                    **extra,
+                }
+            )
+            assert (await ws.receive_json())["error"]["code"] == "not_found"
+    cache_file = CONFIG / ".storage" / f"{DOMAIN}.doorbell_replies.{entry.entry_id}"
+    assert cache_file.stat().st_mode & 0o077 == 0
+    async with session.get(
+        f"http://127.0.0.1:8123/frigate_vision/frontend/{cache_file.name}"
+    ) as response:
+        assert response.status == 404
+    assert await hass.config_entries.async_remove(entry.entry_id)
+    assert not cache_file.exists()
+    print(
+        "OK: native TTS selector, save synthesis, no resynthesis on reads/reload, rollback, provider swap, clear, private persistence and camera authorization"
+    )
+
+
 async def scenario(module_url, card_bytes, audio=False):
     hass = await async_setup_hass(
         RuntimeConfig(str(CONFIG), skip_pip=True, log_no_color=True)
@@ -213,6 +386,7 @@ async def scenario(module_url, card_bytes, audio=False):
                 go2rtc_url="http://127.0.0.1:1984" if audio else None,
             )
             assert hass.config_entries.async_entries(DOMAIN) == [entry]
+            await setup_tts(hass)
             if audio:
                 # -I excludes the script directory; import only the read-only fixture.
                 sys.path.insert(0, str(FIXTURES / "audio"))
@@ -224,7 +398,7 @@ async def scenario(module_url, card_bytes, audio=False):
                     "idle",
                     {"camera_name": "synthetic_camera", "client_id": "smoke"},
                 )
-                await serve(hass, session, module_url)
+                await serve(hass, session, module_url, entry.entry_id)
                 return
             await check_camera_streams(hass, session)
             await check_loaded(hass, entry, session, module_url, card_bytes)
@@ -243,6 +417,7 @@ async def scenario(module_url, card_bytes, audio=False):
                 registrations
             )
             print("OK: each service registered exactly once per load")
+            await check_replies(hass, entry, session)
     finally:
         await hass.async_stop()
 
@@ -253,7 +428,10 @@ if __name__ == "__main__":
         raise SystemExit("Run python scripts/test_ha_container.py instead.")
     # /config is a new tmpfs and both mounts are read-only. No host config or tokens.
     (CONFIG / "configuration.yaml").symlink_to(FIXTURES / "configuration.yaml")
-    (CONFIG / "custom_components" / "frigate").symlink_to(FIXTURES / "frigate")
+    for fixture_domain in ("frigate", "synthetic_tts"):
+        (CONFIG / "custom_components" / fixture_domain).symlink_to(
+            FIXTURES / fixture_domain
+        )
     audio = sys.argv[1:] == ["--audio"]
     if audio:
         (CONFIG / "www").mkdir(exist_ok=True)
@@ -270,7 +448,7 @@ if __name__ == "__main__":
     ):
         asyncio.run(
             scenario(
-                f"/frigate_vision/frontend/{module}?v={version}",
+                f"/frigate_vision/frontend/{module}?v={version}-doorbell-tts.1",
                 (COMPONENT / "frontend" / module).read_bytes(),
                 audio=audio,
             ),

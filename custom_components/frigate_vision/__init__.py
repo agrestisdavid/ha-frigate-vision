@@ -42,6 +42,7 @@ from .const import (
     SERVICE_ANALYZE_EVENT_VIDEO,
     SERVICE_ANALYZE_IMAGE,
 )
+from .doorbell_replies import async_remove_reply_cache, reply_cache, ws_doorbell_replies
 from .frontend import async_register_frontend
 from .utils import sanitize_go2rtc_modes, validate_go2rtc_url
 
@@ -139,6 +140,7 @@ async def async_setup(hass: HomeAssistant, config: dict[str, Any]) -> bool:
     if not domain_data[ATTR_WS_REGISTERED]:
         websocket_api.async_register_command(hass, ws_profile)
         websocket_api.async_register_command(hass, ws_camera_streams)
+        websocket_api.async_register_command(hass, ws_doorbell_replies)
         domain_data[ATTR_WS_REGISTERED] = True
     return True
 
@@ -151,6 +153,7 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
     except FrigateVisionError as err:
         raise ConfigEntryNotReady(str(err)) from err
 
+    await reply_cache(hass, entry.entry_id).async_load()
     domain_data[ATTR_RUNTIME_ENTRIES][entry.entry_id] = runtime
     entry.async_on_unload(entry.add_update_listener(_async_update_listener))
 
@@ -171,6 +174,12 @@ async def async_unload_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
         hass.services.async_remove(DOMAIN, SERVICE_ANALYZE_IMAGE)
         domain_data[ATTR_SERVICES_REGISTERED] = False
     return True
+
+
+async def async_remove_entry(hass: HomeAssistant, entry: ConfigEntry) -> None:
+    """Delete cached speech and its settings when the entry is removed."""
+    _domain_data(hass)
+    await async_remove_reply_cache(hass, entry.entry_id)
 
 
 async def _async_update_listener(hass: HomeAssistant, entry: ConfigEntry) -> None:

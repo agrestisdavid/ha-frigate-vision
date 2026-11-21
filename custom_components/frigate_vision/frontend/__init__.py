@@ -34,6 +34,6 @@ async def async_register_frontend(hass: HomeAssistant) -> None:
         ]
     )
 
-    module_url = f"{FRONTEND_URL_BASE}/{FRONTEND_MODULE}?v={VERSION}"
+    module_url = f"{FRONTEND_URL_BASE}/{FRONTEND_MODULE}?v={VERSION}-doorbell-tts.1"
     add_extra_js_url(hass, module_url)
     domain_data[ATTR_FRONTEND_REGISTERED] = True
