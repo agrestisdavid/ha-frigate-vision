@@ -22,9 +22,18 @@ TTS_ENTITY = "doorbell_tts_entity"
 REPLY_FIELDS = tuple(f"doorbell_reply_{n}" for n in range(1, 4))
 MAX_TEXT_LENGTH = 120
 _RATE = 16000
-_MAX_SECONDS = 20
-_MAX_AUDIO_BYTES = 2 * _RATE * _MAX_SECONDS + 4096
-_MAX_ENCODED_LENGTH = ((_MAX_AUDIO_BYTES + 2) // 3) * 4
+_CHANNELS = 1
+_SAMPLE_BYTES = 2
+_FRAME_BYTES = _CHANNELS * _SAMPLE_BYTES
+_MAX_SOURCE_FRAMES = 20 * _RATE
+_TAIL_FRAMES = _RATE // 4  # 250 ms of silence to drain RTP
+# HA's source WAV may contain extra chunks (e.g. FFmpeg's LIST metadata).
+# Keep the existing fixed allowance for its header and metadata.
+_MAX_SOURCE_WAV_BYTES = _MAX_SOURCE_FRAMES * _FRAME_BYTES + 4096
+# wave.writeframes emits a 44-byte PCM WAV header. PCM16 mono data is always
+# even-sized, so there is no extra RIFF padding byte. Match the Card's limit.
+_MAX_WAV_BYTES = 44 + (_MAX_SOURCE_FRAMES + _TAIL_FRAMES) * _FRAME_BYTES
+_MAX_ENCODED_LENGTH = 4 * ((_MAX_WAV_BYTES + 2) // 3)
 _CACHE = f"{DOMAIN}_doorbell_reply_caches"
 _LOGGER = logging.getLogger(__name__)
 
@@ -40,27 +49,46 @@ class ReplyError(Exception):
 
 def _normalize_audio(extension: str, data: bytes) -> str:
     """Bound the clip and validate its PCM before replacing a working reply."""
-    if extension != "wav" or not 0 < len(data) <= _MAX_AUDIO_BYTES:
+    if extension != "wav" or not 0 < len(data) <= _MAX_SOURCE_WAV_BYTES:
         raise ValueError("Invalid TTS audio")
     with wave.open(io.BytesIO(data)) as wav:
         if (wav.getnchannels(), wav.getsampwidth(), wav.getframerate()) != (
-            1,
-            2,
+            _CHANNELS,
+            _SAMPLE_BYTES,
             _RATE,
         ):
             raise ValueError("Unexpected TTS PCM format")
-        frames = wav.readframes(_RATE * _MAX_SECONDS + 1)
-        if not frames or len(frames) % 2 or len(frames) > 2 * _RATE * _MAX_SECONDS:
+        frames = wav.readframes(_MAX_SOURCE_FRAMES + 1)
+        if (
+            not frames
+            or len(frames) % _FRAME_BYTES
+            or len(frames) > _MAX_SOURCE_FRAMES * _FRAME_BYTES
+        ):
             raise ValueError("Invalid TTS PCM length")
         # Streaming encoders can leave an open-ended RIFF/data size. Rebuild a
         # seekable WAV with the actual size and a short tail for RTP to drain.
-        if wav.getnframes() < 0x7FFF0000 and wav.getnframes() * 2 != len(frames):
+        if wav.getnframes() < 0x7FFF0000 and wav.getnframes() * _FRAME_BYTES != len(
+            frames
+        ):
             raise ValueError("Truncated TTS audio")
     out = io.BytesIO()
     with wave.open(out, "wb") as wav:
-        wav.setparams((1, 2, _RATE, 0, "NONE", "not compressed"))
-        wav.writeframes(frames + bytes(_RATE // 2))  # 250 ms silence
+        wav.setparams((_CHANNELS, _SAMPLE_BYTES, _RATE, 0, "NONE", "not compressed"))
+        wav.writeframes(frames + bytes(_TAIL_FRAMES * _FRAME_BYTES))
     return base64.b64encode(out.getvalue()).decode("ascii")
+
+
+def _valid_audio_size(audio: Any) -> bool:
+    if (
+        not isinstance(audio, str)
+        or not 0 < len(audio) <= _MAX_ENCODED_LENGTH
+        or len(audio) % 4
+    ):
+        return False
+    # The last base64 quartet can represent 1, 2 or 3 bytes. Check the actual
+    # byte limit without allocating a decoded copy of each cached clip.
+    padding = 2 if audio.endswith("==") else int(audio.endswith("="))
+    return len(audio) // 4 * 3 - padding <= _MAX_WAV_BYTES
 
 
 def _valid_cache(data: Any) -> bool:
@@ -81,8 +109,7 @@ def _valid_cache(data: Any) -> bool:
             and len(clip["id"]) == 32
             and isinstance(clip.get("text"), str)
             and 0 < len(clip["text"]) <= MAX_TEXT_LENGTH
-            and isinstance(clip.get("audio"), str)
-            and 0 < len(clip["audio"]) <= _MAX_ENCODED_LENGTH
+            and _valid_audio_size(clip.get("audio"))
             for clip in clips
         )
     )
@@ -191,8 +218,8 @@ class ReplyCache:
                             options={
                                 "preferred_format": "wav",
                                 "preferred_sample_rate": _RATE,
-                                "preferred_sample_channels": 1,
-                                "preferred_sample_bytes": 2,
+                                "preferred_sample_channels": _CHANNELS,
+                                "preferred_sample_bytes": _SAMPLE_BYTES,
                             },
                         )
                         async with asyncio.timeout(25):

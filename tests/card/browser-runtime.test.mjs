@@ -1513,6 +1513,62 @@ test("Doorbell-only keeps listening and fullscreen across TTS reply, next ring, 
   assert.deepEqual(await snapshot(), { same: true, captures: 2, joins: 4, rings: 3, muted: true, full: false });
 });
 
+test("custom Doorbell replies decode the padded 20-second boundary, but not larger payloads", async (t) => {
+  const cases = JSON.parse(await readFile(new URL("./reply-audio-cases.json", import.meta.url), "utf8"));
+  const page = await openFullscreenDoorbell(t, { popup: false, touch: false, answerCall: false });
+  await page.evaluate(() => {
+    const f = fullscreenDoor;
+    f.card.hass.callWS = async msg => msg.reply_id ? { audio: f.audio } : { streams: ["fixture"] };
+    const atob = window.atob;
+    window.atob = value => { f.base64Decodes = (f.base64Decodes || 0) + 1; return atob(value); };
+    window.AudioContext = class {
+      async decodeAudioData(bytes) {
+        // Decode the real WAV using Chromium, without any audio output device.
+        const audio = await new OfflineAudioContext(1, 1, 16000).decodeAudioData(bytes);
+        f.decoded = [audio.length, audio.sampleRate, audio.numberOfChannels,
+          audio.getChannelData(0).findIndex(sample => sample === 0)];
+        return audio;
+      }
+      resume() { return Promise.resolve(); }
+      close() { return Promise.resolve(); }
+      createMediaStreamDestination() {
+        const track = { stop() {} };
+        return { stream: { getAudioTracks: () => [track], getTracks: () => [track] } };
+      }
+      createBufferSource() { return { connect() {}, stop() {}, start() { this.onended(); } }; }
+    };
+    f.send = async audio => {
+      f.decoded = null;
+      const sent = await f.tile()._lc.playDoorbellReply("d".repeat(32));
+      return [sent, f.decoded, f.base64Decodes];
+    };
+  });
+  const send = audio => page.evaluate(async audio => {
+    fullscreenDoor.audio = audio;
+    return fullscreenDoor.send(audio);
+  }, audio);
+  for (const [i, fixture] of cases.entries()) {
+    // Match wave.writeframes in the Python save/reload test: PCM16 mono at
+    // 16 kHz, sample value 1 until the actual 4000-frame silence tail.
+    const wav = Buffer.alloc(44 + fixture.outputFrames * 2);
+    wav.write("RIFF"); wav.writeUInt32LE(wav.length - 8, 4); wav.write("WAVEfmt ", 8);
+    wav.writeUInt32LE(16, 16); wav.writeUInt16LE(1, 20); wav.writeUInt16LE(1, 22);
+    wav.writeUInt32LE(16000, 24); wav.writeUInt32LE(32000, 28); wav.writeUInt16LE(2, 32);
+    wav.writeUInt16LE(16, 34); wav.write("data", 36); wav.writeUInt32LE(wav.length - 44, 40);
+    for (let j = 0; j < fixture.sourceFrames; j++) wav[44 + j * 2] = 1;
+    const audio = wav.toString("base64");
+    assert.equal(wav.length, fixture.wavBytes);
+    assert.equal(audio.length, fixture.base64Chars);
+    assert.deepEqual(await send(audio), [true, [fixture.outputFrames, 16000, 1, fixture.sourceFrames], i + 1], fixture.text);
+  }
+  const max = cases[1];
+  for (const extra of [1, 2]) {
+    const audio = Buffer.alloc(max.wavBytes + extra).toString("base64");
+    assert.equal(audio.length, max.base64Chars + (extra === 1 ? 0 : 4));
+    assert.deepEqual(await send(audio), [false, null, cases.length], `oversize by ${extra} byte(s)`);
+  }
+});
+
 for (const popup of [false, true]) for (const touch of [false, true]) {
   test(`doorbell fullscreen retains its live call in the ${popup ? "popup" : "panel"} (${touch ? "touch" : "desktop"})`, async (t) => {
     const page = await openFullscreenDoorbell(t, { popup, touch });

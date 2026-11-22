@@ -3,11 +3,14 @@
 from __future__ import annotations
 
 import asyncio
+import base64
 import importlib.util
+import io
 import json
 import sys
 import types
 import unittest
+import wave
 from pathlib import Path
 from types import SimpleNamespace
 from unittest.mock import AsyncMock, Mock, patch
@@ -601,6 +604,146 @@ class CameraStreamTests(unittest.TestCase):
                     self.module.ws_camera_streams(hass, connection, msg | msg_patch)
                     self.assertEqual(connection.send_error.call_args, not_found)
                     connection.send_result.assert_not_called()
+
+
+class DoorbellReplyAudioTests(unittest.IsolatedAsyncioTestCase):
+    async def test_boundary_clips_save_reload_and_serve_without_losing_prior_replies(
+        self,
+    ):
+        cases = json.loads((ROOT / "tests/card/reply-audio-cases.json").read_bytes())
+        over = "One frame too long"
+        lengths = {case["text"]: case["sourceFrames"] for case in cases}
+        lengths[over] = 320001
+        saved = {}
+
+        class Store:
+            def __class_getitem__(cls, _item):
+                return cls
+
+            def __init__(self, _hass, _version, key, *, private, atomic_writes):
+                assert private and atomic_writes
+                self.key = key
+
+            async def async_load(self):
+                return json.loads(saved[self.key]) if self.key in saved else None
+
+            async def async_save(self, data):
+                saved[self.key] = json.dumps(data)
+
+        async def synthetic_audio(_hass, text):
+            out = io.BytesIO()
+            with wave.open(out, "wb") as wav:
+                wav.setparams((1, 2, 16000, 0, "NONE", "not compressed"))
+                wav.writeframes(b"\x01\x00" * lengths[text])
+            return "wav", out.getvalue()
+
+        with patch.dict(sys.modules):
+            module = load_integration().doorbell_replies
+            _module("homeassistant.helpers.storage", Store=Store)
+            tts = _module(
+                "homeassistant.components.tts",
+                async_resolve_engine=lambda *_args: True,
+                generate_media_source_id=Mock(
+                    side_effect=lambda _hass, text, **_: text
+                ),
+                async_get_media_source_audio=AsyncMock(side_effect=synthetic_audio),
+            )
+            entry_id = "test-entry"
+            hass = SimpleNamespace(
+                data={
+                    module.DOMAIN: {
+                        module.ATTR_RUNTIME_ENTRIES: {
+                            entry_id: SimpleNamespace(
+                                frigate_entry=SimpleNamespace(entry_id="frigate-entry")
+                            )
+                        }
+                    }
+                },
+                config_entries=SimpleNamespace(async_get_entry=lambda _id: object()),
+                is_stopping=False,
+                states={"tts.fixture": SimpleNamespace(state="ready")},
+            )
+            values = {module.TTS_ENTITY: "tts.fixture"} | {
+                field: case["text"]
+                for field, case in zip(module.REPLY_FIELDS, cases, strict=True)
+            }
+
+            def served(cache):
+                hass.data[module._CACHE][entry_id] = cache
+                connection = ProfileTests.connection()
+                msg = {"id": 1, "entity_id": "camera.door", "instance_id": "fixture"}
+                with patch.object(
+                    module,
+                    "readable_camera",
+                    return_value=("frigate-entry", None, None),
+                ):
+                    module.ws_doorbell_replies(hass, connection, msg)
+                    replies = connection.result[1]["replies"]
+                    audio = {}
+                    for reply in replies or []:
+                        module.ws_doorbell_replies(
+                            hass, connection, msg | {"reply_id": reply["id"]}
+                        )
+                        audio[reply["id"]] = connection.result[1]["audio"]
+                    return replies, audio
+
+            cache = module.reply_cache(hass, entry_id)
+            await cache.async_save(values)
+            replies, audio = served(cache)
+            self.assertEqual([reply["text"] for reply in replies], list(lengths)[:3])
+            for case, reply in zip(cases, replies, strict=True):
+                with self.subTest(clip=reply["text"]):
+                    encoded = audio[reply["id"]]
+                    self.assertEqual(len(encoded), case["base64Chars"])
+                    raw = base64.b64decode(encoded, validate=True)
+                    self.assertEqual(len(raw), case["wavBytes"])
+                    self.assertEqual(int.from_bytes(raw[4:8], "little"), len(raw) - 8)
+                    self.assertEqual(raw[36:40], b"data")
+                    with wave.open(io.BytesIO(raw), "rb") as wav:
+                        self.assertEqual(
+                            wav.getparams()[:4], (1, 2, 16000, case["outputFrames"])
+                        )
+                        self.assertEqual(
+                            wav.readframes(wav.getnframes()),
+                            b"\x01\x00" * case["sourceFrames"] + bytes(8000),
+                        )
+
+            fresh = module.ReplyCache(hass, entry_id)
+            await fresh.async_load()
+            self.assertEqual(fresh.form_values(), values)
+            self.assertEqual(served(fresh), (replies, audio))
+            self.assertEqual(tts.async_get_media_source_audio.await_count, 3)
+            prior = saved.copy()
+            key = module.REPLY_FIELDS[-1]
+            with self.assertRaises(module.ReplyError) as error:
+                await fresh.async_save(values | {key: over})
+            self.assertEqual(
+                (error.exception.field, error.exception.code),
+                (key, "reply_synthesis_failed"),
+            )
+            self.assertIsInstance(error.exception.__cause__, ValueError)
+            self.assertEqual(str(error.exception.__cause__), "Invalid TTS PCM length")
+            self.assertEqual(tts.async_get_media_source_audio.await_args.args[1], over)
+            self.assertEqual(saved, prior)
+            self.assertEqual(fresh.form_values(), values)
+            self.assertEqual(served(fresh), (replies, audio))
+            reloaded = module.ReplyCache(hass, entry_id)
+            await reloaded.async_load()
+            self.assertEqual(reloaded.form_values(), values)
+            self.assertEqual(served(reloaded), (replies, audio))
+
+            # One extra byte fits in the same number of base64 characters.
+            data = json.loads(next(iter(prior.values())))
+            for extra in (1, 2):
+                with self.subTest(extra_bytes=extra):
+                    data["replies"][1]["audio"] = base64.b64encode(
+                        bytes(cases[1]["wavBytes"] + extra)
+                    ).decode("ascii")
+                    saved[reloaded._store.key] = json.dumps(data)
+                    invalid = module.ReplyCache(hass, entry_id)
+                    with self.assertLogs(module._LOGGER, "WARNING"):
+                        await invalid.async_load()
+                    self.assertEqual(invalid.clips, [])
 
 
 if __name__ == "__main__":

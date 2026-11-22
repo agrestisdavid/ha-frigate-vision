@@ -1567,6 +1567,10 @@ class Go2rtcSession {
 }
 
 const DOORBELL_REPLIES = Object.freeze({ wait: "Einen Moment bitte", leave: "Bitte vor der Tür abstellen" });
+// Match doorbell_replies.py: 20 s source + 250 ms tail, 16 kHz PCM16 mono.
+// Canonical WAV header is 44 bytes; two bytes per frame need no RIFF pad byte.
+const MAX_CUSTOM_REPLY_WAV_BYTES = 44 + (20 * 16000 + 16000 / 4) * 2;
+const MAX_CUSTOM_REPLY_BASE64_CHARS = 4 * Math.ceil(MAX_CUSTOM_REPLY_WAV_BYTES / 3);
 const DOORBELL_RING_MS = 25000;
 const DOORBELL_CLOCK_SKEW_MS = 2000;
 // Leave time for mapping, signaling and a full TTS clip, but bound even a stuck reply.
@@ -1939,7 +1943,12 @@ class LivestreamController extends Go2rtcSession {
         if (!response.ok) throw new Error("Doorbell reply unavailable");
         return response.arrayBuffer();
       }) : doorbellReplyRequest(hass, live, reply).then(({ audio }) => {
-        if (typeof audio !== "string" || !audio || audio.length > 860000) throw new Error("Doorbell reply unavailable");
+        if (typeof audio !== "string" || !audio || audio.length > MAX_CUSTOM_REPLY_BASE64_CHARS || audio.length % 4) {
+          throw new Error("Doorbell reply unavailable");
+        }
+        // One extra byte can fit in the same base64 length. Check before atob.
+        const padding = audio.endsWith("==") ? 2 : audio.endsWith("=") ? 1 : 0;
+        if (audio.length / 4 * 3 - padding > MAX_CUSTOM_REPLY_WAV_BYTES) throw new Error("Doorbell reply unavailable");
         return Uint8Array.from(atob(audio), byte => byte.charCodeAt(0)).buffer;
       });
       const [mapped, bytes] = await this._withTimeout(Promise.all([
