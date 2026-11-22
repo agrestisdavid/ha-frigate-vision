@@ -41,6 +41,7 @@ from .const import (
     VALID_EVENT_IMAGE_SOURCES,
     VALID_REASONING_EFFORTS,
 )
+from .doorbell_replies import REPLY_FIELDS, TTS_ENTITY, ReplyError, reply_cache
 from .utils import (
     normalize_chat_completions_url,
     sanitize_go2rtc_modes,
@@ -311,15 +312,34 @@ class FrigateVisionOptionsFlow(config_entries.OptionsFlow):
     ) -> config_entries.ConfigFlowResult:
         errors: dict[str, str] = {}
         defaults = {**self._config_entry.data, **self._config_entry.options}
+        cache = reply_cache(self.hass, self._config_entry.entry_id)
+        await cache.async_load()
         if user_input is not None:
             errors = _validate_input(user_input)
             if not errors:
-                return self.async_create_entry(
-                    title="", data=_normalize_input(user_input)
-                )
-            defaults = user_input
+                options = {**self._config_entry.options, **_normalize_input(user_input)}
+                for key in (TTS_ENTITY, *REPLY_FIELDS):
+                    options.pop(key, None)
+                try:
+                    await cache.async_save(user_input)
+                except ReplyError as err:
+                    errors[err.field] = err.code
+                else:
+                    return self.async_create_entry(title="", data=options)
+            defaults.update(user_input)
+        doorbell_schema = _provider_schema(defaults).extend(
+            {
+                vol.Optional(TTS_ENTITY): selector.EntitySelector(
+                    selector.EntitySelectorConfig(domain="tts")
+                ),
+                **{vol.Optional(key): _text() for key in REPLY_FIELDS},
+            }
+        )
         return self.async_show_form(
             step_id="init",
-            data_schema=_provider_schema(defaults),
+            data_schema=self.add_suggested_values_to_schema(
+                doorbell_schema,
+                user_input if user_input is not None else cache.form_values(),
+            ),
             errors=errors,
         )

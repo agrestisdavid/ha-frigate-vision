@@ -157,9 +157,11 @@ proxy; it never exposes or reuses the local direct URL externally.
 
 In a live player or multiview tile, unmute the **video's speaker control** to
 hear the camera. The separate **microphone** button sends your voice to that
-camera. By default, tap once to talk and tap again to stop. The button shows
-*Connecting microphone…* while waiting and *Microphone on air* only once the
-return connection is ready. Opening the Card never requests the microphone.
+camera. The [Doorbell-only card](#doorbell-only-card) instead has its own
+**Camera sound** and **Start talking** buttons. By default, tap once to talk and
+tap again to stop. The button shows *Connecting microphone…* while waiting and
+*Microphone on air* only once the return connection is ready. Opening the Card
+never requests the microphone.
 
 For push-to-talk, choose **Livestream → Sprechtaste → Zum Sprechen gedrückt
 halten** in the Card editor and save. Hold the button (or Space/Enter while
@@ -217,7 +219,9 @@ connection setup use **Cancel**; if the browser is prompting for microphone
 permission, you can also use its cancel or deny control. Camera sound starts
 only after the call connects, not while the card is ringing. If the browser
 blocks playback after the connection is ready, tap **Enable camera sound**.
-The card restores the previous playback setting when the call ends.
+The card restores the previous playback setting when the call ends. The
+[Doorbell-only card](#doorbell-only-card) handles this differently: there
+listening and talking are separate controls that also work outside a call.
 
 Use the red horizontal handset to end the call and release the microphone,
 even when muted. The microphone button mutes only your outgoing voice, not
@@ -226,11 +230,39 @@ together on browsers that support element fullscreen. Use that same control
 or Escape to return without ending the call. Closing the popup itself still
 ends the call.
 
-The **…** button just left of the handset opens two prerecorded German speech
-replies: **Einen Moment bitte** and **Bitte vor der Tür abstellen**. Choosing
-either one sends it to the door camera without answering, opening the
-microphone or playing the reply on the browser's speakers. Use **End** to
-stop an announcement in progress.
+The **…** button just left of the handset opens the quick replies. By default
+these are the two prerecorded German replies **Einen Moment bitte** and
+**Bitte vor der Tür abstellen**. Selecting a reply sends it to the door
+camera without answering, opening the microphone, interrupting the live
+video or playing the reply on the browser's speakers. Use **End** to stop an
+announcement in progress.
+
+Selecting a reply silences the local ringtone right away without muting any
+camera sound you switched on. **Answer** during the announcement cancels it
+and starts connecting the microphone. After a successful reply, the status
+reads *Incoming call (ringtone muted)* (*Eingehender Anruf (Klingelton stumm)*).
+If playback fails, the card shows *Could not send the announcement.* instead.
+In either case the call stays silent and you have about 25 seconds to answer
+or decline. If the reply never completes, the card cancels it and closes the
+call after 60 seconds. A distinct new ring can replace a silenced call if
+microphone setup is not pending and talkback is not active. A still-pending
+quiet call can survive a card rebuild in the same browser tab and Home Assistant
+connection without ringing again; that quiet state does not survive a full page
+reload or a new connection.
+
+To customize them, go to **Settings → Devices & services → Frigate Vision →
+Configure** for this Frigate instance. Select an existing `tts.*` entity and
+enter up to three short replies (120 characters each). Blank slots are not
+shown. Clear all three to restore the prerecorded German replies.
+
+Saving synthesizes new texts with the selected engine's default language and
+voice. Saving does not play or send any sound. Frigate Vision adds no TTS
+provider; if you choose a cloud TTS entity, that provider processes the text.
+The cache survives HA restarts and serves prepared audio even when the TTS
+entity is offline. Switching the entity prepares the replies again. If an edit
+fails, the previous replies and other settings stay active. The cache is stored
+outside the public Card files. Custom labels and audio require an authenticated
+HA connection with read access to the corresponding Frigate camera.
 
 Both actions use the authenticated Home Assistant proxy and check that the
 playing alias belongs to that Frigate camera; there is no separate talk-alias
@@ -249,7 +281,7 @@ Choose **Anzeige → Ansicht → Doorbell (eine Kamera)** and select the
 **Doorbell-Kamera** under **Kameras**. Enable Doorbell and configure its
 trigger as above. In YAML, use `view_mode: doorbell` and
 `doorbell_camera: front_door` alongside the existing `cameras` mapping.
-The mode shows only the selected live video and the incoming call controls.
+The mode shows only the selected live video with audio and call controls.
 Other camera entries and normal view settings stay saved; the mode does not
 load events or recordings. The Sub alias is used if set, otherwise Main or
 then the exact camera ID. Main and Sub may name the same alias.
@@ -265,6 +297,33 @@ timestamp, not the previous state. It accepts a matching state newer than
 never starts the microphone on mount. The popup should remove the card from
 the page or its layout when closed, not just make it transparent. Leave the
 option off in a normal panel, which rings only on a live edge.
+
+In this view listening and talking are separate controls:
+
+- A newly opened or restarted player starts **muted**, and the microphone stays
+  off until you use it.
+- The **Camera sound** button (**Kameraton**) plays the camera audio over the
+  browser's speakers or mutes it again. It works without a call and never asks
+  for the microphone. The browser's own video controls are hidden here, and
+  MJPEG playback carries no audio, so no speaker button appears for it.
+- **Start talking** (**Sprechen starten**) opens the microphone while nothing is
+  ringing. Tapping it again (**Stop talking** / **Sprechen beenden**) releases
+  the capture or discards a pending permission request and leaves the camera
+  sound unchanged. **Answer** reuses manual talkback if already requested and
+  attempts to enable camera sound when talkback connects. You can still toggle
+  the speaker independently and use the in-call microphone mute.
+- **End** releases the microphone and mutes the camera sound. The live video
+  keeps running, and the speaker button turns the sound back on afterwards.
+  Closing the popup, hiding the card or losing the connection also releases
+  the microphone; it doesn't restart by itself.
+- When the browser refuses audible playback, the video continues muted with
+  *Camera sound is off. Select “Enable camera sound”.*; the next tap retries.
+
+The Doorbell-only card shows its own overlay even if **Live-Controls Overlay
+anzeigen** is off for other live views. Talking still requires a secure browser
+context (HTTPS or localhost), microphone permission and a WebRTC stream with a
+compatible speaker backchannel. MSE playback can carry camera sound but cannot
+send microphone audio.
 
 ### PTZ button
 

@@ -116,7 +116,8 @@ empty, the Card uses the Home Assistant proxy.
 ## I can watch the camera but cannot talk or move it
 
 First open a **live** player (not a clip or a recording) and check that the
-live controls overlay is enabled in the Card editor.
+live controls overlay is enabled in the Card editor for regular live views.
+The Doorbell-only card has its own overlay.
 
 - **No PTZ button:** Use WebRTC or MSE. Enable ONVIF/PTZ in Frigate and select
   the correct instance and camera. For a custom stream name, check the camera’s
@@ -128,6 +129,11 @@ live controls overlay is enabled in the Card editor.
   main stream has one, switch to HD. MSE works for viewing but cannot send
   microphone audio. If a direct stream cannot be verified, use HA proxy
   playback; do not expose another public endpoint. See [Talk to the camera](card.md#talk-to-the-camera).
+- **No camera sound in the Doorbell-only view:** that player starts muted. Use
+  the **Camera sound** button. If it turns muted again with *Camera sound is
+  off…*, the browser blocked audible playback; tap the button once more. MJPEG
+  playback carries no audio at all. See
+  [Doorbell-only card](card.md#doorbell-only-card).
 
 ## The Card cannot load its central profile
 

@@ -97,6 +97,18 @@ The local direct URL applies only to an internal client. An external client
 uses the external direct URL when configured and otherwise uses the Home
 Assistant proxy. It never falls back to the local URL.
 
+The options form also holds the [Doorbell quick replies](card.md#doorbell-calls-and-quick-replies):
+one existing Home Assistant `tts.*` entity plus up to three reply texts of at
+most 120 characters each. Blank slots are not offered, and leaving all three
+blank keeps the two bundled German replies. Saving prepares the audio with the
+selected engine's default language and voice and neither plays nor sends it.
+Repeating a text on the same engine reuses its prepared clip; selecting another
+engine prepares the texts again. The cache is stored privately, survives
+restarts, and still serves the prepared audio when the TTS entity is offline.
+A failed synthesis or save reports the reason in the form and leaves the
+previous replies and all other options active. Frigate Vision adds no TTS
+provider: a cloud TTS entity sends your text to that provider.
+
 The API key is stored in the Home Assistant config entry and is redacted from
 diagnostics. The provider endpoint is also redacted because it may contain
 private routing information.

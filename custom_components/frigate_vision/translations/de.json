@@ -59,7 +59,11 @@
       "invalid_endpoint": "Gib eine absolute HTTP- oder HTTPS-URL ein.",
       "invalid_image_source": "Wähle eine unterstützte Frigate-Bildquelle.",
       "model_required": "Gib einen Modellnamen ein.",
-      "invalid_reasoning_effort": "Wähle eine unterstützte Einstellung für das Nachdenken."
+      "invalid_reasoning_effort": "Wähle eine unterstützte Einstellung für das Nachdenken.",
+      "reply_too_long": "Verwende höchstens 120 Zeichen pro Schnellantwort.",
+      "reply_tts_required": "Wähle eine verfügbare TTS-Entität in Home Assistant aus.",
+      "reply_synthesis_failed": "Diese Antwort konnte nicht vertont werden. Prüfe die TTS-Entität und versuche es mit einem kürzeren Text. Die bisherigen Antworten bleiben aktiv.",
+      "reply_storage_failed": "Die Antworten konnten nicht gespeichert werden. Prüfe den Speicher von Home Assistant und versuche es erneut. Die bisherigen Antworten bleiben aktiv."
     },
     "step": {
       "init": {
@@ -77,9 +81,15 @@
           "go2rtc_url": "Direkte lokale go2rtc-URL (erweitert)",
           "go2rtc_url_external": "Direkte externe go2rtc-URL (erweitert)",
           "go2rtc_modes": "Fallback-Reihenfolge der Live-Transporte",
-          "reasoning_effort": "Nachdenken"
+          "reasoning_effort": "Nachdenken",
+          "doorbell_tts_entity": "Klingel-Schnellantworten: TTS-Entität",
+          "doorbell_reply_1": "Schnellantwort 1",
+          "doorbell_reply_2": "Schnellantwort 2",
+          "doorbell_reply_3": "Schnellantwort 3"
         },
         "data_description": {
+          "doorbell_tts_entity": "Wähle eine vorhandene TTS-Entität, um Antworten beim Speichern vorzubereiten, ohne sie abzuspielen. Lasse alle drei Texte leer, um die zwei mitgelieferten deutschen Antworten zu verwenden.",
+          "doorbell_reply_1": "Optional, bis zu 120 Zeichen. Leere Antworten werden nicht angezeigt.",
           "timeout": "Maximale Dauer einer Provider-Anfrage für eine Einzelbildanalyse.",
           "video_timeout": "Maximale Dauer einer Provider-Anfrage für eine Videoframe-Analyse.",
           "target_width": "Maximale Breite von Einzelbildern. Kleinere Bilder werden niemals vergrößert.",

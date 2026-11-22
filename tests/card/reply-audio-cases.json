@@ -1,0 +1,5 @@
+[
+  { "text": "Fixture 19.9 seconds", "sourceFrames": 318400, "outputFrames": 322400, "wavBytes": 644844, "base64Chars": 859792 },
+  { "text": "Fixture 20 seconds", "sourceFrames": 320000, "outputFrames": 324000, "wavBytes": 648044, "base64Chars": 864060 },
+  { "text": "Fixture short", "sourceFrames": 160, "outputFrames": 4160, "wavBytes": 8364, "base64Chars": 11152 }
+]

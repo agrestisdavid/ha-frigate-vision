@@ -20,6 +20,28 @@ async function setBell(state, attributeOnly = false) {
   assert.ok(response.ok, 'synthetic bell update failed');
 }
 
+const customLabel = 'Isolated <svg onload=alert(1)> quick reply';
+async function saveCustomReply() {
+  const path = `${base}/api/config/config_entries/options/flow`;
+  const admin = { Authorization: `Bearer ${settings.emitter}`, 'Content-Type': 'application/json' };
+  const post = async (url, data) => {
+    const response = await fetch(url, { method: 'POST', headers: admin, body: JSON.stringify(data) });
+    assert.ok(response.ok, `synthetic options request failed (${response.status})`);
+    return response.json();
+  };
+  const baseline = await speaker();
+  const form = await post(path, { handler: settings.entry_id });
+  assert.equal(form.type, 'form');
+  const result = await post(`${path}/${form.flow_id}`, {
+    doorbell_tts_entity: 'tts.synthetic_660', doorbell_reply_1: customLabel, doorbell_reply_3: '  ',
+  });
+  assert.equal(result.type, 'create_entry', JSON.stringify(result.errors));
+  const saved = await speaker();
+  assert.equal(saved.samples, baseline.samples, 'saving the reply sent audio before button click');
+  assert.equal(saved.syntheses, baseline.syntheses + 1, 'exactly one reply should be synthesized at save');
+  console.log('HA options API: synthesized once at save, zero audio sent');
+}
+
 // Chromium captures this generated WAV through its native getUserMedia path.
 // No microphone device, PulseAudio socket or host recording is mounted.
 const rate = 48000, length = rate * 5;
@@ -51,6 +73,7 @@ try {
     const doorbell = mode === 'doorbell' || dedicated;
     const single = (doorbell && !direct) || dedicated;
     const description = dedicated ? 'direct/dedicated-popup' : direct ? 'direct/tile' : 'proxy/single';
+    if (dedicated) await saveCustomReply();
     if (doorbell) await setBell('on');
     const page = await browser.newPage({ permissions: ['microphone'] });
     const errors = [], trace = [], signedMicOffers = [];
@@ -266,7 +289,9 @@ try {
         await page.evaluate(() => Object.assign(window.popup.style, { width: '760px', height: '450px' }));
         await checkFrames();
       }
-      for (const [id, label, interrupt] of [['wait', 'Einen Moment bitte'], ['leave', 'Bitte vor der Tür abstellen'], ['leave', 'Bitte vor der Tür abstellen', true]]) {
+      const replyCases = dedicated ? [['custom', customLabel], ['custom', customLabel, true]] :
+        [['wait', 'Einen Moment bitte'], ['leave', 'Bitte vor der Tür abstellen'], ['leave', 'Bitte vor der Tür abstellen', true]];
+      for (const [id, label, interrupt] of replyCases) {
         const sampleStart = (await speaker()).samples;
         await ring();
         await wait(() => window.player().shadowRoot.querySelector('frigate-vision-doorbell')._ringAudio?.currentTime > 0, 5000);
@@ -276,17 +301,26 @@ try {
         await more.click();
         const choice = page.getByRole('button', { name: label });
         assert.ok((await choice.boundingBox()).y < (await more.boundingBox()).y, 'answer selection must open upwards');
-        const loaded = page.waitForResponse(response => response.ok() && response.url().endsWith(`/doorbell/${id}.flac`));
+        assert.equal(await page.locator('frigate-vision-doorbell .replies button').count(), dedicated ? 1 : 2);
+        if (dedicated) assert.equal(await choice.locator('svg').count(), 0, 'custom text rendered as markup');
+        const loaded = dedicated ? null : page.waitForResponse(response => response.ok() && response.url().endsWith(`/doorbell/${id}.flac`));
         await choice.click();
-        await loaded;
-        let rms = 0;
+        if (loaded) await loaded;
+        let rms = 0, tts660 = 0;
         for (let n = 0; n < 180; ++n) {
           const sample = await speaker();
-          if (sample.samples >= sampleStart + 1600 && sample.mic880 < sample.rms * .2) rms = Math.max(rms, sample.rms);
-          if (rms > .04) break;
+          if (sample.samples >= sampleStart + 1600 && sample.mic880 < sample.rms * .2) {
+            rms = Math.max(rms, sample.rms);
+            if (sample.tts660 > sample.camera440 * 8) tts660 = Math.max(tts660, sample.tts660);
+          }
+          if (dedicated ? tts660 > .08 : rms > .04) break;
           await delay(60);
         }
         assert.ok(rms > .04, 'no decoded speech at the synthetic speaker');
+        if (dedicated) {
+          assert.ok(tts660 > .08, 'the simulated speaker did not decode the selected engine’s 660 Hz tone');
+          assert.equal((await speaker()).syntheses, 1, 'click synthesized instead of serving the cache');
+        }
         if (interrupt) {
           await dismiss.evaluate(() => {
             const attempt = window.player()._lc._announcement;
@@ -296,11 +330,15 @@ try {
           await dismiss.click();
           assert.equal(await page.evaluate(() => window.replyTrack.readyState), 'ended');
           await assertSpeakerStops('speaker still received speech samples after End');
+        } else {
+          await page.getByText('Incoming call (ringtone muted)', { exact: true }).waitFor({ timeout: 10000 });
+          await phone.waitFor({ state: 'visible' });
+          await page.getByRole('button', { name: 'Decline call', exact: true }).click();
         }
         await dismiss.waitFor({ state: 'hidden', timeout: 10000 });
         assert.equal(await page.evaluate(() => window.micRequests), 0, 'quick replies must never request the microphone');
         await checkFrames();
-        console.log(`${description}/doorbell ${id}${interrupt ? ' (End)' : ''}: decoded speech RMS ${rms}, no mic, same live peer with advancing frames`);
+        console.log(`${description}/doorbell ${id}${interrupt ? ' (End)' : ''}: decoded speech RMS ${rms}${dedicated ? ` (660 Hz level ${tts660}, synthesis count unchanged)` : ''}, no mic, same live peer with advancing frames`);
       }
       await ring();
     }
@@ -396,11 +434,11 @@ try {
     }
     const afterStop = await assertSpeakerStops('speaker still received microphone samples after stop');
     assert.equal(directPlayback, direct, 'did not exercise the requested playback path');
-    const outgoingCount = doorbell ? 4 : 1;
+    const outgoingCount = dedicated ? 3 : doorbell ? 4 : 1;
     assert.deepEqual(signedMicOffers, Array(outgoingCount).fill(true), 'every outgoing offer must use the exact signed HA WebSocket');
     assert.deepEqual(await page.evaluate(() => window.signed), Array(outgoingCount + (direct ? 0 : 1)).fill(`${proxyPath}?src=fixture_b`));
     assert.deepEqual(errors, []);
-    if (dedicated) assert.ok((await page.evaluate(() => window.wsCalls)).every(type => ['get_states', 'frigate_vision/profile', 'auth/sign_path', 'frigate_vision/camera_streams'].includes(type)), 'Doorbell view must not browse events or recordings');
+    if (dedicated) assert.ok((await page.evaluate(() => window.wsCalls)).every(type => ['get_states', 'frigate_vision/profile', 'auth/sign_path', 'frigate_vision/camera_streams', 'frigate_vision/doorbell_replies'].includes(type)), 'Doorbell view must not browse events or recordings');
     const receiver = down ? `receive track ${down.hz} Hz (${down.db} dB)` : 'browser PCM checked above';
     console.log(`${direct ? 'direct' : 'proxy'}/${mode}: ${receiver}; speaker 880 Hz amplitude ${up.mic880}, 440 Hz ${up.camera440}; after stop ${afterStop} new samples / 1200 ms`);
     await page.close();

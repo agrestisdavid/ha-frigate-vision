@@ -1,0 +1,10 @@
+{
+  "domain": "synthetic_tts",
+  "name": "Isolated smoke-test TTS",
+  "codeowners": [],
+  "config_flow": true,
+  "dependencies": ["tts"],
+  "documentation": "https://example.invalid/",
+  "iot_class": "local_push",
+  "version": "1.0.0"
+}

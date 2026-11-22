@@ -1,4 +1,4 @@
-const CARD_VERSION = "0.4.2";
+const CARD_VERSION = "0.5.0";
 
 const VALID_LIVE_PROVIDERS = ["auto", "go2rtc", "mjpeg", "off"];
 const VALID_GO2RTC_MODES = ["webrtc", "mse", "mp4", "hls", "mjpeg"];
@@ -56,7 +56,8 @@ const STRINGS = {
       disconnected: "Verbindung unterbrochen. Das Mikrofon ist aus.",
       connectionFailed: "Der Audiorückkanal konnte nicht verbunden werden.",
     },
-    doorbell: { incoming: "Es klingelt", answer: "Annehmen", decline: "Anruf ablehnen", fullscreen: "Vollbild öffnen", exitFullscreen: "Vollbild verlassen", listen: "Kameraton einschalten", listenBlocked: "Kameraton ist stumm. Tippe auf „Kameraton einschalten“.", mute: "Mikrofon stummschalten", unmute: "Mikrofon wieder einschalten", muted: "Mikrofon stumm", cancel: "Abbrechen", end: "Beenden", replies: "Schnellantworten", playing: "Ansage wird gesendet …", failed: "Ansage konnte nicht gesendet werden.", dismiss: "Schließen" },
+    doorbell: { incoming: "Es klingelt", silenced: "Eingehender Anruf (Klingelton stumm)", answer: "Annehmen", decline: "Anruf ablehnen", fullscreen: "Vollbild öffnen", exitFullscreen: "Vollbild verlassen", listen: "Kameraton einschalten", listenBlocked: "Kameraton ist stumm. Tippe auf „Kameraton einschalten“.", mute: "Mikrofon stummschalten", unmute: "Mikrofon wieder einschalten", muted: "Mikrofon stumm", cancel: "Abbrechen", end: "Beenden", replies: "Schnellantworten", loadingReplies: "Schnellantworten werden geladen …", repliesUnavailable: "Schnellantworten nicht verfügbar.", playing: "Ansage wird gesendet …", failed: "Ansage konnte nicht gesendet werden.", dismiss: "Schließen" },
+    doorbellAudio: { speaker: "Kameraton", mute: "Kameraton stummschalten", start: "Sprechen starten" },
     ptz: { label: "PTZ-Steuerung", up: "Nach oben", down: "Nach unten", left: "Nach links", right: "Nach rechts", stop: "Stopp", failed: "PTZ-Befehl fehlgeschlagen. Verbindung und Berechtigung prüfen." },
     timeline_loading: "Lade Aufnahme…",
     timeline_no_recording: "Keine Aufnahme für diesen Zeitraum",
@@ -109,7 +110,8 @@ const STRINGS = {
       disconnected: "Connection lost. The microphone is off.",
       connectionFailed: "Could not connect the audio backchannel.",
     },
-    doorbell: { incoming: "Doorbell ringing", answer: "Answer", decline: "Decline call", fullscreen: "Enter fullscreen", exitFullscreen: "Exit fullscreen", listen: "Enable camera sound", listenBlocked: "Camera sound is off. Select “Enable camera sound”.", mute: "Mute microphone", unmute: "Unmute microphone", muted: "Microphone muted", cancel: "Cancel", end: "End", replies: "Quick replies", playing: "Sending announcement…", failed: "Could not send the announcement.", dismiss: "Close" },
+    doorbell: { incoming: "Doorbell ringing", silenced: "Incoming call (ringtone muted)", answer: "Answer", decline: "Decline call", fullscreen: "Enter fullscreen", exitFullscreen: "Exit fullscreen", listen: "Enable camera sound", listenBlocked: "Camera sound is off. Select “Enable camera sound”.", mute: "Mute microphone", unmute: "Unmute microphone", muted: "Microphone muted", cancel: "Cancel", end: "End", replies: "Quick replies", loadingReplies: "Loading quick replies…", repliesUnavailable: "Quick replies are unavailable.", playing: "Sending announcement…", failed: "Could not send the announcement.", dismiss: "Close" },
+    doorbellAudio: { speaker: "Camera sound", mute: "Mute camera sound", start: "Start talking" },
     ptz: { label: "PTZ controls", up: "Tilt up", down: "Tilt down", left: "Pan left", right: "Pan right", stop: "Stop", failed: "PTZ command failed. Check the connection and permissions." },
     timeline_loading: "Loading recording…",
     timeline_no_recording: "No recording for this period",
@@ -1565,7 +1567,14 @@ class Go2rtcSession {
 }
 
 const DOORBELL_REPLIES = Object.freeze({ wait: "Einen Moment bitte", leave: "Bitte vor der Tür abstellen" });
+// Match doorbell_replies.py: 20 s source + 250 ms tail, 16 kHz PCM16 mono.
+// Canonical WAV header is 44 bytes; two bytes per frame need no RIFF pad byte.
+const MAX_CUSTOM_REPLY_WAV_BYTES = 44 + (20 * 16000 + 16000 / 4) * 2;
+const MAX_CUSTOM_REPLY_BASE64_CHARS = 4 * Math.ceil(MAX_CUSTOM_REPLY_WAV_BYTES / 3);
 const DOORBELL_RING_MS = 25000;
+const DOORBELL_CLOCK_SKEW_MS = 2000;
+// Leave time for mapping, signaling and a full TTS clip, but bound even a stuck reply.
+const DOORBELL_REPLY_TIMEOUT_MS = 60000;
 
 // Own handset silhouette, flat for decline/end and diagonal for answer.
 function doorbellHandset(diagonal = false) {
@@ -1583,7 +1592,25 @@ function doorbellMicIcon(muted) {
   </svg>`;
 }
 
-const popupDoorbellEvents = new WeakMap();
+function doorbellSpeakerIcon(muted) {
+  return html`<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"
+    stroke-linecap="round" stroke-linejoin="round" aria-hidden="true" focusable="false">
+    <path d="M3 9v6h4l5 4V5L7 9z" />
+    <path d=${muted ? "m16 9 6 6m0-6-6 6" : "M16 9a4 4 0 0 1 0 6m3-9a8 8 0 0 1 0 12"} />
+  </svg>`;
+}
+
+// One recent call per HA connection and configured trigger/camera. Records
+// survive card replacement but never own a controller, an element or audio.
+const doorbellCalls = new WeakMap();
+
+function retainDoorbellCall(calls, key, call) {
+  clearTimeout(call.cleanup);
+  const until = Math.max(call.expiresAt, call.time + DOORBELL_RING_MS);
+  call.cleanup = setTimeout(() => {
+    if (calls.get(key) === call) calls.delete(key);
+  }, Math.max(0, until - Date.now()));
+}
 const doorbellAudioUrl = (file) => new URL(`./doorbell/${file}.flac`, import.meta.url).href;
 
 function normalizeDoorbell(value) {
@@ -1672,6 +1699,57 @@ class LivestreamController extends Go2rtcSession {
   _onDisconnect() {
     if (this._talk) this.stopTalk("disconnected");
     this.stopAnnouncement();
+    this.muteCameraAudio();
+  }
+
+  async _tryAutoplay(video, runId = null) {
+    if (!this._opts.independentAudio) return super._tryAutoplay(video, runId);
+    // The doorbell starts muted. A late autoplay rejection must not overwrite
+    // a newer explicit receiver choice on this same video.
+    if (runId === null || this._isRunCurrent(runId)) {
+      try { await video.play(); } catch {}
+    }
+  }
+
+  muteCameraAudio({ resume = false } = {}) {
+    if (!this._opts.independentAudio) return;
+    this._cameraAudioRequest = {};
+    const video = this._videoEl();
+    if (video) video.muted = true;
+    this._setState({ cameraAudio: "off" });
+    // Some browsers pause when unmuted without activation. If mute wins the
+    // race with a pending play(), do not depend on that stale attempt to resume.
+    if (resume && video?.paused && (video.srcObject || video.getAttribute("src"))) {
+      this._tryAutoplay(video, this._runGeneration);
+    }
+  }
+
+  async enableCameraAudio() {
+    const video = this._videoEl();
+    if (!this._opts.independentAudio || !video || (!video.srcObject && !video.getAttribute("src")) ||
+        (this._peerConnection && this._connectionLost(this._peerConnection))) return;
+    const source = video.srcObject, url = video.getAttribute("src");
+    const request = this._cameraAudioRequest = {};
+    const current = () => this._cameraAudioRequest === request && video === this._videoEl() &&
+      video.srcObject === source && video.getAttribute("src") === url;
+    if (video.volume === 0) video.volume = 1;
+    video.muted = false;
+    this._setState({ cameraAudio: "on" });
+    try {
+      await video.play();
+      if (!current() || (!video.muted && !video.paused)) return;
+    } catch {
+      if (!current()) return;
+    }
+    video.muted = true;
+    this._setState({ cameraAudio: "blocked" });
+    if (video.paused) this._tryAutoplay(video, this._runGeneration);
+  }
+
+  _listenAfterTalkConnect(attempt) {
+    const listen = attempt.listenAfterConnect;
+    if (listen && listen.previous === this._cameraAudioRequest) this.enableCameraAudio();
+    attempt.listenAfterConnect = null;
   }
 
   _backchannel(live, hass, onDisconnect) {
@@ -1687,8 +1765,23 @@ class LivestreamController extends Go2rtcSession {
 
   get talkRequested() { return !!this._talk; }
 
-  async startTalk({ verifyTarget = false, listen = false } = {}) {
-    if (this._talk || this._announcement) return;
+  async startTalk(options = {}) {
+    if (this._talk) {
+      // Answer may adopt an idle mic request without capturing or joining again.
+      if (this._opts.independentAudio && options.listen) {
+        this._talk.listenAfterConnect = { previous: this._cameraAudioRequest };
+        if (this._talk.mic) this._listenAfterTalkConnect(this._talk);
+        return this._talk.ready;
+      }
+      return;
+    }
+    const ready = this._startTalk(options);
+    if (this._talk) this._talk.ready = ready;
+    return ready;
+  }
+
+  async _startTalk({ verifyTarget = false, listen = false } = {}) {
+    if (this._announcement) return;
     const live = this._webRtcStream;
     if (!live || !this._peerConnection || this._connectionLost(this._peerConnection)) {
       this._setState({ talk: live ? "disconnected" : "requiresWebRTC" });
@@ -1708,9 +1801,11 @@ class LivestreamController extends Go2rtcSession {
     const link = this._backchannel(live, hass, () => {
       if (this._talk?.link === link) this.stopTalk("disconnected");
     });
-    const video = listen ? this._videoEl() : null;
+    const independent = this._opts.independentAudio;
+    const video = listen && !independent ? this._videoEl() : null;
     const playback = video && { video, source: video.srcObject, muted: video.muted, volume: video.volume, paused: video.paused };
-    const attempt = this._talk = { link, stream: null, playback };
+    const listenAfterConnect = listen && independent ? { previous: this._cameraAudioRequest } : null;
+    const attempt = this._talk = { link, stream: null, playback, listenAfterConnect };
     this._setState({ talk: "pending", talkAudioBlocked: false });
     try {
       if (verifyTarget || live.directBase) {
@@ -1734,6 +1829,7 @@ class LivestreamController extends Go2rtcSession {
       attempt.mic = mic;
       mic.enabled = true;
       this._setState({ talk: "sending", talkMuted: false });
+      this._listenAfterTalkConnect(attempt);
       if (playback) {
         playback.observe = () => {
           if (this._talk === attempt && video.srcObject === playback.source && !playback.enabling) {
@@ -1832,7 +1928,8 @@ class LivestreamController extends Go2rtcSession {
   async playDoorbellReply(reply) {
     const live = this.playbackTarget;
     const hass = this._hass();
-    if (!Object.hasOwn(DOORBELL_REPLIES, reply) || !live || live.camera !== this.cameraId ||
+    const bundled = Object.hasOwn(DOORBELL_REPLIES, reply);
+    if ((!bundled && !customReplyId(reply)) || !live || live.camera !== this.cameraId ||
         !hass?.callWS || hass.connected === false || this._talk || this._announcement) return false;
     const attempt = { cancel: new AbortController() };
     this._announcement = attempt;
@@ -1842,9 +1939,17 @@ class LivestreamController extends Go2rtcSession {
       // Start from the reply click, before any asynchronous lookup. Audio goes
       // only to the sender track, never to the browser's speakers or microphone.
       const ready = ctx.resume();
-      const file = fetch(doorbellAudioUrl(reply), { signal: attempt.cancel.signal }).then((response) => {
+      const file = bundled ? fetch(doorbellAudioUrl(reply), { signal: attempt.cancel.signal }).then((response) => {
         if (!response.ok) throw new Error("Doorbell reply unavailable");
         return response.arrayBuffer();
+      }) : doorbellReplyRequest(hass, live, reply).then(({ audio }) => {
+        if (typeof audio !== "string" || !audio || audio.length > MAX_CUSTOM_REPLY_BASE64_CHARS || audio.length % 4) {
+          throw new Error("Doorbell reply unavailable");
+        }
+        // One extra byte can fit in the same base64 length. Check before atob.
+        const padding = audio.endsWith("==") ? 2 : audio.endsWith("=") ? 1 : 0;
+        if (audio.length / 4 * 3 - padding > MAX_CUSTOM_REPLY_WAV_BYTES) throw new Error("Doorbell reply unavailable");
+        return Uint8Array.from(atob(audio), byte => byte.charCodeAt(0)).buffer;
       });
       const [mapped, bytes] = await this._withTimeout(Promise.all([
         streamMatchesCamera(hass, live), file, ready,
@@ -2210,6 +2315,7 @@ class LivestreamController extends Go2rtcSession {
                 this._safeLiveFailure("webrtc", e)
               );
               this._cleanupWebRTC();
+              if (this._opts.independentAudio) this._clearVideo();
             }
           }
           try {
@@ -2285,6 +2391,9 @@ class LivestreamController extends Go2rtcSession {
         failures.push(`${mode}: ${msg}`);
         if (mode === "webrtc") this._cleanupWebRTC();
         if (mode === "mse") { this._cleanupMSE(); this._cleanupGo2rtcWs(); }
+        // The next transport must not inherit the failed receiver's tracks or
+        // MediaSource. In particular, WS must not append to a failed HTTP stream.
+        if (this._opts.independentAudio) this._clearVideo();
       }
     }
 
@@ -2354,12 +2463,16 @@ class LivestreamController extends Go2rtcSession {
     this._releaseResources();
   }
   _releaseResources() {
+    this.muteCameraAudio();
     this.stopAnnouncement();
     this.stopTalk();
     this._cleanupWebRTC();
     this._cleanupMSE();
     this._cleanupGo2rtcWs();
     this._cleanupMJPEG();
+    this._clearVideo();
+  }
+  _clearVideo() {
     const v = this._videoEl();
     if (v) {
       try { v.pause(); } catch {}
@@ -8390,6 +8503,20 @@ class FrigateVisionCardEditor extends LitElement {
   }
 }
 
+const customReplyId = id => typeof id === "string" && /^[0-9a-f]{32}$/.test(id);
+
+async function doorbellReplyRequest(hass, stream, replyId) {
+  const camera = frigateCameraGroups(hass).get(stream?.client)?.get(stream?.camera?.toLowerCase());
+  if (!camera || camera.ambiguous || stream.redirected || !hass?.callWS || hass.connected === false) {
+    if (replyId) throw new Error("Doorbell reply unavailable");
+    return { replies: null };
+  }
+  return hass.callWS({
+    type: "frigate_vision/doorbell_replies", entity_id: camera.entityId, instance_id: stream.client,
+    ...(replyId ? { reply_id: replyId } : {}),
+  });
+}
+
 // A manual alias can belong to a different camera, and the same alias can
 // exist on different NVRs. Never infer a physical control target from it.
 async function streamMatchesCamera(hass, stream) {
@@ -8430,20 +8557,21 @@ function containingDialog(element) {
   return null;
 }
 
-function renderDoorbell(hass, config, cameraId, live, talkState, talkMuted, talkAudioBlocked, t, doorbell, embedded = false) {
+function renderDoorbell(hass, config, cameraId, live, talkState, talkMuted, talkAudioBlocked, t, doorbell, embedded = false, cameraAudio = null) {
   if (!hasDoorbellOverlay(config, doorbell)) return "";
-  return html`<frigate-vision-doorbell .hass=${hass} .cameraId=${cameraId} .controller=${live}
+  return html`<frigate-vision-doorbell .hass=${hass} .cameraId=${cameraId} .instanceId=${config.frigate_client_id} .controller=${live}
     .settings=${doorbell} .talkState=${talkState} .talkMuted=${talkMuted} .talkAudioBlocked=${talkAudioBlocked} .t=${t} .embedded=${embedded}
-    .ringOnMount=${embedded && config.doorbell_ring_on_mount === true}></frigate-vision-doorbell>`;
+    .cameraAudio=${cameraAudio} .ringOnMount=${embedded && config.doorbell_ring_on_mount === true}></frigate-vision-doorbell>`;
 }
 
 class FrigateVisionDoorbell extends LitElement {
   static properties = {
-    hass: { attribute: false }, cameraId: {}, controller: { attribute: false },
+    hass: { attribute: false }, cameraId: {}, instanceId: { attribute: false }, controller: { attribute: false },
     settings: { attribute: false }, talkState: {}, talkMuted: { attribute: false }, talkAudioBlocked: { attribute: false }, t: { attribute: false },
-    embedded: { attribute: false }, ringOnMount: { attribute: false },
+    embedded: { attribute: false }, ringOnMount: { attribute: false }, cameraAudio: { attribute: false },
     _incoming: { state: true }, _menu: { state: true }, _reply: { state: true },
     _failed: { state: true }, _triedAnswer: { state: true }, _fullscreen: { state: true },
+    _choices: { state: true },
   };
 
   connectedCallback() {
@@ -8496,7 +8624,7 @@ class FrigateVisionDoorbell extends LitElement {
       const observer = this._surfaceObserver = new IntersectionObserver(([entry]) => {
         if (this._surfaceObserver !== observer) return;
         this._surfaceVisible = entry.isIntersecting;
-        if (!this._surfaceVisible && this._incoming) this._dismiss();
+        if (!this._surfaceVisible) this._dismiss();
         else if (this._surfaceVisible) this._maybeRingOnMount();
       });
       // A dialog or container can be closed/hidden without removing the card.
@@ -8505,17 +8633,19 @@ class FrigateVisionDoorbell extends LitElement {
     if (changed.has("_menu") && this._menu) {
       const menu = this._positionMenu();
       menu?.showPopover?.();
-      if (this._focusReplyMenu) this.renderRoot.querySelector(".replies button")?.focus();
     }
+    if (this._menu && changed.has("_choices") && this._focusReplyMenu) this.renderRoot.querySelector(".replies button")?.focus();
     if (this._incoming && changed.get("talkState") === "sending" && this.talkState !== "sending") this._armExpiry();
     const connection = this.hass?.connection;
     const { entity, from, to } = this.settings || {};
-    const key = JSON.stringify([this.cameraId, entity, from, to]);
+    const key = this._callKey();
     if (this.isConnected && connection?.subscribeEvents && this.hass.connected !== false) {
       if (this._subscription?.connection === connection && this._subscription.key === key &&
           this._subscription.controller === this.controller) { this._maybeRingOnMount(); return; }
       this._unsubscribe();
-      const sub = this._subscription = { connection, key, controller: this.controller };
+      let calls = doorbellCalls.get(connection);
+      if (!calls) doorbellCalls.set(connection, calls = new Map());
+      const sub = this._subscription = { connection, calls, key, controller: this.controller };
       // Home Assistant automatically resubscribes on reconnect. The server sends
       // only new state_changed events, unlike frontend state snapshots/baselines.
       sub.offline = () => { sub.disconnected = this._mountChecked = true; this._dismiss(sub.controller); };
@@ -8525,12 +8655,11 @@ class FrigateVisionDoorbell extends LitElement {
       connection.subscribeEvents((event) => {
         if (this._subscription !== sub || sub.disconnected || !this.isConnected || this.hass?.connected === false ||
             this.controller !== sub.controller || (sub.controller?.cameraId && sub.controller.cameraId !== this.cameraId) ||
-            this.settings?.entity !== entity || this.settings?.from !== from || this.settings?.to !== to || document.hidden) return;
+            this._callKey() !== sub.key || document.hidden) return;
         const data = event?.data;
         if (data?.entity_id === entity && data.old_state?.state === from && data.new_state?.state === to && this._surfaceVisible !== false) {
           this._mountChecked = true;
-          const changed = data.new_state.last_changed;
-          if (!this.ringOnMount || !Number.isFinite(Date.parse(changed)) || this._claimPopupEvent(changed)) this._ring();
+          this._receiveRing(data.new_state.last_changed);
         }
       }, "state_changed").then((unsub) => {
         if (this._subscription === sub) {
@@ -8548,31 +8677,57 @@ class FrigateVisionDoorbell extends LitElement {
     }
   }
 
-  _claimPopupEvent(changed) {
-    const stamp = Date.parse(changed);
-    if (!Number.isFinite(stamp)) return false;
-    const connection = this._subscription.connection;
-    let events = popupDoorbellEvents.get(connection);
-    if (!events) popupDoorbellEvents.set(connection, events = new Map());
-    const now = Date.now();
-    for (const [key, timestamp] of events) if (now - timestamp > DOORBELL_RING_MS) events.delete(key);
-    const key = JSON.stringify([this.controller?.playbackTarget?.client, this.cameraId, this.settings.entity, this.settings.to]);
-    if (events.get(key) === stamp) return false;
-    events.set(key, stamp);
-    return true;
+  _callKey() {
+    const { entity, from, to } = this.settings || {};
+    return JSON.stringify([this.instanceId, this.cameraId, entity, from, to]);
+  }
+
+  _resumeMutedCall(record) {
+    if (this._incoming || !record?.muted || record.attached || record.closed) return;
+    const remaining = record.expiresAt - Date.now();
+    if (remaining > 0) this._ring(record, remaining);
+  }
+
+  _receiveRing(stamp, onMount = false) {
+    const time = Date.parse(stamp);
+    if (!Number.isFinite(time)) {
+      // Only subscribed edges can trigger a call without a comparable identity.
+      if (!onMount && !this._incoming) this._ring();
+      return;
+    }
+    const { calls, key } = this._subscription;
+    const previous = calls.get(key);
+    // HA frontend snapshots can be rounded to milliseconds. Alias a matching
+    // snapshot to the edge, but keep two fully identified live edges distinct.
+    if (previous && (previous.stamp === stamp || (previous.onMount || onMount) && previous.time === time)) {
+      if (!onMount && previous.onMount) Object.assign(previous, { stamp, onMount: false });
+      this._resumeMutedCall(previous);
+      return;
+    }
+    const age = Date.now() - time;
+    if (age < -DOORBELL_CLOCK_SKEW_MS || age >= DOORBELL_RING_MS) return;
+    // Keep the exact HA timestamp, including fractions finer than a millisecond.
+    if (previous && (time < previous.time || (time === previous.time && stamp < previous.stamp))) return;
+    // A new press can replace a silenced unanswered call, but not take over a conversation.
+    if (this._incoming && (!this._incoming.muted || this.controller?.talkRequested)) return;
+    if (previous?.attached && this._incoming?.record !== previous) return;
+    if (this._incoming) this._dismiss(this.controller, { keepCameraAudio: true });
+    clearTimeout(previous?.cleanup);
+    const record = { stamp, time, onMount, muted: false, attached: false, closed: false };
+    calls.set(key, record);
+    this._ring(record, DOORBELL_RING_MS - Math.max(0, age));
   }
 
   _maybeRingOnMount() {
     const sub = this._subscription;
-    if (!this.ringOnMount || this._mountChecked || !sub?.unsubscribe || sub.disconnected ||
-        this._surfaceVisible === false || document.hidden || this.hass.connected === false) return;
+    if (this._mountChecked || !sub?.unsubscribe || sub.disconnected || this._surfaceVisible === false ||
+        document.hidden || this.hass.connected === false) return;
     const state = this.hass.states?.[this.settings.entity];
-    if (!state) return;
-    this._mountChecked = true;
-    const age = Date.now() - Date.parse(state.last_changed);
-    if (state.state === this.settings.to && age >= -2000 && age < DOORBELL_RING_MS && this._claimPopupEvent(state.last_changed)) {
-      this._ring(DOORBELL_RING_MS - Math.max(0, age));
-    }
+    if (this.ringOnMount && state && state.state === this.settings.to) this._receiveRing(state.last_changed, true);
+    // A momentary sensor may already have reset; the known muted call can
+    // still be answered. This never starts a new ringtone from a baseline.
+    this._resumeMutedCall(sub.calls.get(sub.key));
+    if (state || this._incoming) this._mountChecked = true;
   }
 
   _ownFullscreen() {
@@ -8609,13 +8764,14 @@ class FrigateVisionDoorbell extends LitElement {
     sub?.connection.removeEventListener?.("disconnected", sub.offline);
     sub?.connection.removeEventListener?.("ready", sub.online);
     sub?.unsubscribe?.().catch(() => {});
-    this._dismiss(sub?.controller);
+    this._dismiss(sub?.controller, { preserveMuted: true });
   }
 
-  _ring(duration = DOORBELL_RING_MS) {
-    if (this._incoming || (this.embedded && this._surfaceVisible === false)) return;
-    this._incoming = {};
+  _ring(record = null, duration = DOORBELL_RING_MS) {
+    this._incoming = { record, muted: !!record?.muted };
+    if (record) record.attached = true;
     this._armExpiry(duration);
+    if (this._incoming.muted) return;
     try {
       const audio = this._ringAudio = new Audio(doorbellAudioUrl("ring"));
       audio.loop = true;
@@ -8626,6 +8782,12 @@ class FrigateVisionDoorbell extends LitElement {
   _armExpiry(duration = DOORBELL_RING_MS) {
     clearTimeout(this._expires);
     this._expires = setTimeout(() => this._dismiss(), duration);
+    const record = this._incoming?.record;
+    const { calls, key } = this._subscription || {};
+    if (record && calls?.get(key) === record) {
+      record.expiresAt = Date.now() + duration;
+      retainDoorbellCall(calls, key, record);
+    }
   }
 
   _silence() {
@@ -8633,17 +8795,37 @@ class FrigateVisionDoorbell extends LitElement {
     this._ringAudio = null;
   }
 
-  _dismiss(controller = this.controller) {
+  _dismiss(controller = this.controller, { preserveMuted = false, keepCameraAudio = false } = {}) {
     clearTimeout(this._expires);
+    this._expires = null;
     this._silence();
+    const record = this._incoming?.record;
+    if (record) {
+      record.attached = false;
+      record.closed = !preserveMuted || !record.muted || this._triedAnswer;
+      if (!record.closed) this._mountChecked = false;
+    }
     this._incoming = this._menu = this._failed = this._triedAnswer = false;
-    this._reply = null;
-    if (controller?.talkRequested) controller.stopTalk();
+    this._reply = this._choiceRequest = null;
+    if (controller?.talkRequested || this.embedded) controller?.stopTalk();
+    if (this.embedded && !keepCameraAudio) {
+      controller?.muteCameraAudio({ resume: this.isConnected && this._surfaceVisible !== false && !document.hidden });
+    }
     controller?.stopAnnouncement();
   }
 
+  _acceptIncoming() {
+    // A single-camera call can adopt an idle mic, but cannot re-answer.
+    if (!this._incoming || (this.controller?.talkRequested && (!this.embedded || this._triedAnswer))) return;
+    if (this._reply) {
+      this._reply = null; // Invalidate completion before cancelling the media attempt.
+      this.controller?.stopAnnouncement();
+    }
+    return this._answer();
+  }
+
   async _answer() {
-    if (!this._incoming || this._reply || this.controller?.talkRequested) return;
+    if (!this._incoming || this._reply || (this.controller?.talkRequested && (!this.embedded || this._triedAnswer))) return;
     this._focusDismiss();
     this._silence();
     this._menu = this._failed = false;
@@ -8661,40 +8843,107 @@ class FrigateVisionDoorbell extends LitElement {
     this.renderRoot.querySelector(".dismiss")?.focus({ preventScroll: true });
   }
 
+  async _toggleReplies(event) {
+    this._menu = !this._menu;
+    if (!this._menu) return;
+    this._focusReplyMenu = event.detail === 0;
+    this._choices = null;
+    const call = this._incoming, target = this.controller?.playbackTarget;
+    const request = this._choiceRequest = {};
+    let choices;
+    try {
+      const result = await doorbellReplyRequest(this.hass, target);
+      choices = Array.isArray(result?.replies) ? result.replies.slice(0, 3).filter(
+        item => customReplyId(item?.id) && typeof item.text === "string" && item.text.trim()
+      ) : Object.entries(DOORBELL_REPLIES).map(([id, text]) => ({ id, text, bundled: true }));
+    } catch (err) {
+      // A stale/pre-upgrade backend has no command; built-in assets still work.
+      if (err?.code === "unknown_command") choices = Object.entries(DOORBELL_REPLIES).map(([id, text]) => ({ id, text, bundled: true }));
+      else choices = [];
+    }
+    if (this._choiceRequest === request && this._incoming === call && this.controller?.playbackTarget === target) {
+      this._choices = choices;
+      this.updateComplete.then(() => { if (this._menu) this._positionMenu(); });
+    }
+  }
+
   async _playReply(reply) {
     if (!this._incoming || this._reply || this.controller?.talkRequested) return;
     this._focusDismiss();
+    this._incoming.muted = true;
+    if (this._incoming.record) this._incoming.record.muted = true;
     this._silence();
     this._menu = this._failed = false;
-    const request = { reply };
-    this._reply = request;
-    clearTimeout(this._expires);
-    const sent = await this.controller?.playDoorbellReply(reply);
+    const request = this._reply = {};
+    this._armExpiry(DOORBELL_REPLY_TIMEOUT_MS);
+    let sent = false;
+    try { sent = await this.controller?.playDoorbellReply(reply); } catch {}
     if (this._reply !== request) return;
     this._reply = null;
-    if (sent) this._dismiss();
-    else { this._failed = true; this._armExpiry(); }
+    this._failed = !sent;
+    this._armExpiry();
+  }
+
+  _toggleIdleTalk() {
+    if (this.controller?.talkRequested) this.controller.stopTalk();
+    else if (!this._incoming && !document.hidden && this._surfaceVisible !== false) {
+      this.controller?.startTalk({ verifyTarget: true });
+    }
+  }
+
+  _toggleCameraAudio() {
+    if (this.cameraAudio === "on") this.controller?.muteCameraAudio({ resume: true });
+    else if (!document.hidden && this._surfaceVisible !== false) this.controller?.enableCameraAudio();
+  }
+
+  _renderIndependentAudio(d, talk, manualTalk) {
+    if (!this.embedded) return "";
+    const a = this.t?.doorbellAudio || STRINGS.en.doorbellAudio;
+    const listening = this.cameraAudio === "on";
+    const showMic = !this._incoming || manualTalk;
+    const micLabel = manualTalk ? talk.stop : a.start;
+    return html`<div class="independent-audio">
+      <div class="audio-buttons">
+        ${showMic ? html`<button type="button" class="idle-mic" aria-label=${micLabel} title=${micLabel}
+          aria-describedby=${talk[this.talkState] ? "idle-mic-status" : ""}
+          @click=${this._toggleIdleTalk}>${doorbellMicIcon(this.talkState !== "sending")}</button>` : ""}
+        ${this.cameraAudio != null ? html`<button type="button" class="speaker" aria-label=${a.speaker}
+          aria-pressed=${String(listening)} title=${listening ? a.mute : d.listen}
+          aria-describedby=${this.cameraAudio === "blocked" ? "speaker-status" : ""}
+          @click=${this._toggleCameraAudio}>${doorbellSpeakerIcon(!listening)}</button>` : ""}
+      </div>
+      ${showMic && talk[this.talkState] ? html`<span id="idle-mic-status" class="status" role="status">${talk[this.talkState]}</span>` : ""}
+      ${this.cameraAudio === "blocked" ? html`<span id="speaker-status" class="status" role="status">${d.listenBlocked}</span>` : ""}
+    </div>`;
   }
 
   render() {
     const d = this.t?.doorbell || STRINGS.en.doorbell;
+    const talk = this.t?.talk || STRINGS.en.talk;
+    const manualTalk = this.embedded && !this._triedAnswer && (this.talkState === "pending" || this.talkState === "sending");
+    const audio = this._renderIndependentAudio(d, talk, manualTalk);
     const fullscreenLabel = this._fullscreen ? d.exitFullscreen : d.fullscreen;
-    const fullscreen = canFullscreenPlayer() && (this._incoming || !this.embedded || this._fullscreen)
+    const fullscreen = canFullscreenPlayer()
       ? html`<button type="button" class="fullscreen" aria-label=${fullscreenLabel} title=${fullscreenLabel}
           @click=${this._toggleFullscreen}>
           <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true" focusable="false">
             <path d=${this._fullscreen ? "M4 9h5V4m11 5h-5V4M4 15h5v5m11-5h-5v5" : "M4 9V4h5m6 0h5v5M4 15v5h5m6 0h5v-5"} />
           </svg></button>` : "";
-    if (!this._incoming) return fullscreen;
-    const talk = this.t?.talk || STRINGS.en.talk;
+    return html`${audio}${fullscreen}${this._renderCall(d, talk, manualTalk)}`;
+  }
+
+  _renderCall(d, talk, manualTalk) {
+    if (!this._incoming) return "";
     const state = this._triedAnswer ? this.talkState : "idle";
     const sending = state === "sending", pending = state === "pending";
-    const busy = pending || sending || !!this._reply;
-    const ringing = !this._triedAnswer && !this._failed && !busy;
-    const exitLabel = ringing ? d.decline : sending || this._reply ? d.end : pending ? d.cancel : d.dismiss;
+    const canAnswer = !pending && !sending;
+    const waiting = !this._triedAnswer && !this._reply;
+    const ringing = waiting && !this._incoming.muted;
+    const exitLabel = waiting ? d.decline : sending || this._reply ? d.end : pending ? d.cancel : d.dismiss;
     const muted = sending && !!this.talkMuted;
-    const status = this._reply ? d.playing : this._failed ? d.failed : muted ? d.muted : talk[state] || d.incoming;
-    return html`${fullscreen}<div class="call" ?data-ringing=${ringing} @keydown=${(e) => {
+    const incoming = this._incoming.muted ? d.silenced : d.incoming;
+    const status = this._reply ? d.playing : this._failed ? d.failed : muted ? d.muted : talk[state] || incoming;
+    return html`<div class="call" ?data-waiting=${waiting} ?data-ringing=${ringing} @keydown=${(e) => {
       if (e.key !== "Escape") return;
       e.stopPropagation();
       if (this._menu) {
@@ -8708,20 +8957,23 @@ class FrigateVisionDoorbell extends LitElement {
           @click=${() => { this._focusDismiss(); this.controller?.enableTalkAudio(); }}>${d.listen}</button>` : ""}
       <div class="buttons">
         <button type="button" class="dismiss" ?data-sending=${sending} aria-label=${exitLabel} @click=${() => this._dismiss()}>
-          ${ringing || sending ? doorbellHandset() : exitLabel}
+          ${waiting || sending ? doorbellHandset() : exitLabel}
         </button>
         ${sending ? html`<button type="button" class="mic-toggle" aria-label=${d.mute}
           aria-pressed=${String(muted)} title=${muted ? d.unmute : d.mute}
           @click=${() => this.controller?.toggleTalkMute()}>${doorbellMicIcon(muted)}</button>` : ""}
-        ${!busy ? html`
-          <button type="button" class="more" title=${d.replies} aria-label=${d.replies} aria-expanded=${String(!!this._menu)}
-            aria-controls="replies" @click=${(e) => { this._focusReplyMenu = e.detail === 0; this._menu = !this._menu; }}>…</button>
-          <button type="button" class="phone" aria-label=${d.answer} title=${d.answer} @click=${this._answer}>
+        ${canAnswer && !this._reply ? html`
+          <button type="button" class="more" title=${d.replies} aria-label=${d.replies} aria-expanded=${String(!!this._menu)} ?disabled=${manualTalk}
+            aria-controls="replies" @click=${this._toggleReplies}>…</button>` : ""}
+        ${canAnswer ? html`
+          <button type="button" class="phone" aria-label=${d.answer} title=${d.answer} @click=${this._acceptIncoming}>
             ${doorbellHandset(true)}
           </button>` : ""}
         ${this._menu ? html`<div id="replies" class="replies" popover="auto" aria-label=${d.replies}
           @toggle=${(e) => { if (e.newState === "closed" && e.target.isConnected) this._menu = false; }}>
-          ${Object.entries(DOORBELL_REPLIES).map(([id, text]) => html`<button lang="de" type="button" @click=${() => this._playReply(id)}>${text}</button>`)}
+          ${this._choices === null ? html`<span class="reply-message" role="status">${d.loadingReplies}</span>` :
+            this._choices?.length ? this._choices.map(({ id, text, bundled }) => html`<button lang=${bundled ? 'de' : ''} type="button" @click=${() => this._playReply(id)}>${text}</button>`) :
+              html`<span class="reply-message" role="status">${d.repliesUnavailable}</span>`}
         </div>` : ""}
       </div>
     </div>`;
@@ -8736,6 +8988,11 @@ class FrigateVisionDoorbell extends LitElement {
     .fullscreen { position: absolute; inset-inline-start: 0; top: 8px; pointer-events: auto;
       display: grid; place-items: center; border-radius: 50%; background: rgb(16 22 28 / .8); }
     .fullscreen svg { inline-size: 23px; block-size: 23px; }
+    .independent-audio { position: absolute; inset: 8px 0 auto; display: grid; justify-items: end; gap: 4px;
+      font: 13px/1.3 system-ui, sans-serif; }
+    .audio-buttons { display: flex; gap: 5px; pointer-events: auto; }
+    .audio-buttons button { display: grid; place-items: center; border-radius: 50%; background: rgb(16 22 28 / .8); }
+    button:disabled { opacity: .55; cursor: default; }
     .status { max-width: min(20rem, 60vw); padding: 4px 8px; background: #121212eb; border-radius: 6px; }
     .buttons { position: relative; display: flex; align-items: center; gap: 5px; pointer-events: auto; }
     button { cursor: pointer; color: inherit; border: 0; border-radius: 8px; background: var(--neutral);
@@ -8754,17 +9011,17 @@ class FrigateVisionDoorbell extends LitElement {
     .mic-toggle[aria-pressed=true] { background: var(--ink); color: var(--neutral); }
     .call[data-ringing] .status { position: absolute; inline-size: 1px; block-size: 1px;
       padding: 0; overflow: hidden; clip-path: inset(50%); white-space: nowrap; }
-    .call[data-ringing] .buttons { gap: 9px; }
-    .call[data-ringing] .buttons > button { display: grid; place-items: center; border: 1px solid rgb(255 255 255 / .48);
+    .call[data-waiting] .buttons { gap: 9px; }
+    .call[data-waiting] .buttons > button { display: grid; place-items: center; border: 1px solid rgb(255 255 255 / .48);
       border-radius: 50%; padding: 0; box-shadow: 0 2px 8px rgb(0 0 0 / .45); }
-    .call[data-ringing] .buttons > button:focus-visible { box-shadow: 0 0 0 6px var(--edge); }
-    .call[data-ringing] :is(.phone, .dismiss) { inline-size: 52px; block-size: 52px; }
-    .call[data-ringing] .dismiss { margin-inline-end: 8px; background: var(--decline); }
-    .call[data-ringing] .more { inline-size: 44px; block-size: 44px; }
+    .call[data-waiting] .buttons > button:focus-visible { box-shadow: 0 0 0 6px var(--edge); }
+    .call[data-waiting] :is(.phone, .dismiss) { inline-size: 52px; block-size: 52px; }
+    .call[data-waiting] .dismiss { margin-inline-end: 8px; background: var(--decline); }
+    .call[data-waiting] .more { inline-size: 44px; block-size: 44px; }
     @container (max-width: 195px) {
-      .call[data-ringing] .buttons { gap: 4px; }
-      .call[data-ringing] :is(.phone, .dismiss) { inline-size: 44px; block-size: 44px; }
-      .call[data-ringing] .dismiss { margin-inline-end: 0; }
+      .call[data-waiting] .buttons { gap: 4px; }
+      .call[data-waiting] :is(.phone, .dismiss) { inline-size: 44px; block-size: 44px; }
+      .call[data-waiting] .dismiss { margin-inline-end: 0; }
     }
     .replies { position: absolute; inset: auto 0 calc(100% + 6px) auto; z-index: 1;
       width: max-content; max-width: min(16rem, 70vw); padding: 4px; color: var(--ink); background: var(--neutral);
@@ -8935,6 +9192,7 @@ class FrigateVisionLiveTile extends LitElement {
       clipLoadToken: { attribute: false },
       clipAttemptId: { attribute: false },
       doorbellOnly: { attribute: false },
+      _cameraAudio: { state: true },
       _clipMode: { state: true },
       _talkState: { state: true },
       _talkMuted: { state: true },
@@ -9221,6 +9479,7 @@ class FrigateVisionLiveTile extends LitElement {
     if (this._lc) return this._lc;
     this._lc = new LivestreamController({
       logPrefix: "[FrigateVisionTile Live]",
+      independentAudio: this.doorbellOnly,
       failedMessage: this.t?.live_failed,
       getConfig: () => this.cardConfig,
       getHass: () => this.hass,
@@ -9240,6 +9499,7 @@ class FrigateVisionLiveTile extends LitElement {
     if ("talkAudioBlocked" in patch) this._talkAudioBlocked = patch.talkAudioBlocked;
     if ("error" in patch) this._error = patch.error ?? null;
     if ("mjpegUrl" in patch) this._mjpegSignedUrl = patch.mjpegUrl ?? null;
+    if ("cameraAudio" in patch) this._cameraAudio = patch.cameraAudio;
   }
 
   _start() {
@@ -9318,7 +9578,7 @@ class FrigateVisionLiveTile extends LitElement {
               : html`<div class="loading">${t.live_connecting || "…"}</div>`)
           : html`<video class="player" autoplay playsinline muted
               controlslist=${hasDoorbellOverlay(cfg, e.doorbell) && canFullscreenPlayer() ? "nofullscreen" : ""}
-              ?controls=${!this.doorbellOnly || this._talkState === "sending"}></video>`}
+              ?controls=${!this.doorbellOnly}></video>`}
         ${showLiveControls ? html`
           <div class="live-controls live-controls--${liveControlsPos}">
             <span class="live-cam-name">${name}</span>
@@ -9335,7 +9595,8 @@ class FrigateVisionLiveTile extends LitElement {
           ${hasHdSd && showHdSd && hdSdPos === "top" ? this._hdButton() : ""}
         </div>` : ""}
         ${this._provider && !this._loading && !this._error
-          ? renderDoorbell(this.hass, cfg, this.cameraId, this._lc, this._talkState, this._talkMuted, this._talkAudioBlocked, t, e.doorbell, this.doorbellOnly) : ""}
+          ? renderDoorbell(this.hass, cfg, this.cameraId, this._lc, this._talkState, this._talkMuted, this._talkAudioBlocked, t, e.doorbell,
+              this.doorbellOnly, this.doorbellOnly && this._provider !== "mjpeg" ? this._cameraAudio || "off" : null) : ""}
         ${hasHdSd && showHdSd && hdSdPos === "bottom" ? html`
           <div class="player-top-buttons hd-sd-wrap--bottom">${this._hdButton()}</div>` : ""}
       </div>

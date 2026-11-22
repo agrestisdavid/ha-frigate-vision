@@ -49,6 +49,7 @@ def speaker_measurement():
         "samples": size,
         "mic880": level(880),
         "camera440": level(440),
+        "tts660": level(660),
         "rms": round(math.sqrt(sum(x * x for x in samples) / len(samples)), 5)
         if samples
         else 0,
@@ -59,8 +60,13 @@ class SpeakerView(HomeAssistantView):
     url = "/api/fv_audio_test/speaker"
     name = "api:fv_audio_test:speaker"
 
+    def __init__(self, hass):
+        self.hass = hass
+
     async def get(self, request):
-        return web.json_response(await asyncio.to_thread(speaker_measurement))
+        result = await asyncio.to_thread(speaker_measurement)
+        result["syntheses"] = len(self.hass.data["synthetic_tts_calls"])
+        return web.json_response(result)
 
 
 class FrigateProxyFixture(HomeAssistantView):
@@ -100,10 +106,10 @@ class FrigateProxyFixture(HomeAssistantView):
         return client
 
 
-async def serve(hass, session, module_url):
+async def serve(hass, session, module_url, entry_id):
     """Run HA and real go2rtc until the external test browser exits."""
     hass.http.register_view(FrigateProxyFixture(session))
-    hass.http.register_view(SpeakerView())
+    hass.http.register_view(SpeakerView(hass))
     # Docker's isolated bridge deliberately has no default route. Advertise its
     # actual interface rather than relying on go2rtc's default-route discovery.
     address = await asyncio.to_thread(socket.gethostbyname, socket.gethostname())
@@ -127,6 +133,7 @@ async def serve(hass, session, module_url):
                 "token": hass.auth.async_create_access_token(refresh),
                 "emitter": hass.auth.async_create_access_token(emitter_refresh),
                 "module": module_url,
+                "entry_id": entry_id,
             }
         )
         marker = Path("/config/audio-test.json")

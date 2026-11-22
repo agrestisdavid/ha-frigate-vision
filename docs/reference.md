@@ -93,4 +93,6 @@ There is no external fallback to the local direct URL.
 - video-frame provider timeout: configurable, default 180 seconds;
 - event video: 5–15 one-frame-per-second frames, at most 1080 pixels high;
 - MP4 metadata wait: 40 seconds;
-- HLS fallback wait: 60 seconds.
+- HLS fallback wait: 60 seconds;
+- Doorbell quick replies: 3 texts maximum, 120 characters each, served as at
+  most 20 seconds of 16-bit mono 16 kHz audio per reply.
