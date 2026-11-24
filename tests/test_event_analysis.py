@@ -529,6 +529,61 @@ class EventAnalysisTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(frigate.event_calls, 1)
         self.assertEqual(provider.calls, 0)
 
+    async def test_cached_description_skips_media_for_both_image_policies(
+        self,
+    ) -> None:
+        event = {
+            "id": self.event_id,
+            "camera": "driveway",
+            "start_time": 1720000000.5,
+            "data": {
+                "description": "Already described.",
+                "snapshot_frame_time": 1720000003.25,
+            },
+        }
+        for policy in ("event_snapshot", "recording_preferred"):
+            with self.subTest(policy=policy):
+                frigate = FakeFrigate([event], [jpeg()])
+                provider = FakeProvider(self.analysis)
+                runtime = (
+                    self.recording_runtime(frigate, provider)
+                    if policy == "recording_preferred"
+                    else self.runtime(frigate, provider)
+                )
+
+                result = await self.analysis.analyze_event(
+                    runtime,
+                    event_id=self.event_id,
+                    camera_entity=None,
+                    prompt="Describe.",
+                    store=True,
+                    force=False,
+                )
+
+                result.pop("duration_ms")
+                self.assertEqual(
+                    result,
+                    {
+                        "response_text": "Already described.",
+                        "event_id": self.event_id,
+                        "key_frame": f"/snapshot/{self.event_id}.jpg",
+                        "stored": False,
+                        "store_error": None,
+                        "cached": True,
+                        "image_source": None,
+                        "source_frame_time": 1720000003.25,
+                        "image_has_overlay": None,
+                        "sub_label": None,
+                        "sub_label_score": None,
+                    },
+                )
+                self.assertEqual(frigate.event_calls, 1)
+                self.assertEqual(frigate.recording_calls, 0)
+                self.assertEqual(frigate.clean_snapshot_calls, 0)
+                self.assertEqual(frigate.snapshot_calls, 0)
+                self.assertEqual(frigate.write_calls, 0)
+                self.assertEqual(provider.calls, 0)
+
     async def test_direct_image_result_has_null_sub_label_fields(self) -> None:
         runtime = self.runtime(FakeFrigate([{}], [jpeg()]), FakeProvider(self.analysis))
         with patch.object(
