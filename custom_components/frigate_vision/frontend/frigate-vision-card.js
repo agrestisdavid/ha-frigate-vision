@@ -6426,17 +6426,6 @@ class FrigateVisionCard extends LitElement {
         grid-column: 1 / -1;
         min-width: 0;
       }
-      .multiview-tile-placeholder {
-        position: relative;
-        background: transparent;
-        color: #fff;
-        min-height: 120px;
-        display: flex;
-        align-items: center;
-        justify-content: center;
-        font-size: 0.9em;
-        border-radius: 4px;
-      }
       video.player {
         display: block;
         width: 100%;
@@ -6957,14 +6946,6 @@ class FrigateVisionCard extends LitElement {
         top: 0;
         background: linear-gradient(rgba(0,0,0,0.7), transparent);
       }
-      .cam-select {
-        background: rgba(0,0,0,0.5);
-        color: #fff;
-        border: 1px solid rgba(255,255,255,0.3);
-        border-radius: 4px;
-        padding: 3px 6px;
-        font-size: 0.85em;
-      }
       .live-indicator {
         display: flex;
         align-items: center;
@@ -7058,31 +7039,6 @@ class FrigateVisionCard extends LitElement {
         max-height: none;
         height: 100%;
       }
-      .timeline-cam-badge {
-        position: absolute;
-        top: 8px;
-        left: 8px;
-        display: inline-flex;
-        align-items: center;
-        gap: 6px;
-        padding: 4px 10px;
-        border-radius: 12px;
-        background: rgba(0, 0, 0, 0.55);
-        color: #fff;
-        font-size: 0.82em;
-        pointer-events: none;
-      }
-      .timeline-cam-badge ha-icon {
-        --mdc-icon-size: 16px;
-      }
-      .timeline-wallclock {
-        margin-left: 8px;
-        padding-left: 8px;
-        border-left: 1px solid rgba(255, 255, 255, 0.3);
-        font-variant-numeric: tabular-nums;
-        font-weight: 600;
-        color: var(--accent);
-      }
       .timeline-wrap {
         flex: 1 1 0;
         min-width: 0;
@@ -7101,63 +7057,6 @@ class FrigateVisionCard extends LitElement {
       }
       .timeline-wrap.timeline-vertical {
         flex-direction: column;
-      }
-      .timeline-header {
-        display: flex;
-        justify-content: space-between;
-        align-items: center;
-        font-size: 0.78em;
-        color: var(--text-secondary);
-        padding: 0 4px 6px 4px;
-        flex-shrink: 0;
-        gap: 8px;
-      }
-      .timeline-cam {
-        font-weight: 500;
-        text-transform: capitalize;
-        color: var(--text-primary);
-        white-space: nowrap;
-        overflow: hidden;
-        text-overflow: ellipsis;
-      }
-      .timeline-range {
-        font-variant-numeric: tabular-nums;
-        white-space: nowrap;
-        flex: 1 1 auto;
-        text-align: right;
-        overflow: hidden;
-        text-overflow: ellipsis;
-      }
-      .timeline-zoom {
-        display: inline-flex;
-        gap: 2px;
-        flex-shrink: 0;
-      }
-      .timeline-zoom-btn {
-        background: color-mix(in srgb, var(--text-primary) 6%, transparent);
-        color: var(--text-primary);
-        border: none;
-        border-radius: 6px;
-        width: 26px;
-        height: 26px;
-        cursor: pointer;
-        display: flex;
-        align-items: center;
-        justify-content: center;
-        -webkit-tap-highlight-color: transparent;
-        touch-action: manipulation;
-      }
-      .timeline-zoom-btn ha-icon {
-        --mdc-icon-size: 16px;
-        pointer-events: none;
-      }
-      .timeline-zoom-btn:hover:not(:disabled) {
-        background: color-mix(in srgb, var(--accent) 14%, transparent);
-        color: var(--accent);
-      }
-      .timeline-zoom-btn:disabled {
-        opacity: 0.4;
-        cursor: not-allowed;
       }
       .timeline-track {
         position: relative;
@@ -7405,103 +7304,6 @@ class FrigateVisionCard extends LitElement {
         margin-top: 5px;
         transform: translateX(-50%);
       }
-      .timeline-marker {
-        --marker-color: var(--accent);
-        position: relative;
-        width: 100%;
-        display: flex;
-        gap: 10px;
-        align-items: stretch;
-        padding: 6px;
-        background: var(--ha-card-background, var(--card-background-color, #fff));
-        border: 1px solid var(--divider-color, rgba(127, 127, 127, 0.2));
-        border-radius: 8px;
-        box-shadow: 0 1px 3px rgba(0, 0, 0, 0.08);
-        cursor: pointer;
-        transition: transform 120ms ease, box-shadow 120ms ease, border-color 120ms ease;
-        overflow: hidden;
-        box-sizing: border-box;
-      }
-      .timeline-marker:hover {
-        border-color: var(--marker-color);
-        box-shadow: 0 4px 12px rgba(0, 0, 0, 0.16);
-      }
-      .timeline-marker-thumb {
-        position: relative;
-        flex: 0 0 auto;
-        width: 60px;
-        height: 60px;
-        overflow: hidden;
-        border-radius: 6px;
-        background: color-mix(in srgb, var(--text-primary) 8%, transparent);
-      }
-      .timeline-marker-img {
-        width: 100%;
-        height: 100%;
-        object-fit: cover;
-        display: block;
-      }
-      .timeline-marker-thumb.placeholder,
-      .timeline-marker-img.placeholder {
-        background:
-          linear-gradient(135deg,
-            color-mix(in srgb, var(--text-primary) 12%, transparent),
-            color-mix(in srgb, var(--text-primary) 5%, transparent));
-      }
-      .timeline-marker-info {
-        flex: 1 1 auto;
-        min-width: 0;
-        display: flex;
-        flex-direction: column;
-        gap: 3px;
-        padding: 1px 0;
-        color: var(--primary-text-color, var(--text-primary));
-      }
-      .timeline-marker-info-top {
-        display: flex;
-        align-items: center;
-        gap: 6px;
-        min-height: 18px;
-      }
-      .timeline-marker-info-top .chip {
-        font-size: 0.68em;
-        padding: 2px 7px 2px 6px;
-        flex-shrink: 0;
-      }
-      .timeline-marker-info-top .chip .chip-icon {
-        --mdc-icon-size: 12px;
-      }
-      .timeline-marker-title {
-        flex: 1 1 auto;
-        min-width: 0;
-        font-size: 0.85em;
-        font-weight: 600;
-        line-height: 1.2;
-        color: var(--primary-text-color, var(--text-primary));
-        white-space: nowrap;
-        overflow: hidden;
-        text-overflow: ellipsis;
-      }
-      /* Time + description share one block, clamped to two lines */
-      .timeline-marker-meta {
-        font-size: 0.74em;
-        line-height: 1.35;
-        color: var(--secondary-text-color, var(--text-secondary));
-        display: -webkit-box;
-        -webkit-line-clamp: 2;
-        -webkit-box-orient: vertical;
-        overflow: hidden;
-        word-break: break-word;
-      }
-      .timeline-marker-time {
-        font-variant-numeric: tabular-nums;
-        font-weight: 600;
-        color: var(--primary-text-color, var(--text-primary));
-        opacity: 0.85;
-      }
-      .timeline-marker-desc {
-        opacity: 0.95;
-      }
       /* Slimmer snapshot in the timeline list to fit narrower split panes */
       .timeline-event-list .row .snap {
         flex: 0 0 84px;
@@ -7514,33 +7316,6 @@ class FrigateVisionCard extends LitElement {
         -webkit-line-clamp: 2;
         -webkit-box-orient: vertical;
         overflow: hidden;
-      }
-
-      .timeline-debug {
-        margin-top: 6px;
-        padding: 6px 10px;
-        background: color-mix(in srgb, var(--text-primary) 5%, transparent);
-        border-radius: 6px;
-        font-size: 0.72em;
-        font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
-        color: var(--text-secondary);
-        line-height: 1.45;
-      }
-      .timeline-debug-row {
-        display: flex;
-        gap: 6px;
-        align-items: baseline;
-      }
-      .timeline-debug-key {
-        flex-shrink: 0;
-        font-weight: 600;
-      }
-      .timeline-debug-val {
-        flex: 1;
-        overflow: hidden;
-        text-overflow: ellipsis;
-        white-space: nowrap;
-        word-break: break-all;
       }
       .timeline-empty {
         padding: 12px;
