@@ -238,7 +238,7 @@ def _bounded_video_frames(
 ) -> list[tuple[float, bytes]]:
     """Validate already-normalized frames before building the provider request."""
     encoded_total = 0
-    for relative_time, image_bytes in frames:
+    for _relative_time, image_bytes in frames:
         if not image_bytes:
             raise SourceError("Die Videosequenz enthält einen leeren Frame.")
         encoded_total += _base64_size(len(image_bytes))
@@ -384,7 +384,7 @@ class OpenAICompatibleProvider:
                 f"Die Analyse hat das Zeitlimit von {request_timeout} Sekunden "
                 "überschritten."
             ) from err
-        except (ClientResponseError, ClientError) as err:
+        except ClientError as err:
             raise ProviderError(
                 f"Der Modell-Endpunkt ist nicht erreichbar: {err}"
             ) from err
