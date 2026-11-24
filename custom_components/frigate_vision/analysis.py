@@ -525,39 +525,15 @@ class FrigateAdapter:
         timeout: float = MAX_SOURCE_ATTEMPT_TIMEOUT,
     ) -> dict[str, Any]:
         """Fetch one exact event through a quiet authenticated request."""
-        source = "Ereignisdaten"
-        started = monotonic()
-        headers = await self._auth_headers(source, event_id, timeout)
-        request_timeout = max(0.001, timeout - (monotonic() - started))
-        validate_ssl = getattr(self._client, "validate_ssl", True)
-        url = self._url(f"api/events/{event_id}")
-        try:
-            async with self._session.get(
-                url,
-                headers=headers,
-                ssl=validate_ssl,
-                timeout=ClientTimeout(total=request_timeout),
-            ) as response:
-                if response.status >= 400:
-                    raise self._http_error(source, event_id, response.status)
-                body = await _read_limited_response(
-                    response,
-                    FrigateEventError,
-                    f"Ereignisdaten für Frigate-Ereignis {event_id}",
-                    max_bytes=MAX_EVENT_RESPONSE_BYTES,
-                    size_label="2 MB",
-                )
-        except FrigateEventError:
-            raise
-        except ClientResponseError as err:
-            raise self._http_error(source, event_id, err.status) from err
-        except (TimeoutError, ClientError) as err:
-            raise FrigateEventError(
-                f"Ereignisdaten für Frigate-Ereignis {event_id} sind "
-                "vorübergehend nicht erreichbar.",
-                transient=True,
-            ) from err
-
+        body = await self._get_bounded(
+            path=f"api/events/{event_id}",
+            source="Ereignisdaten",
+            event_id=event_id,
+            timeout=timeout,
+            max_bytes=MAX_EVENT_RESPONSE_BYTES,
+            size_label="2 MB",
+            unreachable_verb="sind",
+        )
         try:
             event = json.loads(body)
         except (ValueError, UnicodeDecodeError) as err:
@@ -634,6 +610,34 @@ class FrigateAdapter:
         size_label: str,
     ) -> bytes:
         """Fetch one authenticated bounded Frigate image."""
+        data = await self._get_bounded(
+            path=path,
+            source=source,
+            event_id=event_id,
+            timeout=timeout,
+            max_bytes=max_bytes,
+            size_label=size_label,
+            unreachable_verb="ist",
+        )
+        if not data:
+            raise FrigateEventError(
+                f"{source} für Frigate-Ereignis {event_id} ist noch leer.",
+                transient=True,
+            )
+        return data
+
+    async def _get_bounded(
+        self,
+        *,
+        path: str,
+        source: str,
+        event_id: str,
+        timeout: float,
+        max_bytes: int,
+        size_label: str,
+        unreachable_verb: str,
+    ) -> bytes:
+        """Fetch one authenticated, size-bounded Frigate response body."""
         started = monotonic()
         headers = await self._auth_headers(source, event_id, timeout)
         request_timeout = max(0.001, timeout - (monotonic() - started))
@@ -661,15 +665,10 @@ class FrigateAdapter:
             raise self._http_error(source, event_id, err.status) from err
         except (TimeoutError, ClientError) as err:
             raise FrigateEventError(
-                f"{source} für Frigate-Ereignis {event_id} ist "
+                f"{source} für Frigate-Ereignis {event_id} {unreachable_verb} "
                 "vorübergehend nicht erreichbar.",
                 transient=True,
             ) from err
-        if not data:
-            raise FrigateEventError(
-                f"{source} für Frigate-Ereignis {event_id} ist noch leer.",
-                transient=True,
-            )
         return data
 
     async def set_description(self, event_id: str, description: str) -> None:
