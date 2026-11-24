@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 DOMAIN = "frigate_vision"
-VERSION = "0.5.0"
+VERSION = "0.5.1"
 
 FRONTEND_URL_BASE = "/frigate_vision/frontend"
 FRONTEND_MODULE = "frigate-vision-card.js"
