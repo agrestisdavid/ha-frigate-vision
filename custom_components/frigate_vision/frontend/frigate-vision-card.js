@@ -2057,57 +2057,7 @@ class LivestreamController extends Go2rtcSession {
     if (!this._hlsNativeSupported()) throw new Error("HLS native not supported in this browser");
     const url = this._hlsStreamPath(name);
     this._checkMixedContent(url);
-    return new Promise((resolve, reject) => {
-      this._setState({ provider: "hls" });
-      let done = false;
-      let el = null;
-      let unregisterCancel = () => {};
-      const cleanup = () => {
-        clearTimeout(timeout);
-        if (el) {
-          el.removeEventListener("loadeddata", onLoaded);
-          el.removeEventListener("error", onError);
-        }
-      };
-      const finish = (error = null) => {
-        if (done) return;
-        done = true;
-        cleanup();
-        unregisterCancel();
-        if (error) reject(error); else resolve();
-      };
-      const onLoaded = () => {
-        if (!this._isRunCurrent(runId)) {
-          finish(this._staleRunError());
-          return;
-        }
-        this._setState({ loading: false });
-        if (el) this._tryAutoplay(el, runId);
-        finish();
-      };
-      const onError = () => finish(new Error("HLS media failed"));
-      const timeout = setTimeout(
-        () => finish(new Error("HLS load timeout")),
-        8000
-      );
-      unregisterCancel = this._registerRunCanceler(
-        runId,
-        () => finish(this._staleRunError())
-      );
-      if (done) return;
-      this._waitUpdate().then(() => {
-        if (!this._isRunCurrent(runId)) {
-          finish(this._staleRunError());
-          return;
-        }
-        el = this._videoEl();
-        if (!el) { finish(new Error("No video element")); return; }
-        el.addEventListener("loadeddata", onLoaded, { once: true });
-        el.addEventListener("error", onError, { once: true });
-        el.src = url;
-        el.load();
-      });
-    });
+    return this._loadVideoSource(url, "hls", "HLS", 8000, runId);
   }
 
   /* MP4 progressive */
@@ -2115,8 +2065,13 @@ class LivestreamController extends Go2rtcSession {
     this._assertRunCurrent(runId);
     const url = this._mp4StreamPath(name);
     this._checkMixedContent(url);
+    return this._loadVideoSource(url, "mp4", "MP4", 6000, runId);
+  }
+
+  /* Shared <video src> start for native HLS and progressive MP4 */
+  _loadVideoSource(url, provider, label, timeoutMs, runId) {
     return new Promise((resolve, reject) => {
-      this._setState({ provider: "mp4" });
+      this._setState({ provider });
       let done = false;
       let el = null;
       let unregisterCancel = () => {};
@@ -2143,10 +2098,10 @@ class LivestreamController extends Go2rtcSession {
         if (el) this._tryAutoplay(el, runId);
         finish();
       };
-      const onError = () => finish(new Error("MP4 media failed"));
+      const onError = () => finish(new Error(`${label} media failed`));
       const timeout = setTimeout(
-        () => finish(new Error("MP4 load timeout")),
-        6000
+        () => finish(new Error(`${label} load timeout`)),
+        timeoutMs
       );
       unregisterCancel = this._registerRunCanceler(
         runId,
