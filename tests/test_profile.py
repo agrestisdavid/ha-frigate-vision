@@ -319,6 +319,36 @@ class ProfileTests(unittest.TestCase):
         )
         self.assertEqual(profile["go2rtc_modes"], "webrtc,mse")
 
+    def test_invalid_stored_overrides_are_dropped_independently(self):
+        for internal, external, expected in (
+            (
+                "https://user:card-secret@go2rtc.internal.test",
+                "https://go2rtc.example.test/live/",
+                (None, "https://go2rtc.example.test/live"),
+            ),
+            (
+                "https://go2rtc.internal.test/",
+                "https://go2rtc.example.test/?token=card-secret",
+                ("https://go2rtc.internal.test", None),
+            ),
+            ("ftp://go2rtc.internal.test", "go2rtc.example.test", (None, None)),
+            ("   ", "", (None, None)),
+            (None, "https://go2rtc.example.test/#card-secret", (None, None)),
+        ):
+            with self.subTest(internal=internal, external=external):
+                runtime = self.runtime(
+                    data={"go2rtc_url": internal},
+                    options={"go2rtc_url_external": external},
+                )
+
+                profile = self.integration._profile_for_runtime(runtime)
+
+                self.assertEqual(
+                    (profile["go2rtc_url"], profile["go2rtc_url_external"]),
+                    expected,
+                )
+                self.assertNotIn("card-secret", json.dumps(profile))
+
     def test_old_entry_without_override_fields_remains_valid(self):
         runtime = self.runtime(
             data={"endpoint": "https://provider.example.test", "model": "vision"},

@@ -1859,6 +1859,47 @@ class ProviderTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(provider._session.calls, [])
 
 
+class UnreachableProviderTests(unittest.IsolatedAsyncioTestCase):
+    async def test_transport_errors_become_provider_errors_without_retry(self) -> None:
+        class FailingResponse:
+            def __init__(self, error: BaseException) -> None:
+                self.error = error
+
+            async def __aenter__(self):
+                raise self.error
+
+            async def __aexit__(self, _exc_type, _exc, _traceback):
+                return False
+
+        for error, message in (
+            (
+                ANALYSIS.ClientError("connection refused"),
+                "Der Modell-Endpunkt ist nicht erreichbar: connection refused",
+            ),
+            (
+                ANALYSIS.ClientResponseError(502),
+                "Der Modell-Endpunkt ist nicht erreichbar: 502",
+            ),
+            (
+                TimeoutError(),
+                "Die Analyse hat das Zeitlimit von 60 Sekunden überschritten.",
+            ),
+        ):
+            with self.subTest(error=type(error).__name__):
+                provider = ANALYSIS.OpenAICompatibleProvider(
+                    FakeHass(),
+                    {"endpoint": "https://model.example.test/v1", "model": "vision"},
+                )
+                provider._session = FakeSession(FailingResponse(error))
+
+                with self.assertRaises(ANALYSIS.ProviderError) as context:
+                    await provider.analyze(jpeg(), "Describe.")
+
+                self.assertEqual(str(context.exception), message)
+                self.assertIs(context.exception.__cause__, error)
+                self.assertEqual(len(provider._session.calls), 1)
+
+
 class AdapterTests(unittest.IsolatedAsyncioTestCase):
     @classmethod
     def setUpClass(cls) -> None:
