@@ -8,7 +8,7 @@ import json
 import logging
 import math
 import mimetypes
-from collections.abc import Iterator
+from collections.abc import Callable, Coroutine, Iterator
 from dataclasses import dataclass, field
 from io import BytesIO
 from pathlib import Path
@@ -81,6 +81,7 @@ IMMEDIATE_SOURCE_ATTEMPT_TIMEOUT = 1.0
 EVENT_METADATA_REFRESH_TIMEOUT = 5.0
 TRANSIENT_SOURCE_STATUSES = frozenset({404, 408, 425, 429, *range(500, 600)})
 _FlightKey = TypeVar("_FlightKey")
+_FlightResult = TypeVar("_FlightResult")
 
 
 class FrigateVisionError(Exception):
@@ -1434,6 +1435,24 @@ def _finish_flight(
         pass
 
 
+async def _join_flight(
+    runtime: RuntimeData,
+    flights: dict[_FlightKey, asyncio.Task[_FlightResult]],
+    key: _FlightKey,
+    start: Callable[[], Coroutine[Any, Any, _FlightResult]],
+    name: str,
+) -> _FlightResult:
+    """Share one entry-bound task per key; a cancelled caller leaves it running."""
+    task = flights.get(key)
+    if task is None:
+        task = _create_entry_task(runtime, start(), name)
+        flights[key] = task
+        task.add_done_callback(
+            lambda completed: _finish_flight(flights, key, completed)
+        )
+    return await asyncio.shield(task)
+
+
 async def _write_description_confirmed(
     runtime: RuntimeData,
     event_id: str,
@@ -1463,23 +1482,13 @@ async def _store_description_once(
     description: str,
 ) -> None:
     """Join an identical write without conflating forced analysis results."""
-    write_key = (event_id, description)
-    task = runtime.event_write_flights.get(write_key)
-    if task is None:
-        task = _create_entry_task(
-            runtime,
-            _write_description_confirmed(runtime, event_id, description),
-            f"Frigate Vision store event {event_id}",
-        )
-        runtime.event_write_flights[write_key] = task
-        task.add_done_callback(
-            lambda completed: _finish_flight(
-                runtime.event_write_flights,
-                write_key,
-                completed,
-            )
-        )
-    await asyncio.shield(task)
+    await _join_flight(
+        runtime,
+        runtime.event_write_flights,
+        (event_id, description),
+        lambda: _write_description_confirmed(runtime, event_id, description),
+        f"Frigate Vision store event {event_id}",
+    )
 
 
 async def _store_analysis_result(
@@ -1524,28 +1533,19 @@ async def analyze_event(
             force=True,
         )
     else:
-        task = runtime.event_flights.get(event_id)
-        if task is None:
-            task = _create_entry_task(
+        result = await _join_flight(
+            runtime,
+            runtime.event_flights,
+            event_id,
+            lambda: _analyze_event_once(
                 runtime,
-                _analyze_event_once(
-                    runtime,
-                    event_id=event_id,
-                    camera_entity=camera_entity,
-                    prompt=prompt,
-                    force=False,
-                ),
-                f"Frigate Vision analyze event {event_id}",
-            )
-            runtime.event_flights[event_id] = task
-            task.add_done_callback(
-                lambda completed: _finish_flight(
-                    runtime.event_flights,
-                    event_id,
-                    completed,
-                )
-            )
-        result = await asyncio.shield(task)
+                event_id=event_id,
+                camera_entity=camera_entity,
+                prompt=prompt,
+                force=False,
+            ),
+            f"Frigate Vision analyze event {event_id}",
+        )
 
     stored = False
     store_error = None
@@ -1598,29 +1598,20 @@ async def analyze_event_video(
         duration_seconds,
         pre_seconds,
     )
-    task = runtime.event_video_flights.get(flight_key)
-    if task is None:
-        task = _create_entry_task(
+    result = await _join_flight(
+        runtime,
+        runtime.event_video_flights,
+        flight_key,
+        lambda: _analyze_event_video_once(
             runtime,
-            _analyze_event_video_once(
-                runtime,
-                event_id=event_id,
-                camera_entity=camera_entity,
-                prompt=prompt,
-                duration_seconds=duration_seconds,
-                pre_seconds=pre_seconds,
-            ),
-            f"Frigate Vision analyze event video {event_id}",
-        )
-        runtime.event_video_flights[flight_key] = task
-        task.add_done_callback(
-            lambda completed: _finish_flight(
-                runtime.event_video_flights,
-                flight_key,
-                completed,
-            )
-        )
-    result = await asyncio.shield(task)
+            event_id=event_id,
+            camera_entity=camera_entity,
+            prompt=prompt,
+            duration_seconds=duration_seconds,
+            pre_seconds=pre_seconds,
+        ),
+        f"Frigate Vision analyze event video {event_id}",
+    )
 
     stored = False
     store_error = None
