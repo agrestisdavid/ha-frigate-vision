@@ -748,11 +748,9 @@ const LABEL_DE = {
   fedex: "FedEx",
   usps: "USPS",
 };
-function translateLabel(label, lang) {
-  if (!label) return "";
-  const key = label.trim().toLowerCase();
-  if (lang === "de" && LABEL_DE[key]) return LABEL_DE[key];
-  return key
+// Turn a Frigate identifier such as "front_door-cam" into "Front Door Cam".
+function humanizeIdentifier(value) {
+  return value
     .replace(/[_-]+/g, " ")
     .replace(/\s+/g, " ")
     .trim()
@@ -760,6 +758,12 @@ function translateLabel(label, lang) {
     .filter(Boolean)
     .map((part) => part.charAt(0).toUpperCase() + part.slice(1))
     .join(" ");
+}
+function translateLabel(label, lang) {
+  if (!label) return "";
+  const key = label.trim().toLowerCase();
+  if (lang === "de" && LABEL_DE[key]) return LABEL_DE[key];
+  return humanizeIdentifier(key);
 }
 
 const LABEL_ICONS = {
@@ -2953,14 +2957,7 @@ class FrigateVisionCard extends LitElement {
     if (!raw) return "";
     const entry = this._camEntry(raw);
     if (entry?.name) return entry.name;
-    return String(raw)
-      .replace(/[_-]+/g, " ")
-      .replace(/\s+/g, " ")
-      .trim()
-      .split(" ")
-      .filter(Boolean)
-      .map((part) => part.charAt(0).toUpperCase() + part.slice(1))
-      .join(" ");
+    return humanizeIdentifier(String(raw));
   }
 
   _go2rtcStreamFor(camId, hd) {
