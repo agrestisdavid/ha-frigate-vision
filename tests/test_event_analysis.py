@@ -529,6 +529,61 @@ class EventAnalysisTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(frigate.event_calls, 1)
         self.assertEqual(provider.calls, 0)
 
+    async def test_cached_description_skips_media_for_both_image_policies(
+        self,
+    ) -> None:
+        event = {
+            "id": self.event_id,
+            "camera": "driveway",
+            "start_time": 1720000000.5,
+            "data": {
+                "description": "Already described.",
+                "snapshot_frame_time": 1720000003.25,
+            },
+        }
+        for policy in ("event_snapshot", "recording_preferred"):
+            with self.subTest(policy=policy):
+                frigate = FakeFrigate([event], [jpeg()])
+                provider = FakeProvider(self.analysis)
+                runtime = (
+                    self.recording_runtime(frigate, provider)
+                    if policy == "recording_preferred"
+                    else self.runtime(frigate, provider)
+                )
+
+                result = await self.analysis.analyze_event(
+                    runtime,
+                    event_id=self.event_id,
+                    camera_entity=None,
+                    prompt="Describe.",
+                    store=True,
+                    force=False,
+                )
+
+                result.pop("duration_ms")
+                self.assertEqual(
+                    result,
+                    {
+                        "response_text": "Already described.",
+                        "event_id": self.event_id,
+                        "key_frame": f"/snapshot/{self.event_id}.jpg",
+                        "stored": False,
+                        "store_error": None,
+                        "cached": True,
+                        "image_source": None,
+                        "source_frame_time": 1720000003.25,
+                        "image_has_overlay": None,
+                        "sub_label": None,
+                        "sub_label_score": None,
+                    },
+                )
+                self.assertEqual(frigate.event_calls, 1)
+                self.assertEqual(frigate.recording_calls, 0)
+                self.assertEqual(frigate.clean_snapshot_calls, 0)
+                self.assertEqual(frigate.snapshot_calls, 0)
+                self.assertEqual(frigate.write_calls, 0)
+                self.assertEqual(provider.calls, 0)
+
     async def test_direct_image_result_has_null_sub_label_fields(self) -> None:
         runtime = self.runtime(FakeFrigate([{}], [jpeg()]), FakeProvider(self.analysis))
         with patch.object(
@@ -1804,6 +1859,47 @@ class ProviderTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(provider._session.calls, [])
 
 
+class UnreachableProviderTests(unittest.IsolatedAsyncioTestCase):
+    async def test_transport_errors_become_provider_errors_without_retry(self) -> None:
+        class FailingResponse:
+            def __init__(self, error: BaseException) -> None:
+                self.error = error
+
+            async def __aenter__(self):
+                raise self.error
+
+            async def __aexit__(self, _exc_type, _exc, _traceback):
+                return False
+
+        for error, message in (
+            (
+                ANALYSIS.ClientError("connection refused"),
+                "Der Modell-Endpunkt ist nicht erreichbar: connection refused",
+            ),
+            (
+                ANALYSIS.ClientResponseError(502),
+                "Der Modell-Endpunkt ist nicht erreichbar: 502",
+            ),
+            (
+                TimeoutError(),
+                "Die Analyse hat das Zeitlimit von 60 Sekunden überschritten.",
+            ),
+        ):
+            with self.subTest(error=type(error).__name__):
+                provider = ANALYSIS.OpenAICompatibleProvider(
+                    FakeHass(),
+                    {"endpoint": "https://model.example.test/v1", "model": "vision"},
+                )
+                provider._session = FakeSession(FailingResponse(error))
+
+                with self.assertRaises(ANALYSIS.ProviderError) as context:
+                    await provider.analyze(jpeg(), "Describe.")
+
+                self.assertEqual(str(context.exception), message)
+                self.assertIs(context.exception.__cause__, error)
+                self.assertEqual(len(provider._session.calls), 1)
+
+
 class AdapterTests(unittest.IsolatedAsyncioTestCase):
     @classmethod
     def setUpClass(cls) -> None:
@@ -1986,6 +2082,194 @@ class AdapterTests(unittest.IsolatedAsyncioTestCase):
     def test_non_image_content_is_a_permanent_source_error(self) -> None:
         with self.assertRaises(self.analysis.SourceError):
             self.analysis._prepare_jpeg(b"not-an-image", 1280)
+
+
+class RaisingResponse:
+    """A request whose response context raises before any status is read."""
+
+    def __init__(self, error: BaseException) -> None:
+        self.error = error
+
+    async def __aenter__(self):
+        raise self.error
+
+    async def __aexit__(self, _exc_type, _exc, _traceback):
+        return False
+
+
+class FrigateRequestErrorTests(unittest.IsolatedAsyncioTestCase):
+    """Pin the exact error mapping of every authenticated Frigate request."""
+
+    event_id = "example-event-id"
+    mb = 1024 * 1024
+    # name, source, request path, response limit, size label, "is" verb
+    requests = (
+        ("event", "Ereignisdaten", "api/events/example-event-id", 2, "sind"),
+        ("snapshot", "Snapshot", "api/events/example-event-id/snapshot.jpg", 25, "ist"),
+        (
+            "clean",
+            "Clean-Snapshot",
+            "api/events/example-event-id/snapshot-clean.webp",
+            25,
+            "ist",
+        ),
+        (
+            "recording",
+            "Recording-Snapshot",
+            "api/driveway/recordings/1720000000.500000/snapshot.jpg",
+            25,
+            "ist",
+        ),
+    )
+
+    def adapter(self, *responses):
+        adapter = ANALYSIS.FrigateAdapter(FakeHass(), FakeConfigEntry(), FakeClient())
+        adapter._session = FakeSession(*responses)
+        return adapter
+
+    async def fetch(self, name: str, adapter):
+        if name == "event":
+            return await adapter.get_event(self.event_id, timeout=3.0)
+        if name == "snapshot":
+            return await adapter.get_snapshot(self.event_id, timeout=3.0)
+        if name == "clean":
+            return await adapter.get_clean_snapshot(self.event_id, timeout=3.0)
+        return await adapter.get_recording_snapshot(
+            self.event_id, "driveway", 1720000000.5, timeout=3.0
+        )
+
+    async def assert_error(self, name, response, message, *, transient, status):
+        adapter = self.adapter(response)
+        with self.assertRaises(ANALYSIS.FrigateEventError) as context:
+            await self.fetch(name, adapter)
+        error = context.exception
+        self.assertEqual(str(error), message)
+        self.assertIs(type(error), ANALYSIS.FrigateEventError)
+        self.assertIs(error.transient, transient)
+        self.assertEqual(error.status, status)
+        self.assertEqual(len(adapter._session.calls), 1)
+        return error
+
+    async def test_requests_use_exact_route_auth_ssl_and_remaining_timeout(self):
+        for name, _source, path, _limit, _verb in self.requests:
+            with self.subTest(request=name):
+                body = b'{"id":"example-event-id"}' if name == "event" else jpeg()
+                adapter = self.adapter(FakeResponse(200, body))
+
+                await self.fetch(name, adapter)
+
+                url, kwargs = adapter._session.calls[0]
+                self.assertEqual(str(url), f"https://frigate.example.test/{path}")
+                self.assertEqual(kwargs["headers"], {"Authorization": "test-header"})
+                self.assertIs(kwargs["ssl"], False)
+                self.assertGreater(kwargs["timeout"].total, 2.5)
+                self.assertLessEqual(kwargs["timeout"].total, 3.0)
+
+    async def test_http_status_errors_are_classified_before_reading(self):
+        for name, source, _path, limit, _verb in self.requests:
+            prefix = f"{source} für Frigate-Ereignis {self.event_id}"
+            denied = (
+                f"Frigate hat den Zugriff auf {source} für Ereignis "
+                f"{self.event_id} abgelehnt"
+            )
+            for status, message, transient in (
+                (401, f"{denied} (HTTP 401).", False),
+                (403, f"{denied} (HTTP 403).", False),
+                (404, f"{prefix} ist noch nicht verfügbar.", True),
+                (410, f"{prefix} antwortete mit HTTP 410.", False),
+                (503, f"{prefix} antwortete mit HTTP 503.", True),
+            ):
+                with self.subTest(request=name, status=status):
+                    response = FakeResponse(status, b"error page")
+                    # The status wins even over an oversized error body.
+                    response.content_length = limit * self.mb + 1
+                    error = await self.assert_error(
+                        name, response, message, transient=transient, status=status
+                    )
+                    self.assertIsNone(error.__cause__)
+
+    async def test_client_response_errors_use_the_http_classification(self):
+        for name, source, _path, _limit, _verb in self.requests:
+            with self.subTest(request=name):
+                raised = ANALYSIS.ClientResponseError(502)
+                error = await self.assert_error(
+                    name,
+                    RaisingResponse(raised),
+                    f"{source} für Frigate-Ereignis {self.event_id} "
+                    "antwortete mit HTTP 502.",
+                    transient=True,
+                    status=502,
+                )
+                self.assertIs(error.__cause__, raised)
+
+    async def test_network_errors_and_timeouts_are_transient(self):
+        for name, source, _path, _limit, verb in self.requests:
+            for raised in (ANALYSIS.ClientError("reset"), TimeoutError()):
+                with self.subTest(request=name, error=type(raised).__name__):
+                    error = await self.assert_error(
+                        name,
+                        RaisingResponse(raised),
+                        f"{source} für Frigate-Ereignis {self.event_id} "
+                        f"{verb} vorübergehend nicht erreichbar.",
+                        transient=True,
+                        status=None,
+                    )
+                    self.assertIs(error.__cause__, raised)
+
+    async def test_declared_and_streamed_bodies_over_the_limit_are_permanent(self):
+        for name, source, _path, limit, _verb in self.requests:
+            message = (
+                f"{source} für Frigate-Ereignis {self.event_id} "
+                f"überschreitet die erlaubte Größe von {limit} MB."
+            )
+            declared = FakeResponse(200, b"{}")
+            declared.content_length = limit * self.mb + 1
+            streamed = FakeResponse(200, bytes(limit * self.mb + 1))
+            streamed.content_length = None
+            for kind, response in (("declared", declared), ("streamed", streamed)):
+                with self.subTest(request=name, body=kind):
+                    await self.assert_error(
+                        name, response, message, transient=False, status=None
+                    )
+
+    async def test_bodies_at_the_exact_limit_are_accepted(self):
+        for name, _source, _path, limit, _verb in self.requests:
+            with self.subTest(request=name):
+                size = limit * self.mb
+                if name == "event":
+                    head = b'{"id":"example-event-id","pad":"'
+                    body = head + b"x" * (size - len(head) - 2) + b'"}'
+                else:
+                    body = b"x" * size
+                self.assertEqual(len(body), size)
+                response = FakeResponse(200, body)
+                response.content_length = None
+
+                result = await self.fetch(name, self.adapter(response))
+
+                if name == "event":
+                    self.assertEqual(result["id"], self.event_id)
+                else:
+                    self.assertEqual(len(result), size)
+
+    async def test_only_binary_requests_reject_an_empty_body_as_transient(self):
+        for name, source, _path, _limit, _verb in self.requests[1:]:
+            with self.subTest(request=name):
+                await self.assert_error(
+                    name,
+                    FakeResponse(200, b""),
+                    f"{source} für Frigate-Ereignis {self.event_id} ist noch leer.",
+                    transient=True,
+                    status=None,
+                )
+        await self.assert_error(
+            "event",
+            FakeResponse(200, b""),
+            f"Frigate lieferte für Ereignis {self.event_id} keine gültigen "
+            "Ereignisdaten.",
+            transient=False,
+            status=None,
+        )
 
 
 if __name__ == "__main__":

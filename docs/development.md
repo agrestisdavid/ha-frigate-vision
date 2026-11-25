@@ -255,6 +255,18 @@ stable-only; never describe manual checks as already completed.
 Never publish a release from manually copied Home Assistant files. Subsequent
 fixes should use a new GitHub tag and HACS version.
 
+## Version 0.5.1
+
+- Internal cleanup without changed behavior: remove unused Card styles and
+  strings, and share duplicated code for native HLS and progressive MP4
+  live starts, label and camera name formatting, event single-flight
+  handling and authenticated Frigate requests.
+- Add tests for these paths, Frigate request errors, diagnostics redaction
+  and invalid stored go2rtc overrides.
+- No change to configuration, entities, services, events, the Card or the
+  notification Blueprint. Update in HACS and restart HA; no Blueprint
+  re-import or configuration migration is required from 0.5.0.
+
 ## Version 0.4.0
 
 - [PTZ](card.md#ptz-button) in WebRTC and MSE live views: show the supported

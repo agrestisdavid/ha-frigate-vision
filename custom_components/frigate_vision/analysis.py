@@ -8,12 +8,12 @@ import json
 import logging
 import math
 import mimetypes
-from collections.abc import Iterator
+from collections.abc import Callable, Coroutine, Iterator
 from dataclasses import dataclass, field
 from io import BytesIO
 from pathlib import Path
 from time import monotonic
-from typing import Any, TypeVar
+from typing import Any, NamedTuple, TypeVar
 
 from aiohttp import ClientError, ClientResponse, ClientResponseError, ClientTimeout
 from homeassistant.components import media_source
@@ -81,6 +81,7 @@ IMMEDIATE_SOURCE_ATTEMPT_TIMEOUT = 1.0
 EVENT_METADATA_REFRESH_TIMEOUT = 5.0
 TRANSIENT_SOURCE_STATUSES = frozenset({404, 408, 425, 429, *range(500, 600)})
 _FlightKey = TypeVar("_FlightKey")
+_FlightResult = TypeVar("_FlightResult")
 
 
 class FrigateVisionError(Exception):
@@ -237,7 +238,7 @@ def _bounded_video_frames(
 ) -> list[tuple[float, bytes]]:
     """Validate already-normalized frames before building the provider request."""
     encoded_total = 0
-    for relative_time, image_bytes in frames:
+    for _relative_time, image_bytes in frames:
         if not image_bytes:
             raise SourceError("Die Videosequenz enthält einen leeren Frame.")
         encoded_total += _base64_size(len(image_bytes))
@@ -383,7 +384,7 @@ class OpenAICompatibleProvider:
                 f"Die Analyse hat das Zeitlimit von {request_timeout} Sekunden "
                 "überschritten."
             ) from err
-        except (ClientResponseError, ClientError) as err:
+        except ClientError as err:
             raise ProviderError(
                 f"Der Modell-Endpunkt ist nicht erreichbar: {err}"
             ) from err
@@ -524,39 +525,15 @@ class FrigateAdapter:
         timeout: float = MAX_SOURCE_ATTEMPT_TIMEOUT,
     ) -> dict[str, Any]:
         """Fetch one exact event through a quiet authenticated request."""
-        source = "Ereignisdaten"
-        started = monotonic()
-        headers = await self._auth_headers(source, event_id, timeout)
-        request_timeout = max(0.001, timeout - (monotonic() - started))
-        validate_ssl = getattr(self._client, "validate_ssl", True)
-        url = self._url(f"api/events/{event_id}")
-        try:
-            async with self._session.get(
-                url,
-                headers=headers,
-                ssl=validate_ssl,
-                timeout=ClientTimeout(total=request_timeout),
-            ) as response:
-                if response.status >= 400:
-                    raise self._http_error(source, event_id, response.status)
-                body = await _read_limited_response(
-                    response,
-                    FrigateEventError,
-                    f"Ereignisdaten für Frigate-Ereignis {event_id}",
-                    max_bytes=MAX_EVENT_RESPONSE_BYTES,
-                    size_label="2 MB",
-                )
-        except FrigateEventError:
-            raise
-        except ClientResponseError as err:
-            raise self._http_error(source, event_id, err.status) from err
-        except (TimeoutError, ClientError) as err:
-            raise FrigateEventError(
-                f"Ereignisdaten für Frigate-Ereignis {event_id} sind "
-                "vorübergehend nicht erreichbar.",
-                transient=True,
-            ) from err
-
+        body = await self._get_bounded(
+            path=f"api/events/{event_id}",
+            source="Ereignisdaten",
+            event_id=event_id,
+            timeout=timeout,
+            max_bytes=MAX_EVENT_RESPONSE_BYTES,
+            size_label="2 MB",
+            unreachable_verb="sind",
+        )
         try:
             event = json.loads(body)
         except (ValueError, UnicodeDecodeError) as err:
@@ -633,6 +610,34 @@ class FrigateAdapter:
         size_label: str,
     ) -> bytes:
         """Fetch one authenticated bounded Frigate image."""
+        data = await self._get_bounded(
+            path=path,
+            source=source,
+            event_id=event_id,
+            timeout=timeout,
+            max_bytes=max_bytes,
+            size_label=size_label,
+            unreachable_verb="ist",
+        )
+        if not data:
+            raise FrigateEventError(
+                f"{source} für Frigate-Ereignis {event_id} ist noch leer.",
+                transient=True,
+            )
+        return data
+
+    async def _get_bounded(
+        self,
+        *,
+        path: str,
+        source: str,
+        event_id: str,
+        timeout: float,
+        max_bytes: int,
+        size_label: str,
+        unreachable_verb: str,
+    ) -> bytes:
+        """Fetch one authenticated, size-bounded Frigate response body."""
         started = monotonic()
         headers = await self._auth_headers(source, event_id, timeout)
         request_timeout = max(0.001, timeout - (monotonic() - started))
@@ -660,15 +665,10 @@ class FrigateAdapter:
             raise self._http_error(source, event_id, err.status) from err
         except (TimeoutError, ClientError) as err:
             raise FrigateEventError(
-                f"{source} für Frigate-Ereignis {event_id} ist "
+                f"{source} für Frigate-Ereignis {event_id} {unreachable_verb} "
                 "vorübergehend nicht erreichbar.",
                 transient=True,
             ) from err
-        if not data:
-            raise FrigateEventError(
-                f"{source} für Frigate-Ereignis {event_id} ist noch leer.",
-                transient=True,
-            )
         return data
 
     async def set_description(self, event_id: str, description: str) -> None:
@@ -881,6 +881,29 @@ async def _refresh_event_sub_label(
     return _event_sub_label_result(event)
 
 
+class _EventSnapshot(NamedTuple):
+    """Acquired event image, or Frigate's cached description instead of one."""
+
+    event: dict[str, Any]
+    image: bytes | None
+    cached_description: str
+    image_source: str | None
+    frame_time: float | None
+    image_has_overlay: bool | None
+
+    @classmethod
+    def cached(cls, event: dict[str, Any], description: str) -> _EventSnapshot:
+        """Return a result that reuses the stored description without an image."""
+        return cls(
+            event=event,
+            image=None,
+            cached_description=description,
+            image_source=None,
+            frame_time=event_frame_time(event),
+            image_has_overlay=None,
+        )
+
+
 async def _sleep_for_retry(attempt: int, deadline: float) -> None:
     remaining = deadline - monotonic()
     if remaining <= 0:
@@ -896,14 +919,7 @@ async def _wait_for_detect_snapshot(
     force: bool,
     deadline: float,
     timeout_seconds: float,
-) -> tuple[
-    dict[str, Any],
-    bytes | None,
-    str,
-    str | None,
-    float | None,
-    bool | None,
-]:
+) -> _EventSnapshot:
     """Prefer a clean event snapshot, then use the annotated snapshot."""
     attempt = 0
     last_error: FrigateEventError | None = None
@@ -916,14 +932,7 @@ async def _wait_for_detect_snapshot(
             )
             cached_description = event_description(event)
             if cached_description and not force:
-                return (
-                    event,
-                    None,
-                    cached_description,
-                    None,
-                    event_frame_time(event),
-                    None,
-                )
+                return _EventSnapshot.cached(event, cached_description)
 
             if monotonic() >= deadline:
                 break
@@ -943,13 +952,13 @@ async def _wait_for_detect_snapshot(
                     timeout=_source_attempt_timeout(deadline),
                 )
                 image_has_overlay = True
-            return (
-                event,
-                snapshot,
-                "",
-                IMAGE_SOURCE_EVENT_SNAPSHOT,
-                event_frame_time(event),
-                image_has_overlay,
+            return _EventSnapshot(
+                event=event,
+                image=snapshot,
+                cached_description="",
+                image_source=IMAGE_SOURCE_EVENT_SNAPSHOT,
+                frame_time=event_frame_time(event),
+                image_has_overlay=image_has_overlay,
             )
         except FrigateEventError as err:
             if not err.transient:
@@ -975,14 +984,7 @@ async def _wait_for_recording_snapshot(
     event_id: str,
     force: bool,
     wait_timeout: float,
-) -> tuple[
-    dict[str, Any],
-    bytes | None,
-    str,
-    str | None,
-    float | None,
-    bool | None,
-]:
+) -> _EventSnapshot:
     """Prefer a recording-role frame, then use event-snapshot fallbacks."""
     deadline = monotonic() + max(0.0, wait_timeout)
     attempt = 0
@@ -1001,14 +1003,7 @@ async def _wait_for_recording_snapshot(
             )
             cached_description = event_description(event)
             if cached_description and not force:
-                return (
-                    event,
-                    None,
-                    cached_description,
-                    None,
-                    event_frame_time(event),
-                    None,
-                )
+                return _EventSnapshot.cached(event, cached_description)
 
             camera = event_camera(event)
             frame_time = event_frame_time(event)
@@ -1023,13 +1018,13 @@ async def _wait_for_recording_snapshot(
                     allow_expired_attempt=allow_immediate_attempt,
                 ),
             )
-            return (
-                event,
-                snapshot,
-                "",
-                IMAGE_SOURCE_RECORDING,
-                frame_time,
-                False,
+            return _EventSnapshot(
+                event=event,
+                image=snapshot,
+                cached_description="",
+                image_source=IMAGE_SOURCE_RECORDING,
+                frame_time=frame_time,
+                image_has_overlay=False,
             )
         except FrigateAuthenticationError:
             raise
@@ -1058,14 +1053,7 @@ async def _acquire_event_snapshot(
     *,
     event_id: str,
     force: bool,
-) -> tuple[
-    dict[str, Any],
-    bytes | None,
-    str,
-    str | None,
-    float | None,
-    bool | None,
-]:
+) -> _EventSnapshot:
     """Acquire an event image according to the config-entry source policy."""
     config = merged_config(runtime.entry)
     source = str(config.get(CONF_EVENT_IMAGE_SOURCE, DEFAULT_EVENT_IMAGE_SOURCE))
@@ -1446,6 +1434,24 @@ def _finish_flight(
         pass
 
 
+async def _join_flight(
+    runtime: RuntimeData,
+    flights: dict[_FlightKey, asyncio.Task[_FlightResult]],
+    key: _FlightKey,
+    start: Callable[[], Coroutine[Any, Any, _FlightResult]],
+    name: str,
+) -> _FlightResult:
+    """Share one entry-bound task per key; a cancelled caller leaves it running."""
+    task = flights.get(key)
+    if task is None:
+        task = _create_entry_task(runtime, start(), name)
+        flights[key] = task
+        task.add_done_callback(
+            lambda completed: _finish_flight(flights, key, completed)
+        )
+    return await asyncio.shield(task)
+
+
 async def _write_description_confirmed(
     runtime: RuntimeData,
     event_id: str,
@@ -1475,23 +1481,13 @@ async def _store_description_once(
     description: str,
 ) -> None:
     """Join an identical write without conflating forced analysis results."""
-    write_key = (event_id, description)
-    task = runtime.event_write_flights.get(write_key)
-    if task is None:
-        task = _create_entry_task(
-            runtime,
-            _write_description_confirmed(runtime, event_id, description),
-            f"Frigate Vision store event {event_id}",
-        )
-        runtime.event_write_flights[write_key] = task
-        task.add_done_callback(
-            lambda completed: _finish_flight(
-                runtime.event_write_flights,
-                write_key,
-                completed,
-            )
-        )
-    await asyncio.shield(task)
+    await _join_flight(
+        runtime,
+        runtime.event_write_flights,
+        (event_id, description),
+        lambda: _write_description_confirmed(runtime, event_id, description),
+        f"Frigate Vision store event {event_id}",
+    )
 
 
 async def _store_analysis_result(
@@ -1536,28 +1532,19 @@ async def analyze_event(
             force=True,
         )
     else:
-        task = runtime.event_flights.get(event_id)
-        if task is None:
-            task = _create_entry_task(
+        result = await _join_flight(
+            runtime,
+            runtime.event_flights,
+            event_id,
+            lambda: _analyze_event_once(
                 runtime,
-                _analyze_event_once(
-                    runtime,
-                    event_id=event_id,
-                    camera_entity=camera_entity,
-                    prompt=prompt,
-                    force=False,
-                ),
-                f"Frigate Vision analyze event {event_id}",
-            )
-            runtime.event_flights[event_id] = task
-            task.add_done_callback(
-                lambda completed: _finish_flight(
-                    runtime.event_flights,
-                    event_id,
-                    completed,
-                )
-            )
-        result = await asyncio.shield(task)
+                event_id=event_id,
+                camera_entity=camera_entity,
+                prompt=prompt,
+                force=False,
+            ),
+            f"Frigate Vision analyze event {event_id}",
+        )
 
     stored = False
     store_error = None
@@ -1610,29 +1597,20 @@ async def analyze_event_video(
         duration_seconds,
         pre_seconds,
     )
-    task = runtime.event_video_flights.get(flight_key)
-    if task is None:
-        task = _create_entry_task(
+    result = await _join_flight(
+        runtime,
+        runtime.event_video_flights,
+        flight_key,
+        lambda: _analyze_event_video_once(
             runtime,
-            _analyze_event_video_once(
-                runtime,
-                event_id=event_id,
-                camera_entity=camera_entity,
-                prompt=prompt,
-                duration_seconds=duration_seconds,
-                pre_seconds=pre_seconds,
-            ),
-            f"Frigate Vision analyze event video {event_id}",
-        )
-        runtime.event_video_flights[flight_key] = task
-        task.add_done_callback(
-            lambda completed: _finish_flight(
-                runtime.event_video_flights,
-                flight_key,
-                completed,
-            )
-        )
-    result = await asyncio.shield(task)
+            event_id=event_id,
+            camera_entity=camera_entity,
+            prompt=prompt,
+            duration_seconds=duration_seconds,
+            pre_seconds=pre_seconds,
+        ),
+        f"Frigate Vision analyze event video {event_id}",
+    )
 
     stored = False
     store_error = None

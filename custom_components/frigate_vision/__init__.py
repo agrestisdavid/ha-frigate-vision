@@ -314,22 +314,23 @@ def _register_services(hass: HomeAssistant) -> None:
     )
 
 
+def _card_go2rtc_url(config: Mapping[str, Any], key: str) -> str | None:
+    """Return a stored go2rtc override only when it is still a valid URL."""
+    value = str(config.get(key, "")).strip()
+    if not value:
+        return None
+    try:
+        return validate_go2rtc_url(value) or None
+    except ValueError:
+        return None
+
+
 def _profile_for_runtime(runtime: RuntimeData) -> dict[str, Any]:
     config = merged_config(runtime.entry)
-    internal = str(config.get(CONF_GO2RTC_URL, "")).strip()
-    external = str(config.get(CONF_GO2RTC_URL_EXTERNAL, "")).strip()
-    try:
-        internal = validate_go2rtc_url(internal) if internal else ""
-    except ValueError:
-        internal = ""
-    try:
-        external = validate_go2rtc_url(external) if external else ""
-    except ValueError:
-        external = ""
     return {
         "frigate_client_id": runtime.frigate.instance_id,
-        "go2rtc_url": internal or None,
-        "go2rtc_url_external": external or None,
+        "go2rtc_url": _card_go2rtc_url(config, CONF_GO2RTC_URL),
+        "go2rtc_url_external": _card_go2rtc_url(config, CONF_GO2RTC_URL_EXTERNAL),
         "go2rtc_modes": sanitize_go2rtc_modes(str(config.get(CONF_GO2RTC_MODES, ""))),
     }
 

@@ -9,6 +9,7 @@ from homeassistant.config_entries import ConfigEntry
 from homeassistant.core import HomeAssistant
 
 from .const import (
+    ATTR_RUNTIME_ENTRIES,
     CONF_API_KEY,
     CONF_ENDPOINT,
     CONF_FRIGATE_ENTRY_ID,
@@ -36,5 +37,5 @@ async def async_get_config_entry_diagnostics(
         "data": async_redact_data(dict(entry.data), TO_REDACT),
         "options": async_redact_data(dict(entry.options), TO_REDACT),
         "runtime_loaded": entry.entry_id
-        in hass.data.get(DOMAIN, {}).get("entries", {}),
+        in hass.data.get(DOMAIN, {}).get(ATTR_RUNTIME_ENTRIES, {}),
     }

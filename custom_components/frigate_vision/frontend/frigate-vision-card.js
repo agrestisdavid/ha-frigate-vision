@@ -1,4 +1,4 @@
-const CARD_VERSION = "0.5.0";
+const CARD_VERSION = "0.5.1";
 
 const VALID_LIVE_PROVIDERS = ["auto", "go2rtc", "mjpeg", "off"];
 const VALID_GO2RTC_MODES = ["webrtc", "mse", "mp4", "hls", "mjpeg"];
@@ -26,12 +26,9 @@ const STRINGS = {
     close: "Schließen",
     select_to_play: "Wähle einen Event, um den Clip abzuspielen",
     no_description: "– keine Beschreibung –",
-    clip_failed: "Clip konnte nicht geladen werden",
     clip_no_recording: "Für dieses Event ist in Frigate kein Clip verfügbar (keine Aufnahme für dieses Zeitfenster).",
-    event_label: "Event",
     all_labels: "Alle Labels",
     all_cameras: "Alle Kameras",
-    all_dates: "Alle Tage",
     labels_plural: "Labels",
     cameras_plural: "Kameras",
     filter_today: "Heute",
@@ -65,9 +62,6 @@ const STRINGS = {
     timeline_failed: "Aufnahme konnte nicht geladen werden",
     timeline_zoom_in: "Hineinzoomen",
     timeline_zoom_out: "Herauszoomen",
-    timeline_zoom_reset: "Zoom zurücksetzen",
-    view_events: "Events",
-    view_timeline: "Timeline",
   },
   en: {
     title: "Frigate Timeline",
@@ -80,12 +74,9 @@ const STRINGS = {
     close: "Close",
     select_to_play: "Select an event to play the clip",
     no_description: "– no description –",
-    clip_failed: "Could not load clip",
     clip_no_recording: "No clip available in Frigate for this event (no recording for this time range).",
-    event_label: "Event",
     all_labels: "All labels",
     all_cameras: "All cameras",
-    all_dates: "All days",
     labels_plural: "labels",
     cameras_plural: "cameras",
     filter_today: "Today",
@@ -119,9 +110,6 @@ const STRINGS = {
     timeline_failed: "Could not load recording",
     timeline_zoom_in: "Zoom in",
     timeline_zoom_out: "Zoom out",
-    timeline_zoom_reset: "Reset zoom",
-    view_events: "Events",
-    view_timeline: "Timeline",
   },
   fr: {
     title: "Chronologie Frigate",
@@ -134,12 +122,9 @@ const STRINGS = {
     close: "Fermer",
     select_to_play: "Sélectionnez un événement pour lire le clip",
     no_description: "– aucune description –",
-    clip_failed: "Impossible de charger le clip",
     clip_no_recording: "Aucun clip disponible dans Frigate pour cet événement (aucun enregistrement pour cette période).",
-    event_label: "Événement",
     all_labels: "Toutes les étiquettes",
     all_cameras: "Toutes les caméras",
-    all_dates: "Tous les jours",
     labels_plural: "étiquettes",
     cameras_plural: "caméras",
     filter_today: "Aujourd'hui",
@@ -159,9 +144,6 @@ const STRINGS = {
     timeline_failed: "Impossible de charger l'enregistrement",
     timeline_zoom_in: "Zoom avant",
     timeline_zoom_out: "Zoom arrière",
-    timeline_zoom_reset: "Réinitialiser le zoom",
-    view_events: "Événements",
-    view_timeline: "Chronologie",
   },
   es: {
     title: "Cronología de Frigate",
@@ -174,12 +156,9 @@ const STRINGS = {
     close: "Cerrar",
     select_to_play: "Selecciona un evento para reproducir el clip",
     no_description: "– sin descripción –",
-    clip_failed: "No se pudo cargar el clip",
     clip_no_recording: "No hay clip disponible en Frigate para este evento (no hay grabación para este intervalo).",
-    event_label: "Evento",
     all_labels: "Todas las etiquetas",
     all_cameras: "Todas las cámaras",
-    all_dates: "Todos los días",
     labels_plural: "etiquetas",
     cameras_plural: "cámaras",
     filter_today: "Hoy",
@@ -199,9 +178,6 @@ const STRINGS = {
     timeline_failed: "No se pudo cargar la grabación",
     timeline_zoom_in: "Acercar",
     timeline_zoom_out: "Alejar",
-    timeline_zoom_reset: "Restablecer zoom",
-    view_events: "Eventos",
-    view_timeline: "Cronología",
   },
   da: {
     title: "Frigate-tidslinje",
@@ -214,12 +190,9 @@ const STRINGS = {
     close: "Luk",
     select_to_play: "Vælg en hændelse for at afspille klippet",
     no_description: "– ingen beskrivelse –",
-    clip_failed: "Kunne ikke indlæse klippet",
     clip_no_recording: "Intet klip tilgængeligt i Frigate for denne hændelse (ingen optagelse for dette tidsrum).",
-    event_label: "Hændelse",
     all_labels: "Alle etiketter",
     all_cameras: "Alle kameraer",
-    all_dates: "Alle dage",
     labels_plural: "etiketter",
     cameras_plural: "kameraer",
     filter_today: "I dag",
@@ -239,9 +212,6 @@ const STRINGS = {
     timeline_failed: "Kunne ikke indlæse optagelsen",
     timeline_zoom_in: "Zoom ind",
     timeline_zoom_out: "Zoom ud",
-    timeline_zoom_reset: "Nulstil zoom",
-    view_events: "Hændelser",
-    view_timeline: "Tidslinje",
   },
   nl: {
     title: "Frigate-tijdlijn",
@@ -254,12 +224,9 @@ const STRINGS = {
     close: "Sluiten",
     select_to_play: "Selecteer een gebeurtenis om de clip af te spelen",
     no_description: "– geen beschrijving –",
-    clip_failed: "Kon clip niet laden",
     clip_no_recording: "Geen clip beschikbaar in Frigate voor deze gebeurtenis (geen opname voor dit tijdvak).",
-    event_label: "Gebeurtenis",
     all_labels: "Alle labels",
     all_cameras: "Alle camera's",
-    all_dates: "Alle dagen",
     labels_plural: "labels",
     cameras_plural: "camera's",
     filter_today: "Vandaag",
@@ -279,9 +246,6 @@ const STRINGS = {
     timeline_failed: "Kon opname niet laden",
     timeline_zoom_in: "Inzoomen",
     timeline_zoom_out: "Uitzoomen",
-    timeline_zoom_reset: "Zoom resetten",
-    view_events: "Gebeurtenissen",
-    view_timeline: "Tijdlijn",
   },
   sv: {
     title: "Frigate-tidslinje",
@@ -294,12 +258,9 @@ const STRINGS = {
     close: "Stäng",
     select_to_play: "Välj en händelse för att spela upp klippet",
     no_description: "– ingen beskrivning –",
-    clip_failed: "Kunde inte läsa in klippet",
     clip_no_recording: "Inget klipp tillgängligt i Frigate för denna händelse (ingen inspelning för detta tidsintervall).",
-    event_label: "Händelse",
     all_labels: "Alla etiketter",
     all_cameras: "Alla kameror",
-    all_dates: "Alla dagar",
     labels_plural: "etiketter",
     cameras_plural: "kameror",
     filter_today: "Idag",
@@ -319,9 +280,6 @@ const STRINGS = {
     timeline_failed: "Kunde inte läsa in inspelningen",
     timeline_zoom_in: "Zooma in",
     timeline_zoom_out: "Zooma ut",
-    timeline_zoom_reset: "Återställ zoom",
-    view_events: "Händelser",
-    view_timeline: "Tidslinje",
   },
   no: {
     title: "Frigate-tidslinje",
@@ -334,12 +292,9 @@ const STRINGS = {
     close: "Lukk",
     select_to_play: "Velg en hendelse for å spille av klippet",
     no_description: "– ingen beskrivelse –",
-    clip_failed: "Kunne ikke laste inn klippet",
     clip_no_recording: "Ingen klipp tilgjengelig i Frigate for denne hendelsen (ingen opptak for dette tidsrommet).",
-    event_label: "Hendelse",
     all_labels: "Alle etiketter",
     all_cameras: "Alle kameraer",
-    all_dates: "Alle dager",
     labels_plural: "etiketter",
     cameras_plural: "kameraer",
     filter_today: "I dag",
@@ -359,9 +314,6 @@ const STRINGS = {
     timeline_failed: "Kunne ikke laste inn opptaket",
     timeline_zoom_in: "Zoom inn",
     timeline_zoom_out: "Zoom ut",
-    timeline_zoom_reset: "Tilbakestill zoom",
-    view_events: "Hendelser",
-    view_timeline: "Tidslinje",
   },
   fi: {
     title: "Frigate-aikajana",
@@ -374,12 +326,9 @@ const STRINGS = {
     close: "Sulje",
     select_to_play: "Valitse tapahtuma toistaaksesi leikkeen",
     no_description: "– ei kuvausta –",
-    clip_failed: "Leikettä ei voitu ladata",
     clip_no_recording: "Frigatessa ei ole leikettä tälle tapahtumalle (ei tallennetta tälle aikavälille).",
-    event_label: "Tapahtuma",
     all_labels: "Kaikki tunnisteet",
     all_cameras: "Kaikki kamerat",
-    all_dates: "Kaikki päivät",
     labels_plural: "tunnisteet",
     cameras_plural: "kamerat",
     filter_today: "Tänään",
@@ -399,9 +348,6 @@ const STRINGS = {
     timeline_failed: "Tallennetta ei voitu ladata",
     timeline_zoom_in: "Lähennä",
     timeline_zoom_out: "Loitonna",
-    timeline_zoom_reset: "Nollaa zoomaus",
-    view_events: "Tapahtumat",
-    view_timeline: "Aikajana",
   },
   pl: {
     title: "Oś czasu Frigate",
@@ -414,12 +360,9 @@ const STRINGS = {
     close: "Zamknij",
     select_to_play: "Wybierz zdarzenie, aby odtworzyć klip",
     no_description: "– brak opisu –",
-    clip_failed: "Nie można załadować klipu",
     clip_no_recording: "Brak klipu w Frigate dla tego zdarzenia (brak nagrania dla tego zakresu czasu).",
-    event_label: "Zdarzenie",
     all_labels: "Wszystkie etykiety",
     all_cameras: "Wszystkie kamery",
-    all_dates: "Wszystkie dni",
     labels_plural: "etykiety",
     cameras_plural: "kamery",
     filter_today: "Dzisiaj",
@@ -439,9 +382,6 @@ const STRINGS = {
     timeline_failed: "Nie można załadować nagrania",
     timeline_zoom_in: "Powiększ",
     timeline_zoom_out: "Pomniejsz",
-    timeline_zoom_reset: "Resetuj zoom",
-    view_events: "Zdarzenia",
-    view_timeline: "Oś czasu",
   },
   sr: {
     title: "Frigate vremenska linija",
@@ -454,12 +394,9 @@ const STRINGS = {
     close: "Zatvori",
     select_to_play: "Izaberite događaj za reprodukciju klipa",
     no_description: "– nema opisa –",
-    clip_failed: "Klip nije moguće učitati",
     clip_no_recording: "Nema dostupnog klipa u Frigate-u za ovaj događaj (nema snimka za ovaj vremenski opseg).",
-    event_label: "Događaj",
     all_labels: "Sve oznake",
     all_cameras: "Sve kamere",
-    all_dates: "Svi dani",
     labels_plural: "oznake",
     cameras_plural: "kamere",
     filter_today: "Danas",
@@ -479,9 +416,6 @@ const STRINGS = {
     timeline_failed: "Snimak nije moguće učitati",
     timeline_zoom_in: "Uvećaj",
     timeline_zoom_out: "Umanji",
-    timeline_zoom_reset: "Resetuj zum",
-    view_events: "Događaji",
-    view_timeline: "Vremenska linija",
   },
   ru: {
     title: "Хронология Frigate",
@@ -494,12 +428,9 @@ const STRINGS = {
     close: "Закрыть",
     select_to_play: "Выберите событие, чтобы воспроизвести клип",
     no_description: "– нет описания –",
-    clip_failed: "Не удалось загрузить клип",
     clip_no_recording: "В Frigate нет клипа для этого события (нет записи за этот промежуток времени).",
-    event_label: "Событие",
     all_labels: "Все метки",
     all_cameras: "Все камеры",
-    all_dates: "Все дни",
     labels_plural: "метки",
     cameras_plural: "камеры",
     filter_today: "Сегодня",
@@ -519,9 +450,6 @@ const STRINGS = {
     timeline_failed: "Не удалось загрузить запись",
     timeline_zoom_in: "Увеличить",
     timeline_zoom_out: "Уменьшить",
-    timeline_zoom_reset: "Сбросить масштаб",
-    view_events: "События",
-    view_timeline: "Хронология",
   },
   tr: {
     title: "Frigate Zaman Çizelgesi",
@@ -534,12 +462,9 @@ const STRINGS = {
     close: "Kapat",
     select_to_play: "Klibi oynatmak için bir olay seçin",
     no_description: "– açıklama yok –",
-    clip_failed: "Klip yüklenemedi",
     clip_no_recording: "Bu olay için Frigate'te klip yok (bu zaman aralığı için kayıt yok).",
-    event_label: "Olay",
     all_labels: "Tüm etiketler",
     all_cameras: "Tüm kameralar",
-    all_dates: "Tüm günler",
     labels_plural: "etiketler",
     cameras_plural: "kameralar",
     filter_today: "Bugün",
@@ -559,9 +484,6 @@ const STRINGS = {
     timeline_failed: "Kayıt yüklenemedi",
     timeline_zoom_in: "Yakınlaştır",
     timeline_zoom_out: "Uzaklaştır",
-    timeline_zoom_reset: "Yakınlaştırmayı sıfırla",
-    view_events: "Olaylar",
-    view_timeline: "Zaman çizelgesi",
   },
   el: {
     title: "Χρονολόγιο Frigate",
@@ -574,12 +496,9 @@ const STRINGS = {
     close: "Κλείσιμο",
     select_to_play: "Επιλέξτε ένα συμβάν για αναπαραγωγή του κλιπ",
     no_description: "– καμία περιγραφή –",
-    clip_failed: "Δεν ήταν δυνατή η φόρτωση του κλιπ",
     clip_no_recording: "Δεν υπάρχει διαθέσιμο κλιπ στο Frigate για αυτό το συμβάν (δεν υπάρχει εγγραφή για αυτό το χρονικό διάστημα).",
-    event_label: "Συμβάν",
     all_labels: "Όλες οι ετικέτες",
     all_cameras: "Όλες οι κάμερες",
-    all_dates: "Όλες οι ημέρες",
     labels_plural: "ετικέτες",
     cameras_plural: "κάμερες",
     filter_today: "Σήμερα",
@@ -599,9 +518,6 @@ const STRINGS = {
     timeline_failed: "Δεν ήταν δυνατή η φόρτωση της εγγραφής",
     timeline_zoom_in: "Μεγέθυνση",
     timeline_zoom_out: "Σμίκρυνση",
-    timeline_zoom_reset: "Επαναφορά ζουμ",
-    view_events: "Συμβάντα",
-    view_timeline: "Χρονολόγιο",
   },
   pt: {
     title: "Linha do tempo do Frigate",
@@ -614,12 +530,9 @@ const STRINGS = {
     close: "Fechar",
     select_to_play: "Selecione um evento para reproduzir o clipe",
     no_description: "– sem descrição –",
-    clip_failed: "Não foi possível carregar o clipe",
     clip_no_recording: "Nenhum clipe disponível no Frigate para este evento (sem gravação para este intervalo de tempo).",
-    event_label: "Evento",
     all_labels: "Todas as etiquetas",
     all_cameras: "Todas as câmeras",
-    all_dates: "Todos os dias",
     labels_plural: "etiquetas",
     cameras_plural: "câmeras",
     filter_today: "Hoje",
@@ -639,9 +552,6 @@ const STRINGS = {
     timeline_failed: "Não foi possível carregar a gravação",
     timeline_zoom_in: "Aumentar zoom",
     timeline_zoom_out: "Diminuir zoom",
-    timeline_zoom_reset: "Redefinir zoom",
-    view_events: "Eventos",
-    view_timeline: "Linha do tempo",
   },
 };
 
@@ -838,11 +748,9 @@ const LABEL_DE = {
   fedex: "FedEx",
   usps: "USPS",
 };
-function translateLabel(label, lang) {
-  if (!label) return "";
-  const key = label.trim().toLowerCase();
-  if (lang === "de" && LABEL_DE[key]) return LABEL_DE[key];
-  return key
+// Turn a Frigate identifier such as "front_door-cam" into "Front Door Cam".
+function humanizeIdentifier(value) {
+  return value
     .replace(/[_-]+/g, " ")
     .replace(/\s+/g, " ")
     .trim()
@@ -850,6 +758,12 @@ function translateLabel(label, lang) {
     .filter(Boolean)
     .map((part) => part.charAt(0).toUpperCase() + part.slice(1))
     .join(" ");
+}
+function translateLabel(label, lang) {
+  if (!label) return "";
+  const key = label.trim().toLowerCase();
+  if (lang === "de" && LABEL_DE[key]) return LABEL_DE[key];
+  return humanizeIdentifier(key);
 }
 
 const LABEL_ICONS = {
@@ -2147,57 +2061,7 @@ class LivestreamController extends Go2rtcSession {
     if (!this._hlsNativeSupported()) throw new Error("HLS native not supported in this browser");
     const url = this._hlsStreamPath(name);
     this._checkMixedContent(url);
-    return new Promise((resolve, reject) => {
-      this._setState({ provider: "hls" });
-      let done = false;
-      let el = null;
-      let unregisterCancel = () => {};
-      const cleanup = () => {
-        clearTimeout(timeout);
-        if (el) {
-          el.removeEventListener("loadeddata", onLoaded);
-          el.removeEventListener("error", onError);
-        }
-      };
-      const finish = (error = null) => {
-        if (done) return;
-        done = true;
-        cleanup();
-        unregisterCancel();
-        if (error) reject(error); else resolve();
-      };
-      const onLoaded = () => {
-        if (!this._isRunCurrent(runId)) {
-          finish(this._staleRunError());
-          return;
-        }
-        this._setState({ loading: false });
-        if (el) this._tryAutoplay(el, runId);
-        finish();
-      };
-      const onError = () => finish(new Error("HLS media failed"));
-      const timeout = setTimeout(
-        () => finish(new Error("HLS load timeout")),
-        8000
-      );
-      unregisterCancel = this._registerRunCanceler(
-        runId,
-        () => finish(this._staleRunError())
-      );
-      if (done) return;
-      this._waitUpdate().then(() => {
-        if (!this._isRunCurrent(runId)) {
-          finish(this._staleRunError());
-          return;
-        }
-        el = this._videoEl();
-        if (!el) { finish(new Error("No video element")); return; }
-        el.addEventListener("loadeddata", onLoaded, { once: true });
-        el.addEventListener("error", onError, { once: true });
-        el.src = url;
-        el.load();
-      });
-    });
+    return this._loadVideoSource(url, "hls", "HLS", 8000, runId);
   }
 
   /* MP4 progressive */
@@ -2205,8 +2069,13 @@ class LivestreamController extends Go2rtcSession {
     this._assertRunCurrent(runId);
     const url = this._mp4StreamPath(name);
     this._checkMixedContent(url);
+    return this._loadVideoSource(url, "mp4", "MP4", 6000, runId);
+  }
+
+  /* Shared <video src> start for native HLS and progressive MP4 */
+  _loadVideoSource(url, provider, label, timeoutMs, runId) {
     return new Promise((resolve, reject) => {
-      this._setState({ provider: "mp4" });
+      this._setState({ provider });
       let done = false;
       let el = null;
       let unregisterCancel = () => {};
@@ -2233,10 +2102,10 @@ class LivestreamController extends Go2rtcSession {
         if (el) this._tryAutoplay(el, runId);
         finish();
       };
-      const onError = () => finish(new Error("MP4 media failed"));
+      const onError = () => finish(new Error(`${label} media failed`));
       const timeout = setTimeout(
-        () => finish(new Error("MP4 load timeout")),
-        6000
+        () => finish(new Error(`${label} load timeout`)),
+        timeoutMs
       );
       unregisterCancel = this._registerRunCanceler(
         runId,
@@ -3088,14 +2957,7 @@ class FrigateVisionCard extends LitElement {
     if (!raw) return "";
     const entry = this._camEntry(raw);
     if (entry?.name) return entry.name;
-    return String(raw)
-      .replace(/[_-]+/g, " ")
-      .replace(/\s+/g, " ")
-      .trim()
-      .split(" ")
-      .filter(Boolean)
-      .map((part) => part.charAt(0).toUpperCase() + part.slice(1))
-      .join(" ");
+    return humanizeIdentifier(String(raw));
   }
 
   _go2rtcStreamFor(camId, hd) {
@@ -6426,17 +6288,6 @@ class FrigateVisionCard extends LitElement {
         grid-column: 1 / -1;
         min-width: 0;
       }
-      .multiview-tile-placeholder {
-        position: relative;
-        background: transparent;
-        color: #fff;
-        min-height: 120px;
-        display: flex;
-        align-items: center;
-        justify-content: center;
-        font-size: 0.9em;
-        border-radius: 4px;
-      }
       video.player {
         display: block;
         width: 100%;
@@ -6957,14 +6808,6 @@ class FrigateVisionCard extends LitElement {
         top: 0;
         background: linear-gradient(rgba(0,0,0,0.7), transparent);
       }
-      .cam-select {
-        background: rgba(0,0,0,0.5);
-        color: #fff;
-        border: 1px solid rgba(255,255,255,0.3);
-        border-radius: 4px;
-        padding: 3px 6px;
-        font-size: 0.85em;
-      }
       .live-indicator {
         display: flex;
         align-items: center;
@@ -7058,31 +6901,6 @@ class FrigateVisionCard extends LitElement {
         max-height: none;
         height: 100%;
       }
-      .timeline-cam-badge {
-        position: absolute;
-        top: 8px;
-        left: 8px;
-        display: inline-flex;
-        align-items: center;
-        gap: 6px;
-        padding: 4px 10px;
-        border-radius: 12px;
-        background: rgba(0, 0, 0, 0.55);
-        color: #fff;
-        font-size: 0.82em;
-        pointer-events: none;
-      }
-      .timeline-cam-badge ha-icon {
-        --mdc-icon-size: 16px;
-      }
-      .timeline-wallclock {
-        margin-left: 8px;
-        padding-left: 8px;
-        border-left: 1px solid rgba(255, 255, 255, 0.3);
-        font-variant-numeric: tabular-nums;
-        font-weight: 600;
-        color: var(--accent);
-      }
       .timeline-wrap {
         flex: 1 1 0;
         min-width: 0;
@@ -7101,63 +6919,6 @@ class FrigateVisionCard extends LitElement {
       }
       .timeline-wrap.timeline-vertical {
         flex-direction: column;
-      }
-      .timeline-header {
-        display: flex;
-        justify-content: space-between;
-        align-items: center;
-        font-size: 0.78em;
-        color: var(--text-secondary);
-        padding: 0 4px 6px 4px;
-        flex-shrink: 0;
-        gap: 8px;
-      }
-      .timeline-cam {
-        font-weight: 500;
-        text-transform: capitalize;
-        color: var(--text-primary);
-        white-space: nowrap;
-        overflow: hidden;
-        text-overflow: ellipsis;
-      }
-      .timeline-range {
-        font-variant-numeric: tabular-nums;
-        white-space: nowrap;
-        flex: 1 1 auto;
-        text-align: right;
-        overflow: hidden;
-        text-overflow: ellipsis;
-      }
-      .timeline-zoom {
-        display: inline-flex;
-        gap: 2px;
-        flex-shrink: 0;
-      }
-      .timeline-zoom-btn {
-        background: color-mix(in srgb, var(--text-primary) 6%, transparent);
-        color: var(--text-primary);
-        border: none;
-        border-radius: 6px;
-        width: 26px;
-        height: 26px;
-        cursor: pointer;
-        display: flex;
-        align-items: center;
-        justify-content: center;
-        -webkit-tap-highlight-color: transparent;
-        touch-action: manipulation;
-      }
-      .timeline-zoom-btn ha-icon {
-        --mdc-icon-size: 16px;
-        pointer-events: none;
-      }
-      .timeline-zoom-btn:hover:not(:disabled) {
-        background: color-mix(in srgb, var(--accent) 14%, transparent);
-        color: var(--accent);
-      }
-      .timeline-zoom-btn:disabled {
-        opacity: 0.4;
-        cursor: not-allowed;
       }
       .timeline-track {
         position: relative;
@@ -7405,103 +7166,6 @@ class FrigateVisionCard extends LitElement {
         margin-top: 5px;
         transform: translateX(-50%);
       }
-      .timeline-marker {
-        --marker-color: var(--accent);
-        position: relative;
-        width: 100%;
-        display: flex;
-        gap: 10px;
-        align-items: stretch;
-        padding: 6px;
-        background: var(--ha-card-background, var(--card-background-color, #fff));
-        border: 1px solid var(--divider-color, rgba(127, 127, 127, 0.2));
-        border-radius: 8px;
-        box-shadow: 0 1px 3px rgba(0, 0, 0, 0.08);
-        cursor: pointer;
-        transition: transform 120ms ease, box-shadow 120ms ease, border-color 120ms ease;
-        overflow: hidden;
-        box-sizing: border-box;
-      }
-      .timeline-marker:hover {
-        border-color: var(--marker-color);
-        box-shadow: 0 4px 12px rgba(0, 0, 0, 0.16);
-      }
-      .timeline-marker-thumb {
-        position: relative;
-        flex: 0 0 auto;
-        width: 60px;
-        height: 60px;
-        overflow: hidden;
-        border-radius: 6px;
-        background: color-mix(in srgb, var(--text-primary) 8%, transparent);
-      }
-      .timeline-marker-img {
-        width: 100%;
-        height: 100%;
-        object-fit: cover;
-        display: block;
-      }
-      .timeline-marker-thumb.placeholder,
-      .timeline-marker-img.placeholder {
-        background:
-          linear-gradient(135deg,
-            color-mix(in srgb, var(--text-primary) 12%, transparent),
-            color-mix(in srgb, var(--text-primary) 5%, transparent));
-      }
-      .timeline-marker-info {
-        flex: 1 1 auto;
-        min-width: 0;
-        display: flex;
-        flex-direction: column;
-        gap: 3px;
-        padding: 1px 0;
-        color: var(--primary-text-color, var(--text-primary));
-      }
-      .timeline-marker-info-top {
-        display: flex;
-        align-items: center;
-        gap: 6px;
-        min-height: 18px;
-      }
-      .timeline-marker-info-top .chip {
-        font-size: 0.68em;
-        padding: 2px 7px 2px 6px;
-        flex-shrink: 0;
-      }
-      .timeline-marker-info-top .chip .chip-icon {
-        --mdc-icon-size: 12px;
-      }
-      .timeline-marker-title {
-        flex: 1 1 auto;
-        min-width: 0;
-        font-size: 0.85em;
-        font-weight: 600;
-        line-height: 1.2;
-        color: var(--primary-text-color, var(--text-primary));
-        white-space: nowrap;
-        overflow: hidden;
-        text-overflow: ellipsis;
-      }
-      /* Time + description share one block, clamped to two lines */
-      .timeline-marker-meta {
-        font-size: 0.74em;
-        line-height: 1.35;
-        color: var(--secondary-text-color, var(--text-secondary));
-        display: -webkit-box;
-        -webkit-line-clamp: 2;
-        -webkit-box-orient: vertical;
-        overflow: hidden;
-        word-break: break-word;
-      }
-      .timeline-marker-time {
-        font-variant-numeric: tabular-nums;
-        font-weight: 600;
-        color: var(--primary-text-color, var(--text-primary));
-        opacity: 0.85;
-      }
-      .timeline-marker-desc {
-        opacity: 0.95;
-      }
       /* Slimmer snapshot in the timeline list to fit narrower split panes */
       .timeline-event-list .row .snap {
         flex: 0 0 84px;
@@ -7514,33 +7178,6 @@ class FrigateVisionCard extends LitElement {
         -webkit-line-clamp: 2;
         -webkit-box-orient: vertical;
         overflow: hidden;
-      }
-
-      .timeline-debug {
-        margin-top: 6px;
-        padding: 6px 10px;
-        background: color-mix(in srgb, var(--text-primary) 5%, transparent);
-        border-radius: 6px;
-        font-size: 0.72em;
-        font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
-        color: var(--text-secondary);
-        line-height: 1.45;
-      }
-      .timeline-debug-row {
-        display: flex;
-        gap: 6px;
-        align-items: baseline;
-      }
-      .timeline-debug-key {
-        flex-shrink: 0;
-        font-weight: 600;
-      }
-      .timeline-debug-val {
-        flex: 1;
-        overflow: hidden;
-        text-overflow: ellipsis;
-        white-space: nowrap;
-        word-break: break-all;
       }
       .timeline-empty {
         padding: 12px;
