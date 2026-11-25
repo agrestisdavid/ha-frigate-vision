@@ -1771,3 +1771,67 @@ test("mixed Ultra-Wide tiles span responsive grid rows without overflow or disto
     assert.ok(result.disabledWidths.every((width) => Math.abs(width - normalWidth) < 1), "disabling must restore one-column tiles");
   }
 });
+
+async function openCameraNamesCard(t, config) {
+  const page = await openRuntimePage(t);
+  await page.evaluate(config => {
+    const card = document.createElement("frigate-vision-card");
+    card.hass = {
+      states: {}, services: {}, callService: async () => {},
+      callWS: async msg => msg.type === "media_source/browse_media" ? { children: [] } : [],
+    };
+    card.setConfig({ language: "de", go2rtc_modes: "webrtc", live_autostart: false, layout: "stacked",
+      multiview_layout: "stacked", frigate_client_id: "demo", ...config });
+    // Keep the real live lifecycle; only replace media I/O.
+    const proto = Object.getPrototypeOf(card._ensureLivestreamController());
+    proto._startWebRTCviaHTTP = proto._startWebRTCviaWS = async function (name, video, runId) {
+      this._playbackReady(name, video, runId, this._config());
+    };
+    document.body.append(card);
+  }, config);
+  return page;
+}
+
+test("multiview tiles show the same camera names as the single live view", async (t) => {
+  // Without a name, with an empty name and with a configured name.
+  const cameras = { "front_door-cam": {}, back_yard: { name: "" }, garage: { name: "Garage Nord" } };
+  const expected = { "front_door-cam": "Front Door Cam", back_yard: "Back Yard", garage: "Garage Nord" };
+
+  const single = await openCameraNamesCard(t, { cameras });
+  const singleNames = {};
+  for (const camera of Object.keys(expected)) {
+    singleNames[camera] = await single.evaluate(async camera => {
+      const card = document.querySelector("frigate-vision-card");
+      card._openLive(camera);
+      await card.updateComplete;
+      return card.renderRoot.querySelector(".player-wrap.live .live-cam-name").textContent.trim();
+    }, camera);
+  }
+  assert.deepEqual(singleNames, expected);
+
+  const multi = await openCameraNamesCard(t, { cameras, multiview: true });
+  await multi.waitForFunction(() => {
+    const tiles = [...document.querySelector("frigate-vision-card").renderRoot.querySelectorAll("frigate-vision-live-tile")];
+    return tiles.length === 3 && tiles.every(tile => tile.renderRoot?.querySelector(".player-wrap.live .live-cam-name"));
+  });
+  const tileNames = await multi.evaluate(() => {
+    const tiles = document.querySelector("frigate-vision-card").renderRoot.querySelectorAll("frigate-vision-live-tile");
+    return Object.fromEntries([...tiles].map(tile => [tile.cameraId,
+      tile.renderRoot.querySelector(".player-wrap.live .live-cam-name").textContent.trim()]));
+  });
+  assert.deepEqual(tileNames, expected);
+
+  // A clip opened in a tile keeps the same name in its clip overlay.
+  for (const camera of Object.keys(expected)) {
+    const clipName = await multi.evaluate(async camera => {
+      const card = document.querySelector("frigate-vision-card");
+      card._activeClip = { _camera: camera };
+      card._clipError = "Synthetic clip";
+      await card.updateComplete;
+      const tile = [...card.renderRoot.querySelectorAll("frigate-vision-live-tile")].find(tile => tile.cameraId === camera);
+      await tile.updateComplete;
+      return tile.renderRoot.querySelector(".player-wrap.clip .live-cam-name")?.textContent.trim();
+    }, camera);
+    assert.equal(clipName, expected[camera], camera);
+  }
+});
