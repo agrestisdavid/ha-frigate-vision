@@ -759,6 +759,12 @@ function humanizeIdentifier(value) {
     .map((part) => part.charAt(0).toUpperCase() + part.slice(1))
     .join(" ");
 }
+// The camera name shown to users: the configured name, else the humanized
+// identifier. The single live view, event rows and multiview tiles share it.
+function cameraDisplayName(cameraId, entry) {
+  if (entry?.name) return entry.name;
+  return cameraId ? humanizeIdentifier(String(cameraId)) : "";
+}
 function translateLabel(label, lang) {
   if (!label) return "";
   const key = label.trim().toLowerCase();
@@ -2954,10 +2960,7 @@ class FrigateVisionCard extends LitElement {
   }
 
   _camName(raw) {
-    if (!raw) return "";
-    const entry = this._camEntry(raw);
-    if (entry?.name) return entry.name;
-    return humanizeIdentifier(String(raw));
+    return cameraDisplayName(raw, this._camEntry(raw));
   }
 
   _go2rtcStreamFor(camId, hd) {
@@ -5848,7 +5851,7 @@ class FrigateVisionCard extends LitElement {
             .hass=${this.hass}
             .cameraId=${camId}
             .instanceId=${this._resolvedInstanceId}
-            .cameraEntry=${this._camEntry(camId) || { name: camId }}
+            .cameraEntry=${this._camEntry(camId) || {}}
             .cardConfig=${this._config}
             .t=${t}
             .clipUrl=${clipCam === camId ? clipUrl : null}
@@ -9085,7 +9088,7 @@ class FrigateVisionLiveTile extends LitElement {
   }
 
   _camDisplayName() {
-    return this.cameraEntry?.name || this.cameraId || "?";
+    return cameraDisplayName(this.cameraId, this.cameraEntry) || "?";
   }
 
   _streamName(hd) {
